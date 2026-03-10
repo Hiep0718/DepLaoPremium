@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket Test</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+    <h2>Socket.io Test Console (Xem ở F12)</h2>
+    <button onclick="join()">1. Join User</button>
+    <button onclick="send()">2. Send Message</button>
+
+    <script>
+        const socket = io('http://localhost:3001'); //
+
+        socket.on('connect', () => {
+            console.log('✅ Đã kết nối server!');
+        });
+
+        function join() {
+            socket.emit('user_join', 'user123'); //
+            console.log('➡️ Đã gửi user_join');
+        }
+
+        function send() {
+            socket.emit('send_message', {
+                conversationId: 'room1',
+                senderId: 'user123',
+                recipientId: 'user456',
+                text: 'Hello World'
+            }); //
+        }
+
+        socket.on('message_received', (data) => {
+            console.log('📩 Có tin nhắn mới:', data); //
+        });
+    </script>
+</body>
+</html>

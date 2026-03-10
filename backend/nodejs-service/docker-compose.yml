@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  messaging-service:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/messaging_db
+      - PORT=3001
+      - NODE_ENV=development
+      - SPRING_BOOT_URL=http://localhost:8082
+      - CORS_ORIGIN=http://localhost:3000,http://localhost:8082
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+volumes:
+  mongo-data:
+
+networks:
+  app-network:
+    driver: bridge
