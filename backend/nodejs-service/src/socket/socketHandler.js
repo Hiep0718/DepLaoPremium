@@ -29,23 +29,29 @@ const setupSocketEvents = (io) => {
       try {
         const { conversationId, senderId, text, recipientId } = data;
 
-        // Save message to database
+        // Save message to database (use 'content' and 'receiverId' to match Message schema)
         const message = new Message({
           conversationId,
           senderId,
-          recipientId,
-          text,
+          receiverId: recipientId,
+          content: text,
           status: 'sent',
-          timestamp: new Date(),
         });
 
         await message.save();
 
-        // Update conversation lastMessage
-        await Conversation.findByIdAndUpdate(conversationId, {
-          lastMessage: text,
-          lastMessageTime: new Date(),
-        });
+        // Update conversation lastMessage (match Conversation schema format)
+        await Conversation.findOneAndUpdate(
+          { conversationId },
+          {
+            lastMessage: {
+              content: text,
+              senderId,
+              timestamp: new Date(),
+            },
+            lastMessageTime: new Date(),
+          }
+        );
 
         // Emit to both sender and recipient
         io.to(`user_${senderId}`).emit('message_sent', {
@@ -53,7 +59,7 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
-          timestamp: message.timestamp,
+          timestamp: message.createdAt,
           status: 'sent',
         });
 
@@ -62,7 +68,7 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
-          timestamp: message.timestamp,
+          timestamp: message.createdAt,
           status: 'received',
         });
 

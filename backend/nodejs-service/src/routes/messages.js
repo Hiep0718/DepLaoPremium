@@ -7,8 +7,12 @@ import {
   updateMessageStatus,
   searchMessages,
 } from '../controllers/messageController.js';
+import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Apply auth middleware to all routes
+router.use(authMiddleware);
 
 // Message endpoints
 router.post('/send', sendMessage);

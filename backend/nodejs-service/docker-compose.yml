@@ -10,7 +10,7 @@ services:
       - PORT=3001
       - NODE_ENV=development
       - SPRING_BOOT_URL=http://localhost:8082
-      - CORS_ORIGIN=http://localhost:3000,http://localhost:8082
+      - CORS_ORIGIN=http://localhost:5173,http://localhost:3000,http://localhost:3001,http://localhost:8082
     depends_on:
       - mongo
     networks:

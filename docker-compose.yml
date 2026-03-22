@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # =============================================
+  # Infrastructure
+  # =============================================
+  mariadb:
+    image: mariadb:10.11
+    container_name: deplao-mariadb
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: sapassword
+      MARIADB_DATABASE: zalo_db
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - deplao-network
+
+  mongodb:
+    image: mongo:6.0
+    container_name: deplao-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - deplao-network
+
+  # =============================================
+  # Backend Services
+  # =============================================
+  spring-boot-api:
+    build: ./backend/spring-boot-api
+    container_name: deplao-spring-api
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/zalo_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: sapassword
+      JWT_SECRET: ${JWT_SECRET:-zalo-clone-secret-key-very-long-string-for-jwt-signing-operations-please-change-in-production}
+    depends_on:
+      - mariadb
+    networks:
+      - deplao-network
+
+  nodejs-messaging:
+    build: ./backend/nodejs-service
+    container_name: deplao-messaging
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/messaging_db
+      PORT: 3001
+      NODE_ENV: production
+      SPRING_BOOT_URL: http://spring-boot-api:8082
+      JWT_SECRET: ${JWT_SECRET:-zalo-clone-secret-key-very-long-string-for-jwt-signing-operations-please-change-in-production}
+      CORS_ORIGIN: http://localhost:5173,http://localhost:3000,http://localhost:3001,http://localhost:8082
+    depends_on:
+      - mongodb
+      - spring-boot-api
+    networks:
+      - deplao-network
+
+  # =============================================
+  # Frontend
+  # =============================================
+  web-app:
+    build: ./frontend/web-app
+    container_name: deplao-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - spring-boot-api
+      - nodejs-messaging
+    networks:
+      - deplao-network
+
+volumes:
+  mariadb-data:
+  mongodb-data:
+
+networks:
+  deplao-network:
+    driver: bridge
