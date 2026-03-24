@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity } from "react-native"
+import { useRouter } from "expo-router"
 
 interface MenuItem {
     id: string
@@ -7,6 +8,7 @@ interface MenuItem {
 }
 
 export function ProfileScreen() {
+    const router = useRouter()
     const menuItems: MenuItem[] = [
         { id: "1", name: "Chỉnh sửa hồ sơ", icon: "✏️" },
         { id: "2", name: "Cài đặt", icon: "⚙️" },
@@ -50,6 +52,11 @@ export function ProfileScreen() {
                     {menuItems.map((item) => (
                         <TouchableOpacity
                             key={item.id}
+                            onPress={() => {
+                                if (item.name === "Đăng xuất") {
+                                    router.replace("/welcome")
+                                }
+                            }}
                             style={{
                                 flexDirection: "row",
                                 alignItems: "center",

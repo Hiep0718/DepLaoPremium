@@ -6,6 +6,7 @@ import {
   StyleSheet,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { ZaloColors } from "@/constants/zalo"
 
 type Tab = "friends" | "groups" | "oa"
 
@@ -41,7 +42,7 @@ function Friends() {
   return (
     <View>
       <View style={styles.quickBox}>
-        <Item icon="person-add-outline" color="#1e88e5" text="Lời mời kết bạn (7)" />
+        <Item icon="person-add-outline" color={ZaloColors.blue} text="Lời mời kết bạn (7)" />
         <Item icon="gift-outline" color="#ff7043" text="Sinh nhật" />
       </View>
 
@@ -79,7 +80,7 @@ function Groups() {
     <View>
       <View style={styles.createGroup}>
         <View style={styles.createIcon}>
-          <Ionicons name="people-outline" size={26} color="#1e88e5" />
+          <Ionicons name="people-outline" size={26} color={ZaloColors.blue} />
         </View>
         <Text style={{ fontSize: 16 }}>Tạo nhóm mới</Text>
       </View>
@@ -182,11 +183,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     paddingVertical: 10,
   },
-  tab: { color: "#999" },
-  tabActive: { color: "#000", fontWeight: "600" },
+  tab: { color: ZaloColors.subText },
+  tabActive: { color: ZaloColors.text, fontWeight: "600" },
   indicator: {
     height: 2,
-    backgroundColor: "#1e88e5",
+    backgroundColor: ZaloColors.blue,
     marginTop: 6,
   },
 

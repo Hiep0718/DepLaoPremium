@@ -1,8 +1,8 @@
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform } from "react-native"
 import Ionicons from "@expo/vector-icons/Ionicons"
 
-const ZALO_BLUE = "#0084FF"
-const INACTIVE_GRAY = "#999999"
+const ZALO_BLUE = "#0068FF"
+const INACTIVE_GRAY = "#8E8E93"
 const BACKGROUND_COLOR = "#FFFFFF"
 
 interface NavItem {
@@ -15,7 +15,7 @@ const NAV_ITEMS: NavItem[] = [
     { id: "messages", label: "Tin nhắn", iconName: "chatbubble-outline" },
     { id: "contacts", label: "Danh bạ", iconName: "people-outline" },
     { id: "discover", label: "Khám phá", iconName: "compass-outline" },
-    { id: "feed", label: "Tường nhà", iconName: "home-outline" },
+    { id: "feed", label: "Nhật ký", iconName: "time-outline" },
     { id: "profile", label: "Cá nhân", iconName: "person-outline" },
 ]
 
@@ -44,7 +44,7 @@ export default function ZaloBottomNav({ onTabChange, activeTab = "messages" }: Z
                         activeOpacity={0.7}
                     >
                         <Ionicons name={item.iconName} size={24} color={isActive ? ZALO_BLUE : INACTIVE_GRAY} style={styles.icon} />
-                        <Text style={[styles.label, { color: isActive ? ZALO_BLUE : INACTIVE_GRAY }]} numberOfLines={1}>
+                        <Text style={[styles.label, { color: isActive ? ZALO_BLUE : INACTIVE_GRAY, fontWeight: isActive ? "600" : "500" }]} numberOfLines={1}>
                             {item.label}
                         </Text>
                     </TouchableOpacity>
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     label: {
-        fontSize: 11,
+        fontSize: 10,
         fontWeight: "500",
     },
 })

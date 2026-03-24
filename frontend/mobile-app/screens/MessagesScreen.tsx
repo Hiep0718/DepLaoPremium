@@ -130,13 +130,13 @@ export function MessagesScreen({ selectedMessage, onSelectMessage }: MessagesScr
 
       <View style={styles.rowMid}>
         <View style={styles.rowTopLine}>
-          <Text style={styles.rowName} numberOfLines={1}>
+          <Text style={[styles.rowName, item.unread && { fontWeight: "800" }]} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={styles.rowTime}>{item.time}</Text>
+          <Text style={[styles.rowTime, item.unread && { color: ZaloColors.text, fontWeight: "600" }]}>{item.time}</Text>
         </View>
         <View style={styles.rowBottomLine}>
-          <Text style={styles.rowLastMsg} numberOfLines={1}>
+          <Text style={[styles.rowLastMsg, item.unread && { color: ZaloColors.text, fontWeight: "600" }]} numberOfLines={1}>
             {item.lastMessage}
           </Text>
           {item.unread && <View style={styles.dot} />}
@@ -150,7 +150,7 @@ export function MessagesScreen({ selectedMessage, onSelectMessage }: MessagesScr
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>Tin nhắn</Text>
         <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-          <Ionicons name="create-outline" size={20} color={ZaloColors.blue} />
+          <Ionicons name="list" size={20} color={ZaloColors.subText} />
         </TouchableOpacity>
       </View>
 
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
 
   rowBottomLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   rowLastMsg: { fontSize: 13, color: ZaloColors.subText, flex: 1, marginRight: 10 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: ZaloColors.blue },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: ZaloColors.danger },
 
   chatHeader: {
     paddingHorizontal: 12,

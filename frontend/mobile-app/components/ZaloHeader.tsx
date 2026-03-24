@@ -28,10 +28,10 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 return (
                     <>
                         <TouchableOpacity>
-                            <Ionicons name="scan" size={20} color="#0084FF" />
+                            <Ionicons name="scan" size={20} color="#fff" />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setShowMenu(true)}>
-                            <Ionicons name="add-circle" size={22} color="#0084FF" />
+                            <Ionicons name="add-circle" size={22} color="#fff" />
                         </TouchableOpacity>
                     </>
                 )
@@ -41,10 +41,10 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 return (
                     <>
                         <TouchableOpacity>
-                            <Ionicons name="person-add" size={20} color="#0084FF" />
+                            <Ionicons name="person-add" size={20} color="#fff" />
                         </TouchableOpacity>
                         {/* <TouchableOpacity onPress={() => setShowMenu(true)}>
-                            <Ionicons name="add-circle" size={22} color="#0084FF" />
+                            <Ionicons name="add-circle" size={22} color="#fff" />
                         </TouchableOpacity> */}
                     </>
                 )
@@ -53,7 +53,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 // Khám phá: icon QR
                 return (
                     <TouchableOpacity>
-                        <Ionicons name="scan" size={20} color="#0084FF" />
+                        <Ionicons name="scan" size={20} color="#fff" />
                     </TouchableOpacity>
                 )
 
@@ -62,10 +62,10 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 return (
                     <>
                         <TouchableOpacity>
-                            <Ionicons name="images" size={20} color="#0084FF" />
+                            <Ionicons name="images" size={20} color="#fff" />
                         </TouchableOpacity>
                         <TouchableOpacity>
-                            <Ionicons name="notifications" size={20} color="#0084FF" />
+                            <Ionicons name="notifications" size={20} color="#fff" />
                         </TouchableOpacity>
                     </>
                 )
@@ -74,7 +74,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 // Cá nhân: icon bánh răng (cài đặt)
                 return (
                     <TouchableOpacity>
-                        <Ionicons name="settings" size={20} color="#0084FF" />
+                        <Ionicons name="settings" size={20} color="#fff" />
                     </TouchableOpacity>
                 )
 
@@ -118,9 +118,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                     paddingHorizontal: 12,
                     paddingVertical: 12,
                     paddingTop: 8,
-                    backgroundColor: "#fff",
-                    borderBottomWidth: 1,
-                    borderBottomColor: "#f0f0f0",
+                    backgroundColor: "#0068FF",
                 }}
             >
                 {/* Search bar container */}
@@ -128,7 +126,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                     style={{
                         flexDirection: "row",
                         alignItems: "center",
-                        backgroundColor: "#f0f0f0",
+                        backgroundColor: "rgba(255, 255, 255, 0.2)",
                         borderRadius: 20,
                         paddingHorizontal: 12,
                         paddingVertical: 8,
@@ -136,18 +134,18 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                     }}
                 >
                     {/* Search icon */}
-                    <Ionicons name="search" size={18} color="#999" />
+                    <Ionicons name="search" size={18} color="#fff" />
 
                     {/* Search input */}
                     <TextInput
                         style={{
                             flex: 1,
                             fontSize: 14,
-                            color: "#000",
+                            color: "#fff",
                             padding: 0,
                         }}
                         placeholder="Tìm kiếm"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="rgba(255, 255, 255, 0.7)"
                         value={searchText}
                         onChangeText={setSearchText}
                     />

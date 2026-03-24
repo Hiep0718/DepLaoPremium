@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { View, SafeAreaView } from "react-native"
+import { View } from "react-native"
+import { StatusBar } from "expo-status-bar"
 import { ZaloHeader } from "@/components/ZaloHeader"
 import ZaloBottomNav from "@/components/ZaloBottomNav"
 import { MessagesScreen, type Conversation } from "@/screens/MessagesScreen"
@@ -9,10 +10,9 @@ import { ContactsScreen } from "@/screens/ContactsScreen"
 import { DiscoverScreen } from "@/screens/DiscoverScreen"
 import { TimelineScreen } from "@/screens/TimelineScreen"
 import { ProfileScreen } from "@/screens/ProfileScreen"
-import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { SafeAreaView } from "react-native-safe-area-context"
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets()
   const [activeTab, setActiveTab] = useState<string>("messages")
   const [selectedMessage, setSelectedMessage] = useState<Conversation | null>(null)
 
@@ -34,12 +34,13 @@ export default function TabLayout() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#fff" }}>
-      <View style={{ paddingTop: insets.top }}>
+    <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1, backgroundColor: "#0068FF" }}>
+      <StatusBar style="light" />
+      <View style={{ backgroundColor: "#0068FF" }}>
         <ZaloHeader activeTab={activeTab} />
       </View>
-      <View style={{ flex: 1, paddingBottom: insets.bottom }}>{renderContent()}</View>
-      <View style={{ paddingBottom: insets.bottom }}>
+      <View style={{ flex: 1, backgroundColor: "#fff" }}>{renderContent()}</View>
+      <View style={{ backgroundColor: "#fff" }}>
         <ZaloBottomNav activeTab={activeTab} onTabChange={setActiveTab} />
       </View>
     </SafeAreaView>
