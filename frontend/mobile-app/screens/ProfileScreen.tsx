@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, TouchableOpacity } from "react-native"
 import { useRouter } from "expo-router"
+import { Ionicons } from "@expo/vector-icons"
 
 interface MenuItem {
     id: string
@@ -10,13 +11,13 @@ interface MenuItem {
 export function ProfileScreen() {
     const router = useRouter()
     const menuItems: MenuItem[] = [
-        { id: "1", name: "Chỉnh sửa hồ sơ", icon: "✏️" },
-        { id: "2", name: "Cài đặt", icon: "⚙️" },
-        { id: "3", name: "Quyền riêng tư", icon: "🔒" },
-        { id: "4", name: "Tài khoản", icon: "👤" },
-        { id: "5", name: "Giới thiệu Zalo", icon: "📤" },
-        { id: "6", name: "Hỗ trợ", icon: "❓" },
-        { id: "7", name: "Đăng xuất", icon: "🚪" },
+        { id: "1", name: "Chỉnh sửa hồ sơ", icon: "pencil-outline" },
+        { id: "2", name: "Cài đặt", icon: "settings-outline" },
+        { id: "3", name: "Quyền riêng tư", icon: "lock-closed-outline" },
+        { id: "4", name: "Tài khoản", icon: "person-outline" },
+        { id: "5", name: "Giới thiệu Zalo", icon: "information-circle-outline" },
+        { id: "6", name: "Hỗ trợ", icon: "help-circle-outline" },
+        { id: "7", name: "Đăng xuất", icon: "log-out-outline" },
     ]
 
     return (
@@ -36,13 +37,14 @@ export function ProfileScreen() {
                             width: 80,
                             height: 80,
                             borderRadius: 40,
-                            backgroundColor: "#fff",
+                            backgroundColor: "#d1d1d1",
                             justifyContent: "center",
                             alignItems: "center",
                             marginBottom: 12,
+                            overflow: "hidden",
                         }}
                     >
-                        <Text style={{ fontSize: 40 }}>👤</Text>
+                        <Ionicons name="person" size={56} color="#fff" style={{ marginTop: 8 }} />
                     </View>
                     <Text style={{ fontSize: 18, fontWeight: "700", color: "#fff", marginBottom: 4 }}>Bạn</Text>
                     <Text style={{ fontSize: 13, color: "#e0e0ff" }}>user@example.com</Text>
@@ -65,7 +67,7 @@ export function ProfileScreen() {
                                 borderBottomColor: "#f0f0f0",
                             }}
                         >
-                            <Text style={{ fontSize: 20, marginRight: 12 }}>{item.icon}</Text>
+                            <Ionicons name={item.icon as any} size={24} color="#0068FF" style={{ marginRight: 16 }} />
                             <Text style={{ fontSize: 15, color: "#000", flex: 1 }}>{item.name}</Text>
                             <Text style={{ fontSize: 16, color: "#ccc" }}>›</Text>
                         </TouchableOpacity>

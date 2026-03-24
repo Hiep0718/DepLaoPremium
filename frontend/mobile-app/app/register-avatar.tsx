@@ -28,7 +28,7 @@ export default function RegisterAvatarScreen() {
                 
                 {/* Mock Round Avatar Pick */}
                 <TouchableOpacity style={styles.avatarCircle} activeOpacity={0.8}>
-                    <Text style={styles.avatarText}>LT</Text>
+                    <Ionicons name="person" size={80} color="#fff" />
                 </TouchableOpacity>
 
                 <View style={{ flex: 1 }} />
@@ -60,15 +60,11 @@ const styles = StyleSheet.create({
         width: 140,
         height: 140,
         borderRadius: 70,
-        backgroundColor: "#68b958", // Greenish background as in mock
+        backgroundColor: "#d1d1d1", // Gray background for empty avatar
         justifyContent: "center",
         alignItems: "center",
         alignSelf: "center",
-    },
-    avatarText: {
-        fontSize: 40,
-        color: "#fff",
-        fontWeight: "400",
+        overflow: "hidden",
     },
     updateBtn: { backgroundColor: ZaloColors.blue, borderRadius: 24, paddingVertical: 14, alignItems: "center", marginBottom: 20 },
     updateBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },

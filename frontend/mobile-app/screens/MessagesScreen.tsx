@@ -7,7 +7,6 @@ export interface Conversation {
   id: string
   name: string
   lastMessage: string
-  avatarEmoji: string
   unread: boolean
   time: string
 }
@@ -27,11 +26,11 @@ interface MessagesScreenProps {
 export function MessagesScreen({ selectedMessage, onSelectMessage }: MessagesScreenProps) {
   const conversations: Conversation[] = useMemo(
     () => [
-      { id: "1", name: "Ngân Ngô", lastMessage: "Ok được!", avatarEmoji: "👩", unread: true, time: "10:33" },
-      { id: "2", name: "Minh Anh", lastMessage: "Có khỏe không?", avatarEmoji: "👨", unread: false, time: "Hôm qua" },
-      { id: "3", name: "Nhóm Dự Án", lastMessage: "Cập nhật: Task hoàn thành ✅", avatarEmoji: "👥", unread: true, time: "09:12" },
-      { id: "4", name: "Bố Mẹ", lastMessage: "Tối ăn cơm chưa?", avatarEmoji: "👵", unread: false, time: "T2" },
-      { id: "5", name: "Lớp CNTT", lastMessage: "Mai nộp slide nha mọi người", avatarEmoji: "🧑‍💻", unread: false, time: "T2" },
+      { id: "1", name: "Ngân Ngô", lastMessage: "Ok được!", unread: true, time: "10:33" },
+      { id: "2", name: "Minh Anh", lastMessage: "Có khỏe không?", unread: false, time: "Hôm qua" },
+      { id: "3", name: "Nhóm Dự Án", lastMessage: "Cập nhật: Task hoàn thành ✅", unread: true, time: "09:12" },
+      { id: "4", name: "Bố Mẹ", lastMessage: "Tối ăn cơm chưa?", unread: false, time: "T2" },
+      { id: "5", name: "Lớp CNTT", lastMessage: "Mai nộp slide nha mọi người", unread: false, time: "T2" },
     ],
     []
   )
@@ -125,7 +124,12 @@ export function MessagesScreen({ selectedMessage, onSelectMessage }: MessagesScr
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={() => onSelectMessage(item)}>
       <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{item.avatarEmoji}</Text>
+        <Ionicons 
+            name={(item.name.includes("Nhóm") || item.name.includes("Lớp")) ? "people" : "person"} 
+            size={30} 
+            color="#fff" 
+            style={!(item.name.includes("Nhóm") || item.name.includes("Lớp")) ? { marginTop: 6 } : {}} 
+        />
       </View>
 
       <View style={styles.rowMid}>
@@ -186,12 +190,12 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#E8F0FE",
+    backgroundColor: "#d1d1d1",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+    overflow: "hidden"
   },
-  avatarText: { fontSize: 24 },
 
   rowMid: { flex: 1 },
   rowTopLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

@@ -92,7 +92,9 @@ function Groups() {
 
       {groups.map((g, i) => (
         <View key={i} style={styles.groupRow}>
-          <View style={styles.avatar} />
+          <View style={styles.avatar}>
+            <Ionicons name="people" size={24} color="#fff" />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={{ fontWeight: "600" }}>{g.name}</Text>
             <Text style={{ color: "#666" }}>{g.msg}</Text>
@@ -128,7 +130,9 @@ function OA() {
 
       {oa.map((name, i) => (
         <View key={i} style={styles.oaRow}>
-          <View style={styles.avatar} />
+          <View style={styles.avatar}>
+            <Ionicons name="business" size={22} color="#fff" />
+          </View>
           <Text style={{ flex: 1 }}>{name}</Text>
           <Ionicons name="checkmark-circle" size={18} color="#f6a623" />
         </View>
@@ -151,7 +155,9 @@ function Item({ icon, color, text }: any) {
 function Row({ name }: { name: string }) {
   return (
     <View style={styles.row}>
-      <View style={styles.avatar} />
+      <View style={styles.avatar}>
+        <Ionicons name="person" size={28} color="#fff" style={{ marginTop: 6 }} />
+      </View>
 
       <Text style={{ flex: 1 }}>{name}</Text>
 
@@ -213,8 +219,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#ddd",
+    backgroundColor: "#d1d1d1",
     marginRight: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden"
   },
 
   callBtn: {

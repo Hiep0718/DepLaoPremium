@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { useRouter } from "expo-router"
+import { Ionicons } from "@expo/vector-icons"
 import { ZaloColors } from "@/constants/zalo"
 
 export default function WelcomeScreen() {
@@ -24,7 +25,7 @@ export default function WelcomeScreen() {
             {/* Carousel Content (Mock) */}
             <View style={styles.carouselWrap}>
                 <View style={styles.imagePlaceholder}>
-                    <Text style={{fontSize: 50}}>📞</Text>
+                    <Ionicons name="videocam-outline" size={70} color={ZaloColors.blue} />
                 </View>
                 <Text style={styles.title}>Gọi video ổn định</Text>
                 <Text style={styles.subtitle}>Trò chuyện thật đã với chất lượng video ổn định mọi lúc, mọi nơi</Text>
