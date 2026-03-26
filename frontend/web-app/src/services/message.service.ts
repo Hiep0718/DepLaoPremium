@@ -1,4 +1,3 @@
-import api from './axios';
 import axios from 'axios';
 
 // Axios instance riêng cho Node.js Messaging Service

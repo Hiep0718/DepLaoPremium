@@ -19,4 +19,18 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Interceptor for handling 401 Unauthorized
+import { useAuthStore } from '../stores/authStore';
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      useAuthStore.getState().logout();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;
