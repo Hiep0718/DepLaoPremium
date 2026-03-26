@@ -1,15 +1,77 @@
 import { useState } from 'react';
 import { Paperclip, Send, Smile, Image as ImageIcon, Mic } from 'lucide-react';
+import { useChatStore } from '../../stores/chatStore';
+import { useAuthStore } from '../../stores/authStore';
+import { socket } from '../../services/socket';
+import { createConversation } from '../../services/message.service';
 
 const MessageInput = () => {
   const [text, setText] = useState('');
+  const { activeConversation, setActiveConversation, addMessage } = useChatStore();
+  const { user } = useAuthStore();
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
-    // Gửi Message
-    setText('');
+    if (!text.trim() || !activeConversation || !user) return;
+    
+    let currentConversation = activeConversation;
+    const activeText = text.trim();
+    setText(''); // clear optimistic
+    
+    // If it's a new conversation from contact, create it first
+    if (currentConversation.conversationId.startsWith('new_')) {
+       try {
+         // Get the friend ID
+         const friendPart = currentConversation.participants[0];
+         const friendId = friendPart.contactUserId || friendPart.id || friendPart.userId;
+         
+         const res = await createConversation([user.id.toString(), friendId.toString()], false);
+         if (res.data) {
+           currentConversation = res.data;
+           setActiveConversation(res.data);
+         }
+       } catch (err) {
+         console.error('Failed to create conversation', err);
+         setText(activeText); // revert
+         return;
+       }
+    }
+    
+    const recipientPart = currentConversation.isGroup 
+      ? null 
+      : currentConversation.participants.find((p: any) => 
+          p !== user.id && 
+          p !== user.id.toString() && 
+          p.id !== user.id && 
+          p.id?.toString() !== user.id.toString() &&
+          p.userId !== user.id && 
+          p.userId !== user.id.toString() &&
+          p.contactUserId !== user.id &&
+          p.contactUserId?.toString() !== user.id.toString()
+        );
+      
+    // Safely extract the ID string
+    const recipientId = recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
+      
+    const messagePayload = {
+      conversationId: currentConversation.conversationId,
+      senderId: user.id.toString(),
+      recipientId: recipientId?.toString(),
+      text: activeText,
+    };
+
+    // Gửi Message qua Socket
+    socket.emit('send_message', messagePayload);
+    
+    // Add locally for instant UI update
+    addMessage({
+      id: Date.now().toString(),
+      ...messagePayload,
+      createdAt: new Date().toISOString(),
+    });
   };
+
+  if (!activeConversation) return null;
 
   return (
     <div className="bg-white p-2 sm:p-3 flex justify-center z-10 w-full relative">

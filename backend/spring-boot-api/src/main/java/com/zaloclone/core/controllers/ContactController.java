@@ -93,10 +93,10 @@ public class ContactController {
      */
     @GetMapping("")
     public ResponseEntity<ApiResponse<?>> getContacts(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt") String sort,
-            @RequestParam(defaultValue = "DESC") Sort.Direction direction) {
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "sort", defaultValue = "createdAt") String sort,
+            @RequestParam(name = "direction", defaultValue = "DESC") Sort.Direction direction) {
         try {
             var user = authorizationUtil.getCurrentUser();
             Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sort));
@@ -116,11 +116,11 @@ public class ContactController {
      */
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<?>> searchContacts(
-            @RequestParam String search,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "nickname") String sort,
-            @RequestParam(defaultValue = "ASC") Sort.Direction direction) {
+            @RequestParam(name = "search") String search,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "sort", defaultValue = "nickname") String sort,
+            @RequestParam(name = "direction", defaultValue = "ASC") Sort.Direction direction) {
         try {
             if (search == null || search.trim().isEmpty()) {
                 return ResponseEntity.badRequest()

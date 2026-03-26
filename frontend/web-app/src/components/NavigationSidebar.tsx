@@ -13,7 +13,7 @@ const NavigationSidebar = () => {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (token && !user) {
+      if (token && (!user || !user.id)) {
         try {
           const profile = await contactService.getUserProfile();
           setUser(profile);

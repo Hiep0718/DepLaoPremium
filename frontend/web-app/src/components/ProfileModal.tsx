@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, User as UserIcon, LogOut } from 'lucide-react';
+import { X, Save, LogOut, Phone, Shield, Fingerprint } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
 
@@ -62,32 +62,62 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
       className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={handleOverlayClick}
     >
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-          <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-            <UserIcon className="w-5 h-5 text-blue-600" />
-            Hồ sơ cá nhân
-          </h2>
+      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative">
+        {/* Cover Background */}
+        <div className="h-32 bg-gradient-to-r from-blue-500 to-indigo-600 relative">
           <button 
             onClick={onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white hover:bg-black/20 rounded-full transition-colors z-10"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="p-6">
-          <div className="flex justify-center mb-6">
-            <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden border-4 border-white shadow-lg relative group">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-4xl font-bold text-blue-600">
-                  {fullName ? fullName.charAt(0).toUpperCase() : 'U'}
-                </span>
-              )}
+        {/* Avatar */}
+        <div className="px-6 relative -mt-16 flex justify-between items-end mb-4">
+          <div className="w-32 h-32 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-4 border-white shadow-md relative group z-10">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-5xl font-bold text-indigo-500">
+                {fullName ? fullName.charAt(0).toUpperCase() : 'U'}
+              </span>
+            )}
+          </div>
+          
+          {user?.role && (
+            <div className="mb-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-semibold flex items-center gap-1 border border-blue-100 shadow-sm relative z-10">
+              <Shield size={14} />
+              {user.role === 'ADMIN' ? 'Quản trị viên' : 'Thành viên'}
+            </div>
+          )}
+        </div>
+
+        {/* User Info (Read-only) & Form */}
+        <div className="px-6 pb-6 overflow-y-auto max-h-[60vh] custom-scrollbar">
+          <div className="mb-6 space-y-3">
+            <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{user?.fullName || 'Người dùng'}</h2>
+            
+            <div className="space-y-2 mt-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+              <div className="flex items-center gap-3 text-slate-600 text-sm">
+                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm border border-slate-100 shrink-0">
+                  <Phone size={16} className="text-indigo-500" />
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 font-medium mb-0.5">Số điện thoại</div>
+                  <div className="font-semibold text-slate-700">{user?.phone || 'Chưa cập nhật'}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 text-slate-600 text-sm">
+                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm border border-slate-100 shrink-0">
+                  <Fingerprint size={16} className="text-indigo-500" />
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 font-medium mb-0.5">ID Tài khoản</div>
+                  <div className="font-semibold text-slate-700">#{user?.id || '---'}</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -131,11 +161,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
               />
             </div>
 
-            <div className="pt-4">
+            <div className="pt-2">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all disabled:opacity-70 font-medium"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all disabled:opacity-70 font-semibold shadow-md active:scale-[0.98]"
               >
                 <Save size={18} />
                 {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
@@ -145,13 +175,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
         </div>
         
         {/* Footer actions */}
-        <div className="border-t border-gray-100 p-4 bg-gray-50">
+        <div className="border-t border-slate-100 p-4 bg-slate-50/80">
           <button 
             onClick={() => {
               logout();
               window.location.href = '/login';
             }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl transition-colors font-medium"
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors font-medium active:scale-[0.98]"
           >
             <LogOut size={18} />
             Đăng xuất khỏi thiết bị này

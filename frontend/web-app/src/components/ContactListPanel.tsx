@@ -2,23 +2,26 @@ import { useEffect, useState } from 'react';
 import { UserPlus, Users } from 'lucide-react';
 import { contactService, type ContactResponse } from '../services/contactService';
 import { useChatStore } from '../stores/chatStore';
+import SearchUserModal from './SearchUserModal';
 
 const ContactListPanel = () => {
   const [contacts, setContacts] = useState<ContactResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const setActiveConversation = useChatStore((state) => state.setActiveConversation);
 
+  const fetchContacts = async () => {
+    try {
+      const pageResponse = await contactService.getContacts(0, 50);
+      setContacts(pageResponse.content);
+    } catch (err) {
+      console.error("Failed to load contacts", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchContacts = async () => {
-      try {
-        const pageResponse = await contactService.getContacts(0, 50);
-        setContacts(pageResponse.content);
-      } catch (err) {
-        console.error("Failed to load contacts", err);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchContacts();
   }, []);
 
@@ -36,7 +39,11 @@ const ContactListPanel = () => {
       {/* Header */}
       <div className="p-4 border-b border-slate-100 flex justify-between items-center">
         <h2 className="text-xl font-bold text-slate-800 tracking-tight">Danh bạ</h2>
-        <button className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-xl transition-colors">
+        <button 
+          onClick={() => setIsSearchModalOpen(true)}
+          className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-xl transition-colors"
+          title="Thêm bạn"
+        >
           <UserPlus size={20} />
         </button>
       </div>
@@ -92,6 +99,12 @@ const ContactListPanel = () => {
               </div>
         </div>
       </div>
+      
+      <SearchUserModal 
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onUserAdded={() => fetchContacts()}
+      />
     </div>
   );
 };

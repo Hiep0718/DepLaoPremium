@@ -13,7 +13,7 @@ const messagingApi = axios.create({
 // Interceptor gắn token cho messaging API
 messagingApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
+    const token = sessionStorage.getItem('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -31,7 +31,14 @@ export const getConversationHistory = async (conversationId: string, page = 1, l
 };
 
 export const createConversation = async (participants: string[], isGroup = false) => {
+  // Generate a deterministic or random conversation UUID
+  // Or simply let backend use it, but since backend requires it we construct one.
+  const conversationId = isGroup 
+    ? `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
+    : `1on1_${participants.sort().join('_')}`;
+
   return messagingApi.post('/conversation', {
+    conversationId,
     participants,
     isGroup,
   });

@@ -41,6 +41,11 @@ export const contactService = {
     return response.data.data;
   },
   
+  addContact: async (phone: string, nickname?: string) => {
+    const response = await axios.post<ApiResponse<ContactResponse>>('/contacts', { phone, nickname });
+    return response.data;
+  },
+  
   getUserProfile: async () => {
     const response = await axios.get<ApiResponse<UserResponse>>('/users/profile');
     return response.data.data;

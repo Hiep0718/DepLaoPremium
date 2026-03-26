@@ -16,7 +16,7 @@ export interface Conversation {
   _id?: string;
   participants: any[];
   isGroup: boolean;
-  lastMessage?: string;
+  lastMessage?: string | any;
   unreadCount?: number;
 }
 

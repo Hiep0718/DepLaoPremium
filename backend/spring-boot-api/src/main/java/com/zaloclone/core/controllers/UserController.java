@@ -73,11 +73,11 @@ public class UserController {
      */
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<?>> searchUsers(
-            @RequestParam String search,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "fullName") String sort,
-            @RequestParam(defaultValue = "ASC") Sort.Direction direction) {
+            @RequestParam(name = "search") String search,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "sort", defaultValue = "fullName") String sort,
+            @RequestParam(name = "direction", defaultValue = "ASC") Sort.Direction direction) {
         try {
             if (search == null || search.trim().isEmpty()) {
                 return ResponseEntity.badRequest()

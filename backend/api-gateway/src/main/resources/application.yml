@@ -1,0 +1,37 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: 
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      routes:
+        - id: nodejs-messaging-api
+          uri: http://localhost:3001
+          predicates:
+            - Path=/api/messages/**
+        - id: nodejs-websocket
+          uri: ws://localhost:3001
+          predicates:
+            - Path=/socket.io/**
+        - id: spring-boot-api
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/**
