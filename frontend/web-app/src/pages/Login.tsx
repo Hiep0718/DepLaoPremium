@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from '../services/axios';
 import { useAuthStore } from '../stores/authStore';
+import { contactService } from '../services/contactService';
 import { LogIn, Phone, Lock } from 'lucide-react';
 
 const Login = () => {
@@ -25,7 +26,21 @@ const Login = () => {
     try {
       const { data } = await axios.post('/auth/login', { phone, password });
       if (data.success) {
-        setAuth({ phone }, data.data.accessToken);
+        // Save both tokens so auto-refresh works
+        sessionStorage.setItem('accessToken', data.data.accessToken);
+        if (data.data.refreshToken) {
+          sessionStorage.setItem('refreshToken', data.data.refreshToken);
+        }
+        
+        // Fetch full user profile (id, fullName, avatarUrl) from MariaDB
+        try {
+          const profile = await contactService.getUserProfile();
+          setAuth(profile, data.data.accessToken);
+        } catch {
+          // Fallback: save minimal user info if profile fetch fails
+          setAuth({ phone }, data.data.accessToken);
+        }
+        
         navigate('/');
       } else {
         setError(data.message || 'Đăng nhập thất bại');

@@ -1,14 +1,86 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
+/* ===== THEME CSS VARIABLES ===== */
+:root {
+  /* Zalo Blue brand */
+  --zalo-blue: #0068FF;
+  --zalo-blue-hover: #0055D4;
+  --zalo-blue-light: #E7F0FF;
+
+  /* Light theme */
+  --bg-app: #ffffff;
+  --bg-sidebar: #0068FF;
+  --bg-panel: #ffffff;
+  --bg-chat: #E4DDD6;
+  --bg-chat-pattern: rgba(0,0,0,0.04);
+  --bg-input: #ffffff;
+  --bg-hover: #f0f2f5;
+  --bg-active: #e7f0ff;
+  --bg-msg-sent: #E5EFFF;
+  --bg-msg-received: #ffffff;
+  --bg-search: #eaedf0;
+
+  --text-primary: #081c36;
+  --text-secondary: #7589a3;
+  --text-sidebar-icon: rgba(255,255,255,0.7);
+  --text-sidebar-icon-active: #ffffff;
+  --text-msg-time: #7589a3;
+  --text-accent: #0068FF;
+
+  --border-primary: #e6e8eb;
+  --border-light: #f0f2f5;
+
+  --bg-date-separator: rgba(0,0,0,0.12);
+  --text-date-separator: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-popup: 0 8px 32px rgba(0,0,0,0.15);
+}
+
+.dark {
+  --bg-app: #1a1a2e;
+  --bg-sidebar: #16213e;
+  --bg-panel: #1e293b;
+  --bg-chat: #0f172a;
+  --bg-chat-pattern: rgba(255,255,255,0.02);
+  --bg-input: #1e293b;
+  --bg-hover: #283548;
+  --bg-active: #1e3a5f;
+  --bg-msg-sent: #1e3a5f;
+  --bg-msg-received: #1e293b;
+  --bg-search: #283548;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-sidebar-icon: rgba(255,255,255,0.5);
+  --text-sidebar-icon-active: #60a5fa;
+  --text-msg-time: #64748b;
+  --text-accent: #60a5fa;
+
+  --border-primary: #334155;
+  --border-light: #1e293b;
+
+  --bg-date-separator: rgba(255,255,255,0.12);
+  --text-date-separator: #e2e8f0;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-popup: 0 8px 32px rgba(0,0,0,0.5);
+}
+
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 m-0 p-0 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-900;
-    font-family: 'Inter', sans-serif;
+    @apply m-0 p-0 antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-app);
+    color: var(--text-primary);
+    transition: background-color 0.2s, color 0.2s;
   }
 }
 
-/* Custom animated gradient for Auth background */
+/* Animated gradient for Auth */
 @keyframes gradientBG {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -16,12 +88,18 @@
 }
 
 .bg-animated-gradient {
-  background: linear-gradient(-45deg, #1e293b, #334155, #6366f1, #4f46e5);
+  background: linear-gradient(-45deg, #0068FF, #0055D4, #4f46e5, #3b82f6);
   background-size: 400% 400%;
   animation: gradientBG 15s ease infinite;
 }
 
-/* Custom scrollbar */
+.dark .bg-animated-gradient {
+  background: linear-gradient(-45deg, #0f172a, #1e293b, #1e3a5f, #16213e);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -30,5 +108,57 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 rounded-full hover:bg-slate-400 transition-colors;
+  background: #c4cad2;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a8b4;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Utility transitions */
+.theme-transition {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}
+
+/* Slide-in for messages */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Title reveal animations */
+@keyframes titleReveal {
+  0% { opacity: 0; transform: translateY(-20px) scale(0.95); letter-spacing: 0.3em; }
+  100% { opacity: 1; transform: translateY(0) scale(1); letter-spacing: -0.025em; }
+}
+.animate-title-reveal {
+  animation: titleReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes subtitleReveal {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-subtitle-reveal {
+  animation: subtitleReveal 0.6s ease-out 0.4s forwards;
+  opacity: 0;
 }

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AuthLayout from './layouts/AuthLayout';
 import MainLayout from './layouts/MainLayout';
@@ -5,8 +6,15 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ChatDesk from './pages/ChatDesk';
 import ProtectedRoute from './components/ProtectedRoute';
+import { useThemeStore } from './stores/themeStore';
 
 function App() {
+  const { isDark } = useThemeStore();
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
+
   return (
     <Router>
       <Routes>
@@ -20,7 +28,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<MainLayout />}>
             <Route path="/" element={<ChatDesk />} />
-            <Route path="/contacts" element={<div className="flex-1 flex items-center justify-center h-full text-gray-500 bg-slate-50/50">Chọn một liên hệ từ danh bạ để xem chi tiết</div>} />
+            <Route path="/contacts" element={<ChatDesk />} />
           </Route>
         </Route>
         
@@ -32,3 +40,4 @@ function App() {
 }
 
 export default App;
+

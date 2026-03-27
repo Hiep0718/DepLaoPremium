@@ -5,6 +5,9 @@ export interface UserResponse {
   phone: string;
   fullName: string;
   avatarUrl: string;
+  coverUrl: string;
+  gender: string;
+  birthday: string;
   role: string;
 }
 
@@ -35,6 +38,14 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export interface UpdateProfileData {
+  fullName: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  gender?: string;
+  birthday?: string;
+}
+
 export const contactService = {
   getContacts: async (page = 0, size = 20) => {
     const response = await axios.get<ApiResponse<PageResponse<ContactResponse>>>(`/contacts?page=${page}&size=${size}`);
@@ -51,8 +62,23 @@ export const contactService = {
     return response.data.data;
   },
   
-  updateUserProfile: async (data: { fullName: string; avatarUrl: string }) => {
+  updateUserProfile: async (data: UpdateProfileData) => {
     const response = await axios.put<ApiResponse<UserResponse>>('/users/profile', data);
     return response.data.data;
-  }
+  },
+
+  /**
+   * Upload file (avatar or cover) to S3 via backend
+   * @param file File object from input
+   * @param type 'avatar' | 'cover'
+   * @returns URL of uploaded file
+   */
+  uploadFile: async (file: File, type: 'avatar' | 'cover'): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axios.post<ApiResponse<{ url: string }>>(`/upload/${type}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data.data.url;
+  },
 };

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, LogOut, Phone, Shield, Fingerprint } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
 
@@ -12,24 +12,85 @@ interface ProfileModalProps {
 const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) => {
   const [fullName, setFullName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
+  const [gender, setGender] = useState('');
+  const [birthday, setBirthday] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
   const setUser = useAuthStore(state => state.setUser);
-  const logout = useAuthStore(state => state.logout);
+
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
       setFullName(user.fullName || '');
       setAvatarUrl(user.avatarUrl || '');
+      setCoverUrl(user.coverUrl || '');
+      setGender(user.gender || '');
+      setBirthday(user.birthday || '');
     }
   }, [user]);
 
   if (!isOpen) return null;
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) {
-      onClose();
+    if (e.target === e.currentTarget) onClose();
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    setError('');
+    try {
+      const url = await contactService.uploadFile(file, 'avatar');
+      setAvatarUrl(url);
+      // Auto-save avatar
+      const updated = await contactService.updateUserProfile({
+        fullName: fullName || user?.fullName || '',
+        avatarUrl: url,
+        coverUrl: coverUrl || undefined,
+        gender: gender || undefined,
+        birthday: birthday || undefined,
+      });
+      setUser(updated);
+      setSuccess('Cập nhật avatar thành công!');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Upload avatar thất bại');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCover(true);
+    setError('');
+    try {
+      const url = await contactService.uploadFile(file, 'cover');
+      setCoverUrl(url);
+      // Auto-save cover
+      const updated = await contactService.updateUserProfile({
+        fullName: fullName || user?.fullName || '',
+        avatarUrl: avatarUrl || undefined,
+        coverUrl: url,
+        gender: gender || undefined,
+        birthday: birthday || undefined,
+      });
+      setUser(updated);
+      setSuccess('Cập nhật ảnh bìa thành công!');
+      setTimeout(() => setSuccess(''), 2000);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Upload ảnh bìa thất bại');
+    } finally {
+      setUploadingCover(false);
     }
   };
 
@@ -38,154 +99,223 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
     setLoading(true);
     setError('');
     setSuccess('');
-
     try {
-      const updatedUser = await contactService.updateUserProfile({
+      const updated = await contactService.updateUserProfile({
         fullName,
-        avatarUrl
+        avatarUrl: avatarUrl || undefined,
+        coverUrl: coverUrl || undefined,
+        gender: gender || undefined,
+        birthday: birthday || undefined,
       });
-      setUser(updatedUser);
-      setSuccess('Cập nhật hồ sơ thành công!');
-      setTimeout(() => {
-        onClose();
-        setSuccess('');
-      }, 1500);
+      setUser(updated);
+      setSuccess('Cập nhật thành công!');
+      setIsEditing(false);
+      setTimeout(() => setSuccess(''), 2000);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Có lỗi xảy ra khi cập nhật hồ sơ');
+      setError(err?.response?.data?.message || 'Có lỗi xảy ra');
     } finally {
       setLoading(false);
     }
   };
 
+  const avatarLetter = (fullName || user?.fullName || 'U').charAt(0).toUpperCase();
+
+  const formatBirthday = (date: string) => {
+    if (!date) return 'Chưa cập nhật';
+    try {
+      const d = new Date(date);
+      return d.toLocaleDateString('vi-VN', { day: '2-digit', month: 'long', year: 'numeric' });
+    } catch {
+      return date;
+    }
+  };
+
   return (
-    <div 
-      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-      onClick={handleOverlayClick}
-    >
-      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative">
-        {/* Cover Background */}
-        <div className="h-32 bg-gradient-to-r from-blue-500 to-indigo-600 relative">
-          <button 
-            onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white hover:bg-black/20 rounded-full transition-colors z-10"
-          >
-            <X size={20} />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={handleOverlayClick}>
+      <div className="w-full max-w-md rounded-lg overflow-hidden theme-transition"
+        style={{ background: 'var(--bg-panel)', boxShadow: 'var(--shadow-popup)' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3"
+          style={{ borderBottom: '1px solid var(--border-primary)' }}>
+          <h3 className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>Thông tin tài khoản</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg transition-colors"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+            <X size={18} />
           </button>
         </div>
 
-        {/* Avatar */}
-        <div className="px-6 relative -mt-16 flex justify-between items-end mb-4">
-          <div className="w-32 h-32 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden border-4 border-white shadow-md relative group z-10">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-5xl font-bold text-indigo-500">
-                {fullName ? fullName.charAt(0).toUpperCase() : 'U'}
-              </span>
-            )}
-          </div>
-          
-          {user?.role && (
-            <div className="mb-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-semibold flex items-center gap-1 border border-blue-100 shadow-sm relative z-10">
-              <Shield size={14} />
-              {user.role === 'ADMIN' ? 'Quản trị viên' : 'Thành viên'}
+        <div className="overflow-y-auto max-h-[80vh]">
+          {/* Cover Photo */}
+          <div className="h-44 relative cursor-pointer group"
+            style={{
+              background: coverUrl
+                ? `url(${coverUrl}) center/cover no-repeat`
+                : 'linear-gradient(135deg, #0068FF 0%, #00C6FB 100%)',
+            }}
+            onClick={() => coverInputRef.current?.click()}>
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-white text-sm font-medium">
+                <Camera size={18} />
+                {uploadingCover ? 'Đang tải...' : 'Đổi ảnh bìa'}
+              </div>
             </div>
+            <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
+              onChange={handleCoverUpload} />
+          </div>
+
+          {/* Avatar + Name */}
+          <div className="px-4 -mt-12 relative z-10">
+            <div className="flex items-end gap-3">
+              {/* Avatar with upload button */}
+              <div className="relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+                <div className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center font-bold text-2xl text-white border-4"
+                  style={{
+                    borderColor: 'var(--bg-panel)',
+                    background: avatarUrl ? 'transparent' : '#0050CC',
+                  }}>
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    avatarLetter
+                  )}
+                </div>
+                <div className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-white border-2"
+                  style={{ background: '#0068FF', borderColor: 'var(--bg-panel)' }}>
+                  <Camera size={12} />
+                </div>
+                {uploadingAvatar && (
+                  <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={handleAvatarUpload} />
+              </div>
+
+              <div className="pb-2 flex items-center gap-2">
+                <span className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  {user?.fullName || 'Người dùng'}
+                </span>
+                <button onClick={() => setIsEditing(!isEditing)}
+                  className="p-1 rounded transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  <Pencil size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Status messages */}
+          {error && (
+            <div className="mx-4 mt-3 text-sm text-red-500 p-2.5 rounded-lg"
+              style={{ background: 'var(--bg-hover)' }}>{error}</div>
           )}
-        </div>
+          {success && (
+            <div className="mx-4 mt-3 text-sm text-green-500 p-2.5 rounded-lg"
+              style={{ background: 'var(--bg-hover)' }}>{success}</div>
+          )}
 
-        {/* User Info (Read-only) & Form */}
-        <div className="px-6 pb-6 overflow-y-auto max-h-[60vh] custom-scrollbar">
-          <div className="mb-6 space-y-3">
-            <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{user?.fullName || 'Người dùng'}</h2>
-            
-            <div className="space-y-2 mt-4 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-              <div className="flex items-center gap-3 text-slate-600 text-sm">
-                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm border border-slate-100 shrink-0">
-                  <Phone size={16} className="text-indigo-500" />
-                </div>
-                <div>
-                  <div className="text-xs text-slate-400 font-medium mb-0.5">Số điện thoại</div>
-                  <div className="font-semibold text-slate-700">{user?.phone || 'Chưa cập nhật'}</div>
+          {/* Personal Info */}
+          <div className="px-4 py-4">
+            <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Thông tin cá nhân</h4>
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <Users size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                <div className="flex-1">
+                  <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Giới tính</div>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>{gender || 'Chưa cập nhật'}</div>
                 </div>
               </div>
-              
-              <div className="flex items-center gap-3 text-slate-600 text-sm">
-                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm border border-slate-100 shrink-0">
-                  <Fingerprint size={16} className="text-indigo-500" />
+              <div className="flex items-start gap-3">
+                <Calendar size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                <div className="flex-1">
+                  <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Ngày sinh</div>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>{formatBirthday(birthday)}</div>
                 </div>
-                <div>
-                  <div className="text-xs text-slate-400 font-medium mb-0.5">ID Tài khoản</div>
-                  <div className="font-semibold text-slate-700">#{user?.id || '---'}</div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Phone size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                <div className="flex-1">
+                  <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Điện thoại</div>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>{user?.phone || 'Chưa cập nhật'}</div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <Fingerprint size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                <div className="flex-1">
+                  <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>ID</div>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>#{user?.id || '---'}</div>
                 </div>
               </div>
             </div>
+
+            <p className="text-xs mt-4 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Chỉ bạn bè có lưu số của bạn trong danh bạ máy xem được số này
+            </p>
           </div>
 
-          <form onSubmit={handleSave} className="space-y-4">
-            {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm border border-red-100">
-                {error}
+          {/* Edit Form */}
+          {isEditing && (
+            <form onSubmit={handleSave} className="px-4 pb-4 space-y-3"
+              style={{ borderTop: '1px solid var(--border-primary)', paddingTop: '16px' }}>
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Họ và tên</label>
+                <input type="text" value={fullName}
+                  onChange={(e) => setFullName(e.target.value)} required
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
               </div>
-            )}
-            
-            {success && (
-              <div className="bg-green-50 text-green-600 p-3 rounded-lg text-sm border border-green-100">
-                {success}
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Giới tính</label>
+                <select value={gender} onChange={(e) => setGender(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none appearance-none cursor-pointer"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }}>
+                  <option value="">Chọn giới tính</option>
+                  <option value="Nam">Nam</option>
+                  <option value="Nữ">Nữ</option>
+                  <option value="Khác">Khác</option>
+                </select>
               </div>
-            )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Họ và tên
-              </label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Nhập họ và tên"
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Ngày sinh</label>
+                <input type="date" value={birthday}
+                  onChange={(e) => setBirthday(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Ảnh đại diện (URL)
-              </label>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="https://example.com/avatar.jpg"
-              />
-            </div>
+              <button type="submit" disabled={loading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-60 mt-2"
+                style={{ background: '#0068FF' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#0055D4'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#0068FF'}>
+                <Save size={16} />
+                {loading ? 'Đang lưu...' : 'Cập nhật'}
+              </button>
+            </form>
+          )}
 
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all disabled:opacity-70 font-semibold shadow-md active:scale-[0.98]"
-              >
-                <Save size={18} />
-                {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
+          {/* Bottom: edit button if not editing */}
+          {!isEditing && (
+            <div className="px-4 pb-4">
+              <button onClick={() => setIsEditing(true)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                style={{ border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <Pencil size={14} />
+                Cập nhật
               </button>
             </div>
-          </form>
-        </div>
-        
-        {/* Footer actions */}
-        <div className="border-t border-slate-100 p-4 bg-slate-50/80">
-          <button 
-            onClick={() => {
-              logout();
-              window.location.href = '/login';
-            }}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors font-medium active:scale-[0.98]"
-          >
-            <LogOut size={18} />
-            Đăng xuất khỏi thiết bị này
-          </button>
+          )}
         </div>
       </div>
     </div>

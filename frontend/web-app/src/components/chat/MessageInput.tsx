@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { Paperclip, Send, Smile, Image as ImageIcon, Mic } from 'lucide-react';
+import {
+  Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
+  ScreenShare, Code, Type, Zap, MoreHorizontal
+} from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
@@ -13,46 +16,41 @@ const MessageInput = () => {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim() || !activeConversation || !user) return;
-    
+
     let currentConversation = activeConversation;
     const activeText = text.trim();
-    setText(''); // clear optimistic
-    
-    // If it's a new conversation from contact, create it first
-    if (currentConversation.conversationId.startsWith('new_')) {
-       try {
-         // Get the friend ID
-         const friendPart = currentConversation.participants[0];
-         const friendId = friendPart.contactUserId || friendPart.id || friendPart.userId;
-         
-         const res = await createConversation([user.id.toString(), friendId.toString()], false);
-         if (res.data) {
-           currentConversation = res.data;
-           setActiveConversation(res.data);
-         }
-       } catch (err) {
-         console.error('Failed to create conversation', err);
-         setText(activeText); // revert
-         return;
-       }
+    setText('');
+
+    if (currentConversation.conversationId.startsWith('new_') || currentConversation.conversationId.startsWith('contact_')) {
+      try {
+        const friendPart = currentConversation.participants[0];
+        const friendId = friendPart.contactUserId || friendPart.id || friendPart.userId;
+        const res = await createConversation([user.id.toString(), friendId.toString()], false);
+        if (res.data?.data) {
+          currentConversation = res.data.data;
+          setActiveConversation(res.data.data);
+        } else if (res.data) {
+          currentConversation = res.data;
+          setActiveConversation(res.data);
+        }
+      } catch (err) {
+        console.error('Failed to create conversation', err);
+        setText(activeText);
+        return;
+      }
     }
-    
-    const recipientPart = currentConversation.isGroup 
-      ? null 
-      : currentConversation.participants.find((p: any) => 
-          p !== user.id && 
-          p !== user.id.toString() && 
-          p.id !== user.id && 
-          p.id?.toString() !== user.id.toString() &&
-          p.userId !== user.id && 
-          p.userId !== user.id.toString() &&
-          p.contactUserId !== user.id &&
-          p.contactUserId?.toString() !== user.id.toString()
+
+    const recipientPart = currentConversation.isGroup
+      ? null
+      : currentConversation.participants.find((p: any) =>
+          p !== user.id && p !== user.id.toString() &&
+          p.id !== user.id && p.id?.toString() !== user.id.toString() &&
+          p.userId !== user.id && p.userId !== user.id.toString() &&
+          p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
         );
-      
-    // Safely extract the ID string
+
     const recipientId = recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
-      
+
     const messagePayload = {
       conversationId: currentConversation.conversationId,
       senderId: user.id.toString(),
@@ -60,38 +58,59 @@ const MessageInput = () => {
       text: activeText,
     };
 
-    // Gửi Message qua Socket
     socket.emit('send_message', messagePayload);
-    
-    // Add locally for instant UI update
-    addMessage({
-      id: Date.now().toString(),
-      ...messagePayload,
-      createdAt: new Date().toISOString(),
-    });
+    addMessage({ id: Date.now().toString(), ...messagePayload, createdAt: new Date().toISOString() });
   };
 
   if (!activeConversation) return null;
 
-  return (
-    <div className="bg-white p-2 sm:p-3 flex justify-center z-10 w-full relative">
-      <form onSubmit={handleSend} className="flex items-end gap-2 w-full max-w-5xl mx-auto">
-        {/* Actions before input */}
-        <div className="flex items-center space-x-1 pb-0.5">
-          <button type="button" className="p-2.5 text-slate-400 hover:text-indigo-500 hover:bg-slate-100 rounded-full transition-colors">
-            <Paperclip size={22} strokeWidth={1.5} />
-          </button>
-          <button type="button" className="p-2.5 text-slate-400 hover:text-indigo-500 hover:bg-slate-100 rounded-full transition-colors hidden sm:block">
-            <ImageIcon size={22} strokeWidth={1.5} />
-          </button>
-        </div>
+  // Get recipient name for placeholder
+  const contact = activeConversation.participants?.[0];
+  const recipientName = contact ? (contact.nickname || contact.fullName || 'bạn bè') : 'bạn bè';
 
-        {/* Input */}
-        <div className="flex-1 bg-slate-100/80 hover:bg-slate-100 transition-colors rounded-3xl relative">
+  // Zalo toolbar icons — matches real Zalo PC exactly
+  const toolButtons = [
+    { icon: Sticker, title: 'Sticker' },
+    { icon: ImageIcon, title: 'Hình ảnh' },
+    { icon: Paperclip, title: 'Đính kèm tệp' },
+    { icon: ScreenShare, title: 'Chụp màn hình' },
+    { icon: Code, title: 'Code Snippet' },
+    { icon: Type, title: 'Định dạng tin nhắn' },
+    { icon: Zap, title: 'Tin nhắn nhanh' },
+    { icon: MoreHorizontal, title: 'Thêm' },
+  ];
+
+  return (
+    <div className="relative z-10 theme-transition" style={{ background: 'var(--bg-input)', borderTop: '1px solid var(--border-primary)' }}>
+      {/* Zalo-style Toolbar */}
+      <div className="flex items-center px-2 py-1" style={{ borderBottom: '1px solid var(--border-light)' }}>
+        {toolButtons.map((btn, i) => (
+          <button key={i} type="button"
+            className="p-2 rounded-md transition-all duration-150 hover:scale-105"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title={btn.title}
+          >
+            <btn.icon size={19} strokeWidth={1.5} />
+          </button>
+        ))}
+      </div>
+
+      {/* Input Row */}
+      <form onSubmit={handleSend} className="flex items-end gap-1 px-3 py-2">
+        <div className="flex-1">
           <textarea
-            className="w-full bg-transparent border-0 focus:ring-0 resize-none py-3 pl-5 pr-12 outline-none max-h-32 text-[15px] text-slate-800 placeholder-slate-400"
+            className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
+            style={{ color: 'var(--text-primary)' }}
             rows={1}
-            placeholder="Nhập tin nhắn..."
+            placeholder={`Nhập @, tin nhắn tới ${recipientName}`}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -101,23 +120,35 @@ const MessageInput = () => {
               }
             }}
           />
-          <button type="button" className="absolute right-2 bottom-2 text-slate-400 hover:text-indigo-500 transition-colors p-1.5 rounded-full hover:bg-slate-200/50">
-            <Smile size={22} strokeWidth={1.5} />
-          </button>
         </div>
 
-        {/* Actions after input */}
-        <div className="pb-0.5">
+        <div className="flex items-center gap-0.5 pb-1.5">
+          <button type="button" className="p-2 rounded-md transition-all duration-150"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-accent)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            title="Biểu tượng cảm xúc"
+          >
+            <Smile size={22} strokeWidth={1.5} />
+          </button>
+
           {text.trim() ? (
-            <button 
-              type="submit" 
-              className="p-3 bg-[#3390EC] text-white rounded-full hover:bg-[#2A82D6] transition-all shadow-md active:scale-95"
+            <button type="submit" className="p-2 rounded-md transition-all duration-150"
+              style={{ color: '#0068FF' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              title="Gửi"
             >
-              <Send size={20} className="translate-x-[2px] -translate-y-[1px]" strokeWidth={1.5} />
+              <Send size={22} strokeWidth={1.5} />
             </button>
           ) : (
-            <button type="button" className="p-3.5 text-slate-500 bg-slate-100 hover:bg-slate-200 hover:text-slate-700 rounded-full transition-all">
-              <Mic size={20} strokeWidth={1.5} />
+            <button type="button" className="p-2 rounded-md transition-all duration-150"
+              style={{ color: '#0068FF' }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              title="Gửi lượt thích"
+            >
+              <ThumbsUp size={22} strokeWidth={1.5} />
             </button>
           )}
         </div>
