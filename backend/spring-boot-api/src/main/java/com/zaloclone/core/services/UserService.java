@@ -61,9 +61,20 @@ public class UserService {
     @Transactional
     public UserResponse updateProfile(User user, UpdateUserProfileRequest request) {
         user.setFullName(request.getFullName());
+
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl());
         }
+        if (request.getCoverUrl() != null) {
+            user.setCoverUrl(request.getCoverUrl());
+        }
+        if (request.getGender() != null) {
+            user.setGender(request.getGender());
+        }
+        if (request.getBirthday() != null) {
+            user.setBirthday(request.getBirthday());
+        }
+
         User updatedUser = userRepository.save(user);
         return toUserResponse(updatedUser);
     }
@@ -83,6 +94,9 @@ public class UserService {
                 .phone(user.getPhone())
                 .fullName(user.getFullName())
                 .avatarUrl(user.getAvatarUrl())
+                .coverUrl(user.getCoverUrl())
+                .gender(user.getGender())
+                .birthday(user.getBirthday())
                 .role(user.getRole().toString())
                 .build();
     }

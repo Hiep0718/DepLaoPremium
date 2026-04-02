@@ -145,7 +145,7 @@ npx expo start
 | Thanh Hiệp | Developer |
 | Ngọc Đăng | Developer |
 | Văn Khang | Developer |
-| Việt Hiếu | Developer |
+| Viết Hiếu | Developer |
 
 ## License
 

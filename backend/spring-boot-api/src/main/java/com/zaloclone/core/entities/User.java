@@ -2,11 +2,11 @@ package com.zaloclone.core.entities;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.util.Set;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "users")
-@Data // Tự động tạo Getter, Setter, toString...
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -27,12 +27,14 @@ public class User {
 
     private String avatarUrl;
 
-    @Column(nullable = false, columnDefinition = "boolean default false")
-    @Builder.Default
-    private Boolean isVerified = false;
+    private String coverUrl;
+
+    private String gender;
+
+    private LocalDate birthday;
 
     @Enumerated(EnumType.STRING)
-    private Role role; // USER hoặc ADMIN
+    private Role role;
 
     public enum Role {
         USER, ADMIN
