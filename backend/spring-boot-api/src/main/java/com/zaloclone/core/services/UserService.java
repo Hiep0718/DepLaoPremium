@@ -31,7 +31,6 @@ public class UserService {
                 .fullName(request.getFullName())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(User.Role.USER)
-                .isVerified(true)
                 .build();
 
         return userRepository.save(user);
