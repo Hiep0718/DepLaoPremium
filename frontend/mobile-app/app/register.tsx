@@ -1,24 +1,42 @@
 import { useState } from "react"
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from "react-native"
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { useRouter } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { ZaloColors } from "@/constants/zalo"
+import apiClient from "@/constants/api"
 
 export default function RegisterPhoneScreen() {
     const router = useRouter()
     const [phone, setPhone] = useState("")
     const [agreed1, setAgreed1] = useState(false)
     const [agreed2, setAgreed2] = useState(false)
+    const [isLoading, setIsLoading] = useState(false)
 
-    const canContinue = phone.length > 8 && agreed1 && agreed2
+    const canContinue = phone.length > 8 && agreed1 && agreed2 && !isLoading
+
+    const handleContinue = async () => {
+        if (!canContinue) return;
+        setIsLoading(true);
+        try {
+            // Gửi OTP
+            await apiClient.post('/auth/send-otp', { phone });
+            // Chuyển sang trang nhập OTP, truyền SĐT theo
+            router.push({ pathname: "/register-otp", params: { phone } });
+        } catch (error: any) {
+            console.log("Send OTP Error:", error);
+            Alert.alert("Lỗi", error.response?.data?.message || "Không thể gửi mã OTP lúc này.");
+        } finally {
+            setIsLoading(false);
+        }
+    }
 
     return (
         <SafeAreaView edges={["top", "bottom"]} style={styles.container}>
             <StatusBar style="dark" />
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} disabled={isLoading}>
                     <Ionicons name="arrow-back" size={24} color="#000" />
                 </TouchableOpacity>
             </View>
@@ -36,16 +54,17 @@ export default function RegisterPhoneScreen() {
                         value={phone}
                         onChangeText={setPhone}
                         autoFocus
+                        editable={!isLoading}
                     />
                 </View>
 
-                <TouchableOpacity style={styles.checkboxRow} onPress={() => setAgreed1(!agreed1)}>
+                <TouchableOpacity style={styles.checkboxRow} onPress={() => setAgreed1(!agreed1)} disabled={isLoading}>
                     <View style={[styles.checkbox, agreed1 && styles.checkboxActive]} />
                     <Text style={styles.checkboxText}>
                         Tôi đồng ý với các <Text style={styles.linkText}>điều khoản sử dụng Zalo</Text>
                     </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.checkboxRow} onPress={() => setAgreed2(!agreed2)}>
+                <TouchableOpacity style={styles.checkboxRow} onPress={() => setAgreed2(!agreed2)} disabled={isLoading}>
                     <View style={[styles.checkbox, agreed2 && styles.checkboxActive]} />
                     <Text style={styles.checkboxText}>
                         Tôi đồng ý với <Text style={styles.linkText}>điều khoản Mạng xã hội của Zalo</Text>
@@ -56,14 +75,18 @@ export default function RegisterPhoneScreen() {
 
                 <TouchableOpacity 
                     style={[styles.btn, canContinue ? styles.btnActive : null]}
-                    onPress={() => router.push("/register-otp")}
+                    onPress={handleContinue}
                     disabled={!canContinue}
                     activeOpacity={0.8}
                 >
-                    <Text style={[styles.btnText, canContinue ? styles.btnTextActive : null]}>Tiếp tục</Text>
+                    {isLoading ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <Text style={[styles.btnText, canContinue ? styles.btnTextActive : null]}>Tiếp tục</Text>
+                    )}
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.loginLink} onPress={() => router.replace("/login")}>
+                <TouchableOpacity style={styles.loginLink} onPress={() => router.replace("/login")} disabled={isLoading}>
                     <Text style={styles.loginText}>Bạn đã có tài khoản? <Text style={styles.linkText}>Đăng nhập ngay</Text></Text>
                 </TouchableOpacity>
             </KeyboardAvoidingView>
@@ -87,9 +110,9 @@ const styles = StyleSheet.create({
     checkboxText: { flex: 1, fontSize: 14, color: "#555", lineHeight: 20 },
     linkText: { color: "#0068FF", fontWeight: "600" },
     btn: { backgroundColor: "#e2e2e2", borderRadius: 24, paddingVertical: 14, alignItems: "center", marginBottom: 20 },
-    btnActive: { backgroundColor: "#cce5ff" },
+    btnActive: { backgroundColor: "#0068FF" },
     btnText: { color: "#999", fontSize: 16, fontWeight: "600" },
-    btnTextActive: { color: "#0068FF" },
+    btnTextActive: { color: "#fff" },
     loginLink: { alignItems: "center" },
     loginText: { fontSize: 14, color: "#555" },
 })

@@ -3,6 +3,7 @@ package com.zaloclone.core.controllers;
 import com.zaloclone.core.dtos.*;
 import com.zaloclone.core.entities.User;
 import com.zaloclone.core.security.JwtProvider;
+import com.zaloclone.core.services.OtpService;
 import com.zaloclone.core.services.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,32 @@ import java.util.Map;
 public class AuthController {
     private final UserService userService;
     private final JwtProvider jwtProvider;
+    private final OtpService otpService;
+
+    @PostMapping(value = "/send-otp", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> sendOtp(@Valid @RequestBody SendOtpRequest request) {
+        try {
+            otpService.generateAndSendOtp(request.getPhone());
+            return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP thành công", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Lỗi khi gửi mã OTP: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping(value = "/verify-otp", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> verifyOtp(@Valid @RequestBody VerifyOtpRequest request) {
+        try {
+            boolean isValid = otpService.verifyOtp(request.getPhone(), request.getOtp());
+            if (isValid) {
+                return ResponseEntity.ok(ApiResponse.success("Xác thực OTP thành công", null));
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("Mã OTP không chính xác hoặc đã hết hạn"));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Lỗi xác thực: " + e.getMessage()));
+        }
+    }
 
     @PostMapping(value = "/register", consumes = "application/json")
     public ResponseEntity<ApiResponse<?>> register(@Valid @RequestBody RegisterRequest request) {

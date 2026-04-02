@@ -27,6 +27,10 @@ public class User {
 
     private String avatarUrl;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean isVerified = false;
+
     @Enumerated(EnumType.STRING)
     private Role role; // USER hoặc ADMIN
 
