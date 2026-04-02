@@ -19,7 +19,7 @@ export default function TabLayout() {
   const renderContent = () => {
     switch (activeTab) {
       case "messages":
-        return <MessagesScreen selectedMessage={selectedMessage} onSelectMessage={setSelectedMessage} />
+        return <MessagesScreen />
       case "contacts":
         return <ContactsScreen />
       case "discover":
@@ -29,7 +29,7 @@ export default function TabLayout() {
       case "profile":
         return <ProfileScreen />
       default:
-        return <MessagesScreen selectedMessage={selectedMessage} onSelectMessage={setSelectedMessage} />
+        return <MessagesScreen />
     }
   }
 

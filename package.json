@@ -1,6 +1,12 @@
 {
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.0.2",
-    "axios": "^1.14.0"
+    "axios": "^1.14.0",
+    "expo": "^55.0.9",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "typescript": "~5.9.2"
   }
 }

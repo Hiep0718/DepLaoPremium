@@ -1,172 +1,197 @@
-import { useMemo, useState } from "react"
-import { View, Text, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, StyleSheet } from "react-native"
-import { Ionicons } from "@expo/vector-icons"
-import { ZaloColors } from "@/constants/zalo"
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { ZaloColors } from '@/constants/zalo';
+import { useSocket } from '@/contexts/SocketContext';
+import { chatApiClient } from '@/constants/chatApi';
+import apiClient from '@/constants/api';
 
 export interface Conversation {
-  id: string
-  name: string
-  lastMessage: string
-  unread: boolean
-  time: string
+  _id: string;
+  conversationId: string;
+  participants: { userId: string }[];
+  lastMessage?: {
+    content: string;
+    senderId: string;
+    timestamp: string;
+  };
+  isGroup: boolean;
+  groupName?: string;
+  otherUser?: {
+    id: string;
+    fullName: string;
+    avatarUrl?: string;
+  };
 }
 
-interface ChatMessage {
-  id: string
-  text: string
-  time: string
-  isOwn: boolean
-}
+export function MessagesScreen() {
+  const router = useRouter();
+  const { currentUserId, socket } = useSocket();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-interface MessagesScreenProps {
-  selectedMessage: Conversation | null
-  onSelectMessage: (message: Conversation | null) => void
-}
+  // Load danh sách chat và map thêm tên User
+  const loadConversations = async () => {
+    if (!currentUserId) {
+        setIsLoading(false);
+        return;
+    }
+    try {
+      // Gọi Node API để lấy list Box Chat của mình
+      const res = await chatApiClient.get(`/conversations/${currentUserId}`);
+      let convs = res.data?.data || [];
 
-export function MessagesScreen({ selectedMessage, onSelectMessage }: MessagesScreenProps) {
-  const conversations: Conversation[] = useMemo(
-    () => [
-      { id: "1", name: "Ngân Ngô", lastMessage: "Ok được!", unread: true, time: "10:33" },
-      { id: "2", name: "Minh Anh", lastMessage: "Có khỏe không?", unread: false, time: "Hôm qua" },
-      { id: "3", name: "Nhóm Dự Án", lastMessage: "Cập nhật: Task hoàn thành ✅", unread: true, time: "09:12" },
-      { id: "4", name: "Bố Mẹ", lastMessage: "Tối ăn cơm chưa?", unread: false, time: "T2" },
-      { id: "5", name: "Lớp CNTT", lastMessage: "Mai nộp slide nha mọi người", unread: false, time: "T2" },
-    ],
-    []
-  )
+      // Vì NodeAPI chỉ lưu userId, cần gọi sang SpringBoot để lấy Tên và Avatar
+      const enrichedConvs = await Promise.all(
+        convs.map(async (conv: Conversation) => {
+          if (!conv.isGroup) {
+            const otherUserId = conv.participants.find(p => p.userId !== currentUserId)?.userId;
+            if (otherUserId) {
+              try {
+                const userRes = await apiClient.get(`/users/${otherUserId}`);
+                conv.otherUser = userRes.data?.data;
+              } catch (e) {
+                console.log('Failed to fetch user', otherUserId);
+                conv.otherUser = { id: otherUserId, fullName: 'Người dùng Zalo' };
+              }
+            }
+          }
+          return conv;
+        })
+      );
 
-  const [draft, setDraft] = useState("")
+      // Lọc bỏ những cuộc trò chuyện chưa có tin nhắn nào
+      const activeConvs = enrichedConvs.filter(c => c.lastMessage && c.lastMessage.content);
+      setConversations(activeConvs);
+    } catch (error) {
+      console.log('Error loading conversations', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
 
-  const chatMessages: ChatMessage[] = useMemo(
-    () => [
-      { id: "m1", text: "Có khỏe không?", time: "10:30", isOwn: false },
-      { id: "m2", text: "Khỏe bình thường 😊", time: "10:32", isOwn: true },
-      { id: "m3", text: "Ok được!", time: "10:33", isOwn: false },
-      { id: "m4", text: "Chiều mình họp nhóm 15 phút nha", time: "10:34", isOwn: false },
-      { id: "m5", text: "Ok mình vào đúng giờ", time: "10:35", isOwn: true },
-    ],
-    []
-  )
+  useEffect(() => {
+    loadConversations();
+  }, [currentUserId]);
 
-  // ---------------- Chat view ----------------
-  if (selectedMessage) {
+  // Lắng nghe Message mới bắn về để cập nhật "Tin nhắn mới nhất"
+  useEffect(() => {
+    if (!socket) return;
+    const handleNewMessage = (data: any) => {
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.conversationId === data.conversationId);
+        if (idx > -1) {
+          const updatedConv = { ...prev[idx] };
+          updatedConv.lastMessage = {
+            content: data.text,
+            senderId: data.senderId,
+            timestamp: data.timestamp || new Date().toISOString()
+          };
+          const newList = prev.filter((_, i) => i !== idx);
+          return [updatedConv, ...newList];
+        } else {
+          loadConversations();
+          return prev;
+        }
+      });
+    };
+    
+    socket.on('message_received', handleNewMessage);
+    socket.on('message_sent', handleNewMessage);
+    
+    return () => {
+        socket.off('message_received', handleNewMessage);
+        socket.off('message_sent', handleNewMessage);
+    };
+  }, [socket]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadConversations();
+  }, [currentUserId]);
+
+  const formatTime = (isoString?: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  const renderItem = ({ item }: { item: Conversation }) => {
+    const name = item.isGroup ? item.groupName : item.otherUser?.fullName;
+    const isUnread = false; 
+
     return (
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.chatHeader}>
-          <View style={styles.chatHeaderLeft}>
-            <TouchableOpacity onPress={() => onSelectMessage(null)} style={styles.iconBtn} activeOpacity={0.7}>
-              <Ionicons name="chevron-back" size={24} color={ZaloColors.blue} />
-            </TouchableOpacity>
-
-            <View style={styles.chatTitleWrap}>
-              <Text style={styles.chatTitle} numberOfLines={1}>
-                {selectedMessage.name}
-              </Text>
-              <Text style={styles.chatSubtitle}>Đang hoạt động</Text>
-            </View>
+      <TouchableOpacity 
+        style={styles.chatRow}
+        activeOpacity={0.7}
+        onPress={() => router.push({ 
+            pathname: '/chat/[id]', 
+            params: { 
+                id: item.conversationId, 
+                name: name,
+                recipientId: item.otherUser?.id,
+                avatar: item.otherUser?.avatarUrl
+            } 
+        })}
+      >
+        {item.otherUser?.avatarUrl ? (
+          <Image source={{ uri: item.otherUser.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center' }]}>
+            <Ionicons name="person" size={24} color="#888" />
           </View>
-
-          <View style={styles.chatHeaderRight}>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <Ionicons name="call" size={20} color={ZaloColors.blue} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <Ionicons name="videocam" size={20} color={ZaloColors.blue} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <Ionicons name="information-circle" size={20} color={ZaloColors.blue} />
-            </TouchableOpacity>
+        )}
+        <View style={styles.chatInfo}>
+          <View style={styles.chatHeader}>
+            <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{name}</Text>
+            <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
           </View>
-        </View>
-
-        <FlatList
-          data={chatMessages}
-          keyExtractor={(i) => i.id}
-          contentContainerStyle={styles.chatList}
-          renderItem={({ item }) => (
-            <View style={[styles.bubbleRow, item.isOwn ? styles.bubbleRowOwn : styles.bubbleRowOther]}>
-              <View style={[styles.bubble, item.isOwn ? styles.bubbleOwn : styles.bubbleOther]}>
-                <Text style={[styles.bubbleText, item.isOwn ? styles.bubbleTextOwn : styles.bubbleTextOther]}>{item.text}</Text>
-                <Text style={[styles.bubbleTime, item.isOwn ? styles.bubbleTimeOwn : styles.bubbleTimeOther]}>{item.time}</Text>
-              </View>
-            </View>
-          )}
-        />
-
-        <View style={styles.composer}>
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-            <Ionicons name="add-circle" size={26} color={ZaloColors.blue} />
-          </TouchableOpacity>
-
-          <View style={styles.inputWrap}>
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Tin nhắn…"
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              multiline
-            />
-            <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-              <Ionicons name="happy-outline" size={22} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
-            <Ionicons name="send" size={20} color={ZaloColors.blue} />
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    )
-  }
-
-  // ---------------- List view ----------------
-  const renderConversation = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity style={styles.row} activeOpacity={0.7} onPress={() => onSelectMessage(item)}>
-      <View style={styles.avatar}>
-        <Ionicons 
-            name={(item.name.includes("Nhóm") || item.name.includes("Lớp")) ? "people" : "person"} 
-            size={30} 
-            color="#fff" 
-            style={!(item.name.includes("Nhóm") || item.name.includes("Lớp")) ? { marginTop: 6 } : {}} 
-        />
-      </View>
-
-      <View style={styles.rowMid}>
-        <View style={styles.rowTopLine}>
-          <Text style={[styles.rowName, item.unread && { fontWeight: "800" }]} numberOfLines={1}>
-            {item.name}
+          <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+            {item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
+            {item.lastMessage?.content || 'Chưa có tin nhắn'}
           </Text>
-          <Text style={[styles.rowTime, item.unread && { color: ZaloColors.text, fontWeight: "600" }]}>{item.time}</Text>
         </View>
-        <View style={styles.rowBottomLine}>
-          <Text style={[styles.rowLastMsg, item.unread && { color: ZaloColors.text, fontWeight: "600" }]} numberOfLines={1}>
-            {item.lastMessage}
-          </Text>
-          {item.unread && <View style={styles.dot} />}
-        </View>
-      </View>
-    </TouchableOpacity>
-  )
+      </TouchableOpacity>
+    );
+  };
 
   return (
-    <View style={styles.flex}>
-      <View style={styles.listHeader}>
+    <View style={styles.container}>
+      <View style={styles.searchHeader}>
         <Text style={styles.listTitle}>Tin nhắn</Text>
         <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7}>
           <Ionicons name="list" size={20} color={ZaloColors.subText} />
         </TouchableOpacity>
       </View>
 
-      <FlatList data={conversations} keyExtractor={(i) => i.id} renderItem={renderConversation} />
+      {isLoading ? (
+        <View style={styles.loadingWrapper}>
+          <ActivityIndicator size="large" color={ZaloColors.blue} />
+        </View>
+      ) : (
+        <FlatList
+          data={conversations}
+          keyExtractor={(item) => item.conversationId}
+          renderItem={renderItem}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyText}>Chưa có cuộc trò chuyện nào.</Text>
+            </View>
+          }
+        />
+      )}
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: ZaloColors.bg },
-
-  listHeader: {
+  container: { flex: 1, backgroundColor: '#fff' },
+  searchHeader: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -175,89 +200,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  listTitle: { fontSize: 20, fontWeight: "800", color: ZaloColors.text },
-
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-    backgroundColor: ZaloColors.bg,
+  listTitle: { fontSize: 20, fontWeight: "800", color: '#000' },
+  iconBtn: { padding: 6 },
+  chatRow: {
+    flexDirection: 'row',
+    padding: 16,
+    alignItems: 'center',
   },
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#d1d1d1",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-    overflow: "hidden"
+    marginRight: 16,
+    backgroundColor: '#e1e4ea',
   },
-
-  rowMid: { flex: 1 },
-  rowTopLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  rowName: { fontSize: 15, fontWeight: "700", color: ZaloColors.text, flex: 1, marginRight: 10 },
-  rowTime: { fontSize: 12, color: ZaloColors.subText },
-
-  rowBottomLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
-  rowLastMsg: { fontSize: 13, color: ZaloColors.subText, flex: 1, marginRight: 10 },
-  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: ZaloColors.danger },
-
-  chatHeader: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: ZaloColors.line,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: ZaloColors.bg,
-  },
-  chatHeaderLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
-  chatTitleWrap: { marginLeft: 6, flex: 1 },
-  chatTitle: { fontSize: 16, fontWeight: "800", color: ZaloColors.text },
-  chatSubtitle: { fontSize: 12, color: ZaloColors.subText, marginTop: 2 },
-  chatHeaderRight: { flexDirection: "row", alignItems: "center", gap: 2 },
-
-  iconBtn: { padding: 6 },
-
-  chatList: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: ZaloColors.bgAlt },
-  bubbleRow: { marginVertical: 6, flexDirection: "row" },
-  bubbleRowOwn: { justifyContent: "flex-end" },
-  bubbleRowOther: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "78%", borderRadius: 14, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8 },
-  bubbleOwn: { backgroundColor: ZaloColors.blue, borderTopRightRadius: 6 },
-  bubbleOther: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 6, borderWidth: 1, borderColor: "#EEF2F7" },
-  bubbleText: { fontSize: 14, lineHeight: 19 },
-  bubbleTextOwn: { color: "#FFFFFF" },
-  bubbleTextOther: { color: ZaloColors.text },
-  bubbleTime: { fontSize: 11, marginTop: 6 },
-  bubbleTimeOwn: { color: "#E5E7EB", textAlign: "right" },
-  bubbleTimeOther: { color: "#9CA3AF", textAlign: "left" },
-
-  composer: {
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: ZaloColors.line,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 6,
-    backgroundColor: ZaloColors.bg,
-  },
-  inputWrap: {
+  chatInfo: {
     flex: 1,
-    minHeight: 40,
-    borderRadius: 18,
-    backgroundColor: "#F3F4F6",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e1e4ea',
+    paddingBottom: 16,
   },
-  input: { flex: 1, fontSize: 14, color: ZaloColors.text, padding: 0, margin: 0, maxHeight: 96 },
-})
+  chatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chatName: { fontSize: 16, color: '#000' },
+  chatNameUnread: { fontWeight: '700' },
+  chatTime: { fontSize: 12, color: '#888' },
+  chatPreview: { fontSize: 14, color: '#666' },
+  chatPreviewUnread: { color: '#000', fontWeight: '600' },
+  loadingWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyWrap: { padding: 40, alignItems: 'center' },
+  emptyText: { color: '#888', fontSize: 14 },
+});

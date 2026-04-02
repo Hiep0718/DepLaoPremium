@@ -1,8 +1,13 @@
 "use client"
 
-import { useState } from "react"
-import { View, Text, TouchableOpacity, TextInput, Modal, FlatList } from "react-native"
+import { useState, useEffect, useCallback } from "react"
+import { View, Text, TouchableOpacity, TextInput, Modal, FlatList, ActivityIndicator, StyleSheet, Image } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { useRouter } from "expo-router"
+import apiClient from "@/constants/api"
+import { chatApiClient } from "@/constants/chatApi"
+import { useSocket } from "@/contexts/SocketContext"
+import { ZaloColors } from "@/constants/zalo"
 
 const MENU_ITEMS = [
     { id: "1", icon: "person-add", label: "Thêm bạn", color: "#0084FF" },
@@ -18,8 +23,96 @@ interface ZaloHeaderProps {
 }
 
 export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
+    const router = useRouter()
+    const { currentUserId } = useSocket()
     const [searchText, setSearchText] = useState("")
     const [showMenu, setShowMenu] = useState(false)
+    const [searchResults, setSearchResults] = useState<any[]>([])
+    const [isSearching, setIsSearching] = useState(false)
+    const [showResults, setShowResults] = useState(false)
+
+    // Debounce search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (searchText.trim().length >= 2) {
+                handleSearch(searchText.trim())
+            } else {
+                setSearchResults([])
+                setShowResults(false)
+            }
+        }, 500)
+        return () => clearTimeout(timer)
+    }, [searchText])
+
+    const handleSearch = async (query: string) => {
+        setIsSearching(true)
+        setShowResults(true)
+        try {
+            // 1. Tìm trong danh bạ (luôn gọi)
+            const contactRes = await apiClient.get(`/contacts/search?search=${query}`)
+            const friends = contactRes.data?.data?.content || []
+            
+            let finalResults = friends.map((f: any) => ({ ...f, isFriend: true }))
+
+            // 2. Nếu là số điện thoại, tìm trong toàn bộ User
+            const isNumeric = /^\d+$/.test(query)
+            if (isNumeric) {
+                const userRes = await apiClient.get(`/users/search?search=${query}`)
+                const globalUsers = userRes.data?.data?.content || []
+                
+                // Lọc bỏ những người đã là bạn bè (để tránh trùng lặp)
+                const friendsIds = new Set(friends.map((f: any) => f.contactUserId?.toString() || f.id?.toString()))
+                
+                const nonFriends = globalUsers.filter((u: any) => {
+                    const uid = u.id?.toString()
+                    return uid !== currentUserId?.toString() && !friendsIds.has(uid)
+                }).map((u: any) => ({ ...u, isFriend: false }))
+
+                finalResults = [...finalResults, ...nonFriends]
+            }
+
+            setSearchResults(finalResults)
+        } catch (error) {
+            console.error("Search error:", error)
+        } finally {
+            setIsSearching(false)
+        }
+    }
+
+    const handleSelectUser = async (user: any) => {
+        const targetUserId = user.contactUserId || user.id
+        const targetName = user.nickname || user.fullName
+        
+        if (!currentUserId || !targetUserId) return
+
+        // 1. Tạo conversationId định danh: 1to1_minId_maxId
+        const ids = [currentUserId.toString(), targetUserId.toString()].sort()
+        const convId = `1to1_${ids[0]}_${ids[1]}`
+
+        try {
+            // 2. Đảm bảo Conversation đã tồn tại trên Node.js
+            await chatApiClient.post('/conversation', {
+                conversationId: convId,
+                participants: [currentUserId.toString(), targetUserId.toString()],
+                isGroup: false
+            })
+
+            // 3. Clear search và Navigate
+            setSearchText("")
+            setShowResults(false)
+            router.push({
+                pathname: "/chat/[id]",
+                params: {
+                    id: convId,
+                    name: targetName,
+                    recipientId: targetUserId.toString(),
+                    avatar: user.avatarUrl
+                }
+            })
+        } catch (error) {
+            console.error("Failed to start conversation", error)
+        }
+    }
 
     const renderHeaderIcons = () => {
         switch (activeTab) {
@@ -152,6 +245,55 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
 
                     {renderHeaderIcons()}
                 </View>
+
+                {/* Search Results Dropdown */}
+                {showResults && (
+                    <View style={styles.resultsContainer}>
+                        {isSearching ? (
+                            <View style={styles.centerItem}>
+                                <ActivityIndicator size="small" color={ZaloColors.blue} />
+                                <Text style={styles.subText}>Đang tìm kiếm...</Text>
+                            </View>
+                        ) : searchResults.length > 0 ? (
+                            <FlatList
+                                data={searchResults}
+                                keyExtractor={(item, index) => index.toString()}
+                                scrollEnabled={true}
+                                keyboardShouldPersistTaps="handled"
+                                renderItem={({ item }) => (
+                                    <TouchableOpacity 
+                                        style={styles.resultItem}
+                                        onPress={() => handleSelectUser(item)}
+                                    >
+                                        <View style={styles.avatarMini}>
+                                            {item.avatarUrl ? (
+                                                <Image source={{ uri: item.avatarUrl }} style={styles.avatarImg} />
+                                            ) : (
+                                                <Ionicons name="person" size={20} color="#888" />
+                                            )}
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                <Text style={styles.resultName}>{item.nickname || item.fullName}</Text>
+                                                {item.isFriend && (
+                                                    <View style={styles.friendTag}>
+                                                        <Text style={styles.friendTagText}>Bạn bè</Text>
+                                                    </View>
+                                                )}
+                                            </View>
+                                            <Text style={styles.resultPhone}>{item.phone}</Text>
+                                        </View>
+                                        <Ionicons name="chatbubble-outline" size={20} color={ZaloColors.blue} />
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        ) : (
+                            <View style={styles.centerItem}>
+                                <Text style={styles.subText}>Không tìm thấy kết quả</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
             </View>
 
             <Modal visible={showMenu} animationType="slide" transparent={true}>
@@ -197,3 +339,75 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         </>
     )
 }
+
+const styles = StyleSheet.create({
+    resultsContainer: {
+        position: 'absolute',
+        top: 56, // Ngay dưới thanh search
+        left: 12,
+        right: 12,
+        backgroundColor: '#fff',
+        borderRadius: 8,
+        maxHeight: 300,
+        elevation: 5,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        zIndex: 1000,
+        overflow: 'hidden'
+    },
+    resultItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        borderBottomWidth: 0.5,
+        borderBottomColor: '#eee',
+    },
+    avatarMini: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#f0f0f0',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+        overflow: 'hidden'
+    },
+    avatarImg: {
+        width: 40,
+        height: 40,
+    },
+    resultName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: '#000',
+    },
+    resultPhone: {
+        fontSize: 13,
+        color: '#666',
+        marginTop: 2,
+    },
+    friendTag: {
+        backgroundColor: '#e1f5fe',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        marginLeft: 8,
+    },
+    friendTagText: {
+        fontSize: 10,
+        color: '#0288d1',
+        fontWeight: '700',
+    },
+    centerItem: {
+        padding: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    subText: {
+        fontSize: 14,
+        color: '#888',
+        marginTop: 8,
+    }
+});

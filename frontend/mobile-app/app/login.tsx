@@ -7,9 +7,11 @@ import { Ionicons } from "@expo/vector-icons"
 import { ZaloColors } from "@/constants/zalo"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import apiClient from "@/constants/api"
+import { useSocket } from "@/contexts/SocketContext"
 
 export default function LoginScreen() {
     const router = useRouter()
+    const { refreshUser } = useSocket()
     const [phone, setPhone] = useState("")
     const [password, setPassword] = useState("")
     const [isLoading, setIsLoading] = useState(false)
@@ -26,6 +28,19 @@ export default function LoginScreen() {
             const data = response.data.data; // Server trả về ApiResponse.success(data) -> data.data
             await AsyncStorage.setItem("accessToken", data.accessToken);
             await AsyncStorage.setItem("refreshToken", data.refreshToken);
+            
+            // Xac dinh UserId ngay sau khi dang nhap
+            try {
+                const profileRes = await apiClient.get('/users/profile', {
+                    headers: { Authorization: `Bearer ${data.accessToken}` }
+                });
+                if (profileRes.data?.data?.id) {
+                    await AsyncStorage.setItem("userId", profileRes.data.data.id.toString());
+                    await refreshUser(); // Cập nhật lại Identity cho Socket và Chat
+                }
+            } catch (err) {
+                console.log("Failed to fetch user profile upon login", err);
+            }
             
             router.replace("/(tabs)")
         } catch (error: any) {
