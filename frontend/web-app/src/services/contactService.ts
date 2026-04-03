@@ -81,4 +81,45 @@ export const contactService = {
     });
     return response.data.data.url;
   },
+
+  // ================= FRIEND REQUEST =================
+  sendFriendRequest: async (phone: string, message?: string) => {
+    const response = await axios.post<ApiResponse<FriendRequestResponse>>('/contacts/requests', { phone, message });
+    return response.data;
+  },
+
+  getPendingRequests: async (page = 0, size = 20) => {
+    const response = await axios.get<ApiResponse<PageResponse<FriendRequestResponse>>>(`/contacts/requests/pending?page=${page}&size=${size}`);
+    return response.data.data;
+  },
+
+  getSentRequests: async (page = 0, size = 20) => {
+    const response = await axios.get<ApiResponse<PageResponse<FriendRequestResponse>>>(`/contacts/requests/sent?page=${page}&size=${size}`);
+    return response.data.data;
+  },
+
+  acceptFriendRequest: async (requestId: number) => {
+    const response = await axios.post<ApiResponse<any>>(`/contacts/requests/${requestId}/accept`);
+    return response.data;
+  },
+
+  rejectFriendRequest: async (requestId: number) => {
+    const response = await axios.post<ApiResponse<any>>(`/contacts/requests/${requestId}/reject`);
+    return response.data;
+  },
+
+  cancelFriendRequest: async (requestId: number) => {
+    const response = await axios.delete<ApiResponse<any>>(`/contacts/requests/${requestId}/cancel`);
+    return response.data;
+  }
 };
+
+export interface FriendRequestResponse {
+  id: number;
+  sender: UserResponse;
+  receiver: UserResponse;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}

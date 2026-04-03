@@ -37,9 +37,9 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
 
   const handleAddFriend = async (phone: string, fullName: string) => {
     try {
-      await contactService.addContact(phone, undefined);
-      setSuccessMsg(`Đã thêm ${fullName} vào danh bạ!`);
-      onUserAdded(); // reload contacts in background
+      await contactService.sendFriendRequest(phone, 'Xin chào, mình muốn kết bạn với bạn!');
+      setSuccessMsg(`Đã gửi lời mời kết bạn đến ${fullName}!`);
+      // onUserAdded(); // Mới chỉ gửi request, chưa thể hiện ở danh bạ ngay, không cần reload ngay
       setTimeout(() => {
         onClose();
         setSuccessMsg('');
@@ -47,7 +47,7 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
         setQuery('');
       }, 1500);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.response?.data?.detail || 'Không thể thêm liên hệ');
+      setError(err.response?.data?.message || err.response?.data?.detail || 'Không thể gửi lời mời');
     }
   };
 

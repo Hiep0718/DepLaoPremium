@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserPlus, Users, UserCheck, Mail, MoreHorizontal } from 'lucide-react';
-import { contactService, type ContactResponse } from '../services/contactService';
+import { contactService, type ContactResponse, type FriendRequestResponse } from '../services/contactService';
 import { useChatStore } from '../stores/chatStore';
 import SearchUserModal from './SearchUserModal';
 
 const ContactListPanel = () => {
   const [contacts, setContacts] = useState<ContactResponse[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<FriendRequestResponse[]>([]);
+  const [sentRequests, setSentRequests] = useState<FriendRequestResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [invitesLoading, setInvitesLoading] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<'friends' | 'groups' | 'invites'>('friends');
   const setActiveConversation = useChatStore((state) => state.setActiveConversation);
   const navigate = useNavigate();
 
   const fetchContacts = async () => {
+    setLoading(true);
     try {
       const pageResponse = await contactService.getContacts(0, 50);
       setContacts(pageResponse.content);
@@ -24,7 +28,51 @@ const ContactListPanel = () => {
     }
   };
 
+  const fetchFriendRequests = async () => {
+    setInvitesLoading(true);
+    try {
+      const [pendingRes, sentRes] = await Promise.all([
+        contactService.getPendingRequests(0, 50),
+        contactService.getSentRequests(0, 50)
+      ]);
+      setPendingRequests(pendingRes.content);
+      setSentRequests(sentRes.content);
+    } catch (err) {
+      console.error("Failed to load friend requests", err);
+    } finally {
+      setInvitesLoading(false);
+    }
+  };
+
   useEffect(() => { fetchContacts(); }, []);
+
+  useEffect(() => {
+    if (activeMenu === 'invites') {
+      fetchFriendRequests();
+    }
+  }, [activeMenu]);
+
+  const handleAcceptRequest = async (id: number) => {
+    try {
+      await contactService.acceptFriendRequest(id);
+      fetchFriendRequests();
+      fetchContacts();
+    } catch(err) { console.error(err); }
+  };
+
+  const handleRejectRequest = async (id: number) => {
+    try {
+      await contactService.rejectFriendRequest(id);
+      fetchFriendRequests();
+    } catch(err) { console.error(err); }
+  };
+
+  const handleCancelRequest = async (id: number) => {
+    try {
+      await contactService.cancelFriendRequest(id);
+      fetchFriendRequests();
+    } catch(err) { console.error(err); }
+  };
 
   const handleContactClick = (contact: ContactResponse) => {
     setActiveConversation({
@@ -169,9 +217,91 @@ const ContactListPanel = () => {
                 </div>
               ))
             )
+          ) : activeMenu === 'invites' ? (
+            <div className="p-6">
+              {invitesLoading ? (
+                <div className="text-sm text-center py-4 text-gray-500">Đang tải...</div>
+              ) : (
+                <div className="space-y-8">
+                  {/* Lời mời đã nhận */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+                      Lời mời đã nhận ({pendingRequests.length})
+                    </h3>
+                    {pendingRequests.length === 0 ? (
+                      <div className="text-sm text-gray-500">Bạn không có lời mời nào.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingRequests.map(req => (
+                          <div key={req.id} className="p-4 rounded-xl flex items-start gap-4" style={{ background: 'var(--bg-search)' }}>
+                            <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-blue-500 text-white flex items-center justify-center font-bold">
+                              {req.sender.avatarUrl ? (
+                                <img src={req.sender.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : req.sender.fullName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{req.sender.fullName}</h4>
+                              <p className="text-xs text-gray-500 mt-1">{req.sender.phone}</p>
+                              {req.message && <p className="text-sm mt-2 italic" style={{ color: 'var(--text-secondary)' }}>"{req.message}"</p>}
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  onClick={() => handleAcceptRequest(req.id)}
+                                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+                                >
+                                  Chấp nhận
+                                </button>
+                                <button
+                                  onClick={() => handleRejectRequest(req.id)}
+                                  className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm font-medium rounded-lg transition-colors"
+                                  style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                                >
+                                  Từ chối
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lời mời đã gửi */}
+                  <div>
+                    <h3 className="text-sm font-semibold mb-4 border-t pt-6 border-gray-200" style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}>
+                      Lời mời đã gửi ({sentRequests.length})
+                    </h3>
+                    {sentRequests.length === 0 ? (
+                      <div className="text-sm text-gray-500">Bạn chưa gửi lời mời nào.</div>
+                    ) : (
+                      <div className="space-y-3">
+                        {sentRequests.map(req => (
+                          <div key={req.id} className="p-4 rounded-xl flex items-center gap-4" style={{ background: 'var(--bg-search)' }}>
+                            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-blue-500 text-white flex items-center justify-center font-bold">
+                              {req.receiver.avatarUrl ? (
+                                <img src={req.receiver.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : req.receiver.fullName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{req.receiver.fullName}</h4>
+                              <p className="text-xs text-gray-500 mt-1">{req.receiver.phone}</p>
+                            </div>
+                            <button
+                              onClick={() => handleCancelRequest(req.id)}
+                              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-sm font-medium rounded-lg transition-colors"
+                            >
+                              Hủy
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <div className="text-sm text-center py-8" style={{ color: 'var(--text-secondary)' }}>
-              {activeMenu === 'groups' ? 'Chưa có nhóm nào' : 'Không có lời mời'}
+              Chưa có nhóm nào
             </div>
           )}
         </div>

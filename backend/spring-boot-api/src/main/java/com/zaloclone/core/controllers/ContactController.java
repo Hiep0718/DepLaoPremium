@@ -155,4 +155,85 @@ public class ContactController {
                     .body(ApiResponse.error("Lấy số lượng contact thất bại: " + e.getMessage()));
         }
     }
+
+    // ================= FRIEND REQUEST ENDPOINTS =================
+
+    @PostMapping(value = "/requests", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> sendFriendRequest(@Valid @RequestBody SendFriendRequestRequest request) {
+        try {
+            var sender = authorizationUtil.getCurrentUser();
+            FriendRequestResponse res = contactService.sendFriendRequest(sender, request);
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(ApiResponse.success("Đã gửi lời mời kết bạn", res));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Không thể gửi lời mời: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/requests/pending")
+    public ResponseEntity<ApiResponse<?>> getPendingRequests(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        try {
+            var receiver = authorizationUtil.getCurrentUser();
+            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<FriendRequestResponse> requests = contactService.getPendingRequests(receiver, pageable);
+            return ResponseEntity.ok(ApiResponse.success("Lấy danh sách lời mời thành công", PageResponse.from(requests)));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi lấy danh sách lời mời: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/requests/sent")
+    public ResponseEntity<ApiResponse<?>> getSentRequests(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        try {
+            var sender = authorizationUtil.getCurrentUser();
+            Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Page<FriendRequestResponse> requests = contactService.getSentRequests(sender, pageable);
+            return ResponseEntity.ok(ApiResponse.success("Lấy danh sách lời mời đã gửi thành công", PageResponse.from(requests)));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi lấy danh sách lời mời đã gửi: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/requests/{requestId}/accept")
+    public ResponseEntity<ApiResponse<?>> acceptFriendRequest(@PathVariable Long requestId) {
+        try {
+            var receiver = authorizationUtil.getCurrentUser();
+            contactService.acceptFriendRequest(receiver, requestId);
+            return ResponseEntity.ok(ApiResponse.success("Đã chấp nhận lời mời", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/requests/{requestId}/reject")
+    public ResponseEntity<ApiResponse<?>> rejectFriendRequest(@PathVariable Long requestId) {
+        try {
+            var receiver = authorizationUtil.getCurrentUser();
+            contactService.rejectFriendRequest(receiver, requestId);
+            return ResponseEntity.ok(ApiResponse.success("Đã từ chối lời mời", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/requests/{requestId}/cancel")
+    public ResponseEntity<ApiResponse<?>> cancelFriendRequest(@PathVariable Long requestId) {
+        try {
+            var sender = authorizationUtil.getCurrentUser();
+            contactService.cancelFriendRequest(sender, requestId);
+            return ResponseEntity.ok(ApiResponse.success("Đã hủy lời mời kết bạn", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Lỗi: " + e.getMessage()));
+        }
+    }
 }
