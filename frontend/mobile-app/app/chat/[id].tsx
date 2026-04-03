@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Alert, Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
+import apiClient from '@/constants/api';
 
 // ─── Trạng thái tin nhắn ──────────────────────────────────────────────────────
 // pending  → đang gửi (chưa đến server)
@@ -24,6 +26,7 @@ interface Message {
   senderId: string;
   recipientId: string;
   content: string;
+  imageUrl?: string;   // ← thêm field ảnh
   createdAt?: string;
   status: MessageStatus;
 }
@@ -59,6 +62,7 @@ function MessageTick({ status }: { status: MessageStatus }) {
 
 export default function ChatScreen() {
   const router = useRouter();
+
   const { id, name, recipientId, avatar } = useLocalSearchParams<{
     id: string;
     name: string;
@@ -254,11 +258,64 @@ export default function ChatScreen() {
     socket.emit('typing', { conversationId: id, userId: currentUserId, isTyping: false });
   }, [text, socket, currentUserId, id, recipientId]);
 
-  // ─── Render mỗi tin nhắn ──────────────────────────────────────────────────
+  // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const handlePickImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Quyền truy cập', 'Cần cấp quyền truy cập Thư viện ảnh');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      setPendingImage(result.assets[0].uri);
+    }
+  };
+
+  const handleSendImage = async () => {
+    if (!pendingImage || !socket || !currentUserId) return;
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', { uri: pendingImage, name: `chat-${Date.now()}.jpg`, type: 'image/jpeg' } as any);
+      const res = await apiClient.post('/upload/avatar', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const imageUrl: string = res.data?.data?.url;
+      if (imageUrl) {
+        const tempMsg: Message = {
+          _id: `pending-img-${Date.now()}`,
+          senderId: currentUserId,
+          recipientId: recipientId as string,
+          content: '[Hình ảnh]',
+          imageUrl,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        };
+        setMessages(prev => [tempMsg, ...prev]);
+        socket.emit('send_message', { conversationId: id, senderId: currentUserId, recipientId, text: imageUrl, type: 'image' });
+      } else {
+        Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
+      }
+    } catch {
+      Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
+    } finally {
+      setUploadingImage(false);
+      setPendingImage(null);
+    }
+  };
+
+  // ─── Render mỗi tin nhắn ──────────────────────────────────────────
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = String(item.senderId) === String(currentUserId);
-    // Chỉ hiện avatar "đã xem" dưới tin mới nhất mà đối phương đã xem
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
+    const isImage = item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content));
+    const imgSrc = item.imageUrl || item.content;
 
     return (
       <View>
@@ -277,13 +334,17 @@ export default function ChatScreen() {
           )}
 
           <View style={{ flex: 1, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-            <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
-              <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
-                {item.content}
-              </Text>
-            </View>
-
-            {/* Tick trạng thái chỉ hiện dưới tin của mình */}
+            {isImage ? (
+              <TouchableOpacity activeOpacity={0.9}>
+                <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
+              </TouchableOpacity>
+            ) : (
+              <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
+                  {item.content}
+                </Text>
+              </View>
+            )}
             {isMine && (
               <View style={styles.statusRow}>
                 <MessageTick status={item.status} />
@@ -310,7 +371,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style="light" backgroundColor={ZaloColors.blue} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -381,13 +442,42 @@ export default function ChatScreen() {
               <TouchableOpacity style={styles.iconBtn}>
                 <Ionicons name="mic-outline" size={26} color="#666" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn}>
+              <TouchableOpacity style={styles.iconBtn} onPress={handlePickImage}>
                 <Ionicons name="image-outline" size={26} color="#666" />
               </TouchableOpacity>
             </View>
           )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* Modal preview ảnh trước khi gửi */}
+      <Modal visible={!!pendingImage} transparent animationType="fade">
+        <View style={styles.previewOverlay}>
+          <View style={styles.previewBox}>
+            {pendingImage && (
+              <Image source={{ uri: pendingImage }} style={styles.previewImage} resizeMode="contain" />
+            )}
+            <View style={styles.previewActions}>
+              <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingImage(null)}>
+                <Ionicons name="close" size={22} color="#fff" />
+                <Text style={styles.previewBtnText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.previewBtn, styles.previewSendBtn, uploadingImage && { opacity: 0.6 }]}
+                onPress={handleSendImage}
+                disabled={uploadingImage}
+              >
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="send" size={20} color="#fff" />
+                )}
+                <Text style={styles.previewBtnText}>Gửi</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -445,6 +535,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center',
   },
 
+  msgImage: {
+    width: SCREEN_WIDTH * 0.65,
+    height: SCREEN_WIDTH * 0.5,
+    borderRadius: 12,
+    marginBottom: 2,
+  },
+
   inputArea: {
     flexDirection: 'row', alignItems: 'flex-end',
     backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 8,
@@ -458,4 +555,20 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 8, justifyContent: 'center', alignItems: 'center' },
   sendBtn: { padding: 8, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
+
+  // Modal preview ảnh
+  previewOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  previewBox: { width: '90%', alignItems: 'center' },
+  previewImage: { width: '100%', height: 320, borderRadius: 12, marginBottom: 24 },
+  previewActions: { flexDirection: 'row', gap: 16 },
+  previewBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 12, paddingHorizontal: 24,
+    borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  previewSendBtn: { backgroundColor: ZaloColors.blue },
+  previewBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 });
