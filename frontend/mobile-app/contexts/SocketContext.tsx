@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SOCKET_URL, chatApiClient } from '../constants/chatApi';
+import { SOCKET_URL } from '../constants/chatApi';
 
 interface SocketContextData {
   socket: Socket | null;
@@ -26,89 +26,102 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isConnected, setIsConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
+
+  const initSocket = async () => {
+    // Tránh tạo nhiều socket instance
+    if (socketRef.current?.connected) return;
+
+    const token = await AsyncStorage.getItem('accessToken');
+    if (!token) return;
+
+    const storedUserId = await AsyncStorage.getItem('userId');
+
+    // === FIX: Cập nhật currentUserId vào state ngay khi lấy được
+    if (storedUserId) {
+      setCurrentUserId(storedUserId);
+    }
+
+    const newSocket = io(SOCKET_URL, {
+      transports: ['websocket'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    });
+
+    newSocket.on('connect', () => {
+      console.log('✅ Connected to WebSocket Server');
+      setIsConnected(true);
+
+      // === FIX: Emit user_join ngay khi kết nối thành công với userId đã có sẵn
+      const userId = storedUserId;
+      if (userId) {
+        newSocket.emit('user_join', userId);
+        console.log(`✅ user_join emitted for userId: ${userId}`);
+      }
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('❌ Disconnected from WebSocket Server');
+      setIsConnected(false);
+    });
+
+    // === FIX: Tự động reconnect và emit user_join lại khi socket reconnect
+    newSocket.on('reconnect', () => {
+      console.log('🔄 Reconnected to WebSocket Server');
+      const userId = storedUserId;
+      if (userId) {
+        newSocket.emit('user_join', userId);
+      }
+    });
+
+    newSocket.on('user_online', (data: { userId: string; status: string }) => {
+      setOnlineUsers(prev => {
+        if (!prev.includes(data.userId)) return [...prev, data.userId];
+        return prev;
+      });
+    });
+
+    newSocket.on('user_offline', (data: { userId: string; status: string }) => {
+      setOnlineUsers(prev => prev.filter(id => id !== data.userId));
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+  };
 
   useEffect(() => {
-    let newSocket: Socket;
-
-    const initSocket = async () => {
-      try {
-        const token = await AsyncStorage.getItem('accessToken');
-        if (!token) return;
-
-        // Fetch User Info using chatApiClient or simply from api.ts
-        // Wait, Node.js backend might not provide /users/profile. 
-        // We can just decode JWT manually if we have polyfills, or we can assume the user logs in and we save their ID in AsyncStorage.
-        // For right now, let's just create the socket.
-        const storedUserId = await AsyncStorage.getItem('userId');
-        
-        let userId = storedUserId;
-        if (!userId) {
-            // Need to get user profile from Spring Boot to know our ID since Socket requires "user_join", userId
-            // We'll leave it simple: The app should save 'userId' on Login. 
-            // If missing, we'll try to reconnect later.
-             console.log("No UserID found for Socket. Join might fail.");
-        } else {
-             setCurrentUserId(userId);
-        }
-
-        newSocket = io(SOCKET_URL, {
-          transports: ['websocket'],
-          reconnectionAttempts: 5,
-        });
-
-        newSocket.on('connect', () => {
-          console.log('✅ Connected to WebSocket Server');
-          setIsConnected(true);
-          
-          if (userId) {
-              newSocket.emit('user_join', userId);
-          }
-        });
-
-        newSocket.on('disconnect', () => {
-          console.log('❌ Disconnected from WebSocket Server');
-          setIsConnected(false);
-        });
-
-        newSocket.on('user_online', (data: { userId: string, status: string }) => {
-            setOnlineUsers(prev => {
-                if (!prev.includes(data.userId)) {
-                    return [...prev, data.userId];
-                }
-                return prev;
-            });
-        });
-
-        newSocket.on('user_offline', (data: { userId: string, status: string }) => {
-            setOnlineUsers(prev => prev.filter(id => id !== data.userId));
-        });
-
-        setSocket(newSocket);
-      } catch (error) {
-        console.error('Socket init error:', error);
-      }
-    };
-
     initSocket();
 
     return () => {
-      if (newSocket) {
-        newSocket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
       }
     };
   }, []);
 
+  // refreshUser: Gọi sau khi đăng nhập để sync lại userId và Socket
+  const refreshUser = async () => {
+    const token = await AsyncStorage.getItem('accessToken');
+    if (!token) return;
+
+    const userId = await AsyncStorage.getItem('userId');
+    if (userId) {
+      setCurrentUserId(userId);
+
+      // Nếu socket đã kết nối, emit user_join với userId mới
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('user_join', userId);
+        console.log(`🔄 refreshUser: user_join emitted for userId: ${userId}`);
+      } else {
+        // Socket chưa kết nối → khởi động lại toàn bộ
+        await initSocket();
+      }
+    }
+  };
+
   return (
-    <SocketContext.Provider value={{ socket, isConnected, onlineUsers, currentUserId, refreshUser: async () => {
-        const token = await AsyncStorage.getItem('accessToken');
-        if (token) {
-            const userId = await AsyncStorage.getItem('userId');
-            if (userId) {
-                setCurrentUserId(userId);
-                if (socket) socket.emit('user_join', userId);
-            }
-        }
-    } }}>
+    <SocketContext.Provider value={{ socket, isConnected, onlineUsers, currentUserId, refreshUser }}>
       {children}
     </SocketContext.Provider>
   );
