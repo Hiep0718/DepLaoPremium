@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useChatStore } from './chatStore';
 
 const getSavedUser = (): any | null => {
   try {
@@ -34,5 +35,6 @@ export const useAuthStore = create<AuthState>((set) => ({
     sessionStorage.removeItem('refreshToken');
     sessionStorage.removeItem('user');
     set({ user: null, token: null });
+    useChatStore.getState().clearChat();
   },
 }));

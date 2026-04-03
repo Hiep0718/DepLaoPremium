@@ -35,10 +35,10 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     }
   };
 
-  const handleAddFriend = async (phone: string, nickname: string) => {
+  const handleAddFriend = async (phone: string, fullName: string) => {
     try {
-      await contactService.addContact(phone, nickname);
-      setSuccessMsg(`Đã thêm ${nickname} vào danh bạ!`);
+      await contactService.addContact(phone, undefined);
+      setSuccessMsg(`Đã thêm ${fullName} vào danh bạ!`);
       onUserAdded(); // reload contacts in background
       setTimeout(() => {
         onClose();

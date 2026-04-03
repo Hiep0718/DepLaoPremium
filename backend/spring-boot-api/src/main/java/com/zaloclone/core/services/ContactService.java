@@ -41,7 +41,7 @@ public class ContactService {
         Contact contact = Contact.builder()
                 .user(user)
                 .contactUser(contactUser)
-                .nickname(request.getNickname() != null ? request.getNickname() : contactUser.getFullName())
+                .nickname(request.getNickname() != null && !request.getNickname().trim().isEmpty() ? request.getNickname() : null)
                 .notes(request.getNotes())
                 .build();
 

@@ -37,6 +37,7 @@ interface ChatState {
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   toggleInfoPanel: () => void;
+  clearChat: () => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -51,4 +52,10 @@ export const useChatStore = create<ChatState>((set) => ({
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen })),
+  clearChat: () => set({ 
+    conversations: [], 
+    activeConversation: null, 
+    activeContactInfo: null, 
+    messages: [] 
+  }),
 }));

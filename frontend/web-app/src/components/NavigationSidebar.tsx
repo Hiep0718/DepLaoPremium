@@ -1,5 +1,6 @@
 import { MessageSquare, Users, CloudLightning, ClipboardList, Settings, LogOut, User, Moon, Sun } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
@@ -44,6 +45,7 @@ const NavigationSidebar = () => {
   }, [isSettingsOpen]);
 
   const handleLogout = () => {
+    useChatStore.getState().clearChat();
     logout();
     navigate('/login');
   };
