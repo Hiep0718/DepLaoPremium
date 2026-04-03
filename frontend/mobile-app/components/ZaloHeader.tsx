@@ -10,12 +10,12 @@ import { useSocket } from "@/contexts/SocketContext"
 import { ZaloColors } from "@/constants/zalo"
 
 const MENU_ITEMS = [
-    { id: "1", icon: "person-add", label: "Thêm bạn", color: "#0084FF" },
-    { id: "2", icon: "people", label: "Tạo nhóm", color: "#0084FF" },
-    { id: "3", icon: "document-text", label: "My Documents", color: "#FF6B35" },
-    { id: "4", icon: "calendar", label: "Lịch Zalo", color: "#FFB700" },
-    { id: "5", icon: "phone", label: "Tạo cuộc gọi nhóm", color: "#00C851" },
-    { id: "6", icon: "phone-portrait", label: "Thiết bị đăng nhập", color: "#7B68EE" },
+    { id: "1", icon: "person-add-outline", label: "Thêm bạn", color: "#666" },
+    { id: "2", icon: "people-outline", label: "Tạo nhóm", color: "#666" },
+    { id: "3", icon: "folder-outline", label: "My Documents", color: "#666" },
+    { id: "4", icon: "calendar-outline", label: "Lịch Zalo", color: "#666" },
+    { id: "5", icon: "videocam-outline", label: "Tạo cuộc gọi nhóm", color: "#666" },
+    { id: "6", icon: "desktop-outline", label: "Thiết bị đăng nhập", color: "#666" },
 ]
 
 interface ZaloHeaderProps {
@@ -50,26 +50,46 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         try {
             // 1. Tìm trong danh bạ (luôn gọi)
             const contactRes = await apiClient.get(`/contacts/search?search=${query}`)
-            const friends = contactRes.data?.data?.content || []
+            let friends = contactRes.data?.data?.content || []
             
+            const isNumeric = /^\d+$/.test(query)
+            
+            // Nếu là tìm bằng số, lọc bạn bè để sđt phải tuyệt đối đúng HOẶC tên phải chứa query
+            if (isNumeric) {
+                const qLower = query.toLowerCase()
+                friends = friends.filter((f: any) => {
+                    const name = (f.nickname || f.fullName || "").toLowerCase()
+                    return name.includes(qLower) || f.phone === query
+                })
+            }
+
             let finalResults = friends.map((f: any) => ({ ...f, isFriend: true }))
 
-            // 2. Nếu là số điện thoại, tìm trong toàn bộ User
-            const isNumeric = /^\d+$/.test(query)
-            if (isNumeric) {
-                const userRes = await apiClient.get(`/users/search?search=${query}`)
-                const globalUsers = userRes.data?.data?.content || []
+            // 2. Tìm trong toàn bộ User (Cho phép cả chữ lẫn số)
+            const userRes = await apiClient.get(`/users/search?search=${query}`)
+            const globalUsers = userRes.data?.data?.content || []
+            
+            // Lọc bỏ những người đã là bạn bè (để tránh trùng lặp)
+            const friendsIds = new Set(friends.map((f: any) => f.contactUserId?.toString() || f.id?.toString()))
+            
+            const nonFriends = globalUsers.filter((u: any) => {
+                const uid = u.id?.toString()
+                const isNotFriend = uid !== currentUserId?.toString() && !friendsIds.has(uid)
                 
-                // Lọc bỏ những người đã là bạn bè (để tránh trùng lặp)
-                const friendsIds = new Set(friends.map((f: any) => f.contactUserId?.toString() || f.id?.toString()))
-                
-                const nonFriends = globalUsers.filter((u: any) => {
-                    const uid = u.id?.toString()
-                    return uid !== currentUserId?.toString() && !friendsIds.has(uid)
-                }).map((u: any) => ({ ...u, isFriend: false }))
+                const name = (u.nickname || u.fullName || "").toLowerCase()
+                const containsInName = name.includes(query.toLowerCase())
 
-                finalResults = [...finalResults, ...nonFriends]
-            }
+                if (isNumeric) {
+                    // TÌM NGƯỜI LẠ BẰNG SĐT BẮT BUỘC PHẢI KHỚP TUYỆT ĐỐI
+                    const isExactPhone = u.phone === query
+                    return isNotFriend && (isExactPhone || containsInName)
+                } else {
+                    // Nếu là gõ tên thì tìm tương đối theo tên
+                    return isNotFriend && containsInName
+                }
+            }).map((u: any) => ({ ...u, isFriend: false }))
+
+            finalResults = [...finalResults, ...nonFriends]
 
             setSearchResults(finalResults)
         } catch (error) {
@@ -112,6 +132,12 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         } catch (error) {
             console.error("Failed to start conversation", error)
         }
+    }
+
+    const handleClearSearch = () => {
+        setSearchText("")
+        setSearchResults([])
+        setShowResults(false)
     }
 
     const renderHeaderIcons = () => {
@@ -180,27 +206,14 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         <TouchableOpacity
             style={{
                 flexDirection: "row",
-                paddingVertical: 16,
+                paddingVertical: 14,
                 paddingHorizontal: 16,
                 alignItems: "center",
-                borderBottomWidth: 1,
-                borderBottomColor: "#f0f0f0",
             }}
+            onPress={() => setShowMenu(false)}
         >
-            <View
-                style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: item.color + "15",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    marginRight: 12,
-                }}
-            >
-                <Ionicons name={item.icon as any} size={20} color={item.color} />
-            </View>
-            <Text style={{ fontSize: 16, color: "#000", fontWeight: "500" }}>{item.label}</Text>
+            <Ionicons name={item.icon as any} size={22} color={item.color} style={{ width: 32 }} />
+            <Text style={{ fontSize: 16, color: "#333", marginLeft: 4 }}>{item.label}</Text>
         </TouchableOpacity>
     )
 
@@ -242,6 +255,12 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                         value={searchText}
                         onChangeText={setSearchText}
                     />
+
+                    {searchText.length > 0 && (
+                        <TouchableOpacity onPress={handleClearSearch} style={{ padding: 2 }}>
+                            <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
+                        </TouchableOpacity>
+                    )}
 
                     {renderHeaderIcons()}
                 </View>
@@ -296,45 +315,36 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 )}
             </View>
 
-            <Modal visible={showMenu} animationType="slide" transparent={true}>
-                <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}>
+            <Modal visible={showMenu} animationType="fade" transparent={true}>
+                <TouchableOpacity 
+                    style={{ flex: 1, backgroundColor: "rgba(0,0,0,0)" }} 
+                    activeOpacity={1} 
+                    onPress={() => setShowMenu(false)}
+                >
                     <View
                         style={{
                             position: "absolute",
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
+                            top: 55, // Ngay dưới header
+                            right: 12, // Canh phải
                             backgroundColor: "#fff",
-                            borderTopLeftRadius: 16,
-                            borderTopRightRadius: 16,
-                            maxHeight: "70%",
+                            borderRadius: 4,
+                            width: 220,
+                            elevation: 5,
+                            shadowColor: "#000",
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3.84,
+                            paddingVertical: 4,
                         }}
                     >
-                        <View
-                            style={{
-                                flexDirection: "row",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                paddingHorizontal: 16,
-                                paddingVertical: 12,
-                                borderBottomWidth: 1,
-                                borderBottomColor: "#f0f0f0",
-                            }}
-                        >
-                            <Text style={{ fontSize: 18, fontWeight: "600", color: "#000" }}>Menu</Text>
-                            <TouchableOpacity onPress={() => setShowMenu(false)}>
-                                <Ionicons name="close" size={24} color="#000" />
-                            </TouchableOpacity>
-                        </View>
-
                         <FlatList
                             data={MENU_ITEMS}
                             renderItem={renderMenuItem}
                             keyExtractor={(item) => item.id}
-                            scrollEnabled={true}
+                            scrollEnabled={false}
                         />
                     </View>
-                </View>
+                </TouchableOpacity>
             </Modal>
         </>
     )

@@ -1,5 +1,6 @@
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform } from "react-native"
+import { View, TouchableOpacity, Text, StyleSheet, Dimensions, Platform, Keyboard } from "react-native"
 import Ionicons from "@expo/vector-icons/Ionicons"
+import { useState, useEffect } from "react"
 
 const ZALO_BLUE = "#0068FF"
 const INACTIVE_GRAY = "#8E8E93"
@@ -28,9 +29,29 @@ interface ZaloBottomNavProps {
 }
 
 export default function ZaloBottomNav({ onTabChange, activeTab = "messages" }: ZaloBottomNavProps) {
+    const [isKeyboardVisible, setKeyboardVisible] = useState(false)
+
+    useEffect(() => {
+        const keyboardDidShowListener = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+            () => setKeyboardVisible(true)
+        )
+        const keyboardDidHideListener = Keyboard.addListener(
+            Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+            () => setKeyboardVisible(false)
+        )
+
+        return () => {
+            keyboardDidHideListener.remove()
+            keyboardDidShowListener.remove()
+        }
+    }, [])
+
     const handleTabPress = (tabId: string) => {
         onTabChange?.(tabId)
     }
+
+    if (isKeyboardVisible) return null
 
     return (
         <View style={styles.container}>

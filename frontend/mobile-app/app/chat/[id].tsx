@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -276,7 +276,7 @@ export default function ChatScreen() {
             </View>
           )}
 
-          <View style={{ alignItems: isMine ? 'flex-end' : 'flex-start' }}>
+          <View style={{ flex: 1, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
             <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
               <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
                 {item.content}
@@ -392,6 +392,8 @@ export default function ChatScreen() {
   );
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#e2e9f1' },
   header: {
@@ -422,7 +424,7 @@ const styles = StyleSheet.create({
   },
 
   msgBubble: {
-    maxWidth: '75%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16,
+    maxWidth: SCREEN_WIDTH * 0.75, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16,
   },
   myMsgBubble: { backgroundColor: '#cce5ff', borderTopRightRadius: 4 },
   theirMsgBubble: { backgroundColor: '#fff', borderTopLeftRadius: 4 },
