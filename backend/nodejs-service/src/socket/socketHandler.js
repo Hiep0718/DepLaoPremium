@@ -1,8 +1,23 @@
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
+import crypto from 'crypto';
 
 // Store active users: userId -> socketId
 const activeUsers = new Map();
+
+// Store QR login sessions: sessionId -> { webSocketId, status, createdAt, ... }
+const qrSessions = new Map();
+const QR_SESSION_TTL = 180000; // 3 minutes in ms
+
+// Cleanup expired QR sessions every 30 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, session] of qrSessions) {
+    if (now - session.createdAt > QR_SESSION_TTL) {
+      qrSessions.delete(sessionId);
+    }
+  }
+}, 30000);
 
 const setupSocketEvents = (io) => {
   io.on('connection', (socket) => {
@@ -126,8 +141,108 @@ const setupSocketEvents = (io) => {
       console.log(`[Socket] User left conversation: ${conversationId}`);
     });
 
+    // ═══════════════════ QR LOGIN EVENTS ═══════════════════
+
+    // Web requests a new QR login session
+    socket.on('qr_login_init', () => {
+      const sessionId = crypto.randomUUID();
+      const qrData = JSON.stringify({
+        type: 'qr_login',
+        sessionId,
+        timestamp: Date.now(),
+        app: 'deplao',
+      });
+
+      qrSessions.set(sessionId, {
+        webSocketId: socket.id,
+        status: 'pending',
+        createdAt: Date.now(),
+      });
+
+      socket.join(`qr_${sessionId}`);
+
+      socket.emit('qr_login_session', { sessionId, qrData });
+      console.log(`[QR Login] Session created: ${sessionId} for socket ${socket.id}`);
+    });
+
+    // Mobile scans the QR code
+    socket.on('qr_login_scan', (data) => {
+      const { sessionId, userId } = data;
+      const session = qrSessions.get(sessionId);
+
+      if (!session) {
+        socket.emit('qr_login_error', { message: 'Session không tồn tại hoặc đã hết hạn' });
+        return;
+      }
+
+      if (session.status !== 'pending') {
+        socket.emit('qr_login_error', { message: 'Session đã được quét rồi' });
+        return;
+      }
+
+      // Check TTL
+      if (Date.now() - session.createdAt > QR_SESSION_TTL) {
+        qrSessions.delete(sessionId);
+        socket.emit('qr_login_error', { message: 'Mã QR đã hết hạn' });
+        return;
+      }
+
+      session.status = 'scanned';
+      session.scannedByUserId = userId;
+      session.mobileSocketId = socket.id;
+
+      // Notify web that QR has been scanned
+      io.to(session.webSocketId).emit('qr_login_scanned', { sessionId });
+      console.log(`[QR Login] Session ${sessionId} scanned by user ${userId}`);
+    });
+
+    // Mobile confirms login (sends tokens for web)
+    socket.on('qr_login_confirm', (data) => {
+      const { sessionId, accessToken, refreshToken, user } = data;
+      const session = qrSessions.get(sessionId);
+
+      if (!session || session.status !== 'scanned') {
+        socket.emit('qr_login_error', { message: 'Session không hợp lệ' });
+        return;
+      }
+
+      session.status = 'confirmed';
+
+      // Send tokens to web client
+      io.to(session.webSocketId).emit('qr_login_confirmed', {
+        sessionId,
+        accessToken,
+        refreshToken,
+        user,
+      });
+
+      console.log(`[QR Login] Session ${sessionId} confirmed. Web client will login.`);
+      
+      // Cleanup session
+      qrSessions.delete(sessionId);
+    });
+
+    // Web cancels QR session (expired or navigated away)
+    socket.on('qr_login_cancel', (data) => {
+      const { sessionId } = data;
+      if (qrSessions.has(sessionId)) {
+        qrSessions.delete(sessionId);
+        console.log(`[QR Login] Session ${sessionId} cancelled`);
+      }
+    });
+
+    // ═══════════════════ END QR LOGIN ═══════════════════
+
     // User disconnects
     socket.on('disconnect', () => {
+      // Cleanup any QR sessions owned by this web socket
+      for (const [sessionId, session] of qrSessions) {
+        if (session.webSocketId === socket.id) {
+          qrSessions.delete(sessionId);
+          console.log(`[QR Login] Session ${sessionId} cleaned up (web disconnected)`);
+        }
+      }
+
       if (socket.userId) {
         activeUsers.delete(socket.userId);
 
