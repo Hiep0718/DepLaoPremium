@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users } from 'lucide-react';
+import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
 
@@ -21,6 +21,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const setUser = useAuthStore(state => state.setUser);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -149,6 +153,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
           </button>
         </div>
 
+        {/* Cấu trúc đổi luồng Update Password hoặc Edit Profile */}
         <div className="overflow-y-auto max-h-[80vh]">
           {/* Cover Photo */}
           <div className="h-44 relative cursor-pointer group"
@@ -259,8 +264,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
             </p>
           </div>
 
-          {/* Edit Form */}
-          {isEditing && (
+          {/* Edit Profile Form */}
+          {isEditing && !isEditingPassword && (
             <form onSubmit={handleSave} className="px-4 pb-4 space-y-3"
               style={{ borderTop: '1px solid var(--border-primary)', paddingTop: '16px' }}>
 
@@ -300,19 +305,96 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                 <Save size={16} />
                 {loading ? 'Đang lưu...' : 'Cập nhật'}
               </button>
+              <button type="button" onClick={() => setIsEditing(false)}
+                className="w-full text-xs font-semibold py-2 transition-colors mt-1 hover:underline"
+                style={{ color: 'var(--text-secondary)' }}>
+                Hủy
+              </button>
+            </form>
+          )}
+
+          {/* Edit Password Form */}
+          {isEditingPassword && (
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (newPassword !== confirmPassword) {
+                setError('Xác nhận mật khẩu mới không khớp!');
+                return;
+              }
+              if (!oldPassword || !newPassword) {
+                setError('Vui lòng nhập đủ các trường mật khẩu!');
+                return;
+              }
+              setLoading(true); setError(''); setSuccess('');
+              try {
+                const { data } = await import('../services/axios').then(m => m.default).then(axios => axios.put('/users/password', { oldPassword, newPassword }));
+                if (data.success) {
+                  setSuccess('Cập nhật mật khẩu thành công!');
+                  setIsEditingPassword(false);
+                  setOldPassword(''); setNewPassword(''); setConfirmPassword('');
+                  setTimeout(() => setSuccess(''), 2000);
+                } else {
+                  setError(data.message || 'Có lỗi xảy ra');
+                }
+              } catch (err: any) {
+                setError(err?.response?.data?.message || 'Có lỗi xảy ra');
+              } finally {
+                setLoading(false);
+              }
+            }} className="px-4 pb-4 space-y-3"
+              style={{ borderTop: '1px solid var(--border-primary)', paddingTop: '16px' }}>
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Mật khẩu hiện tại</label>
+                <input type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Mật khẩu mới</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Xác nhận mật khẩu mới</label>
+                <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
+              </div>
+              <button type="submit" disabled={loading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-60 mt-2"
+                style={{ background: '#0068FF' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = '#0055D4'}
+                onMouseLeave={(e) => e.currentTarget.style.background = '#0068FF'}>
+                <Lock size={16} />
+                {loading ? 'Đang đổi mật khẩu...' : 'Xác nhận Đổi mật khẩu'}
+              </button>
+              <button type="button" onClick={() => { setIsEditingPassword(false); setError(''); setOldPassword(''); setNewPassword(''); setConfirmPassword(''); }}
+                className="w-full text-xs font-semibold py-2 transition-colors mt-1 hover:underline"
+                style={{ color: 'var(--text-secondary)' }}>
+                Hủy
+              </button>
             </form>
           )}
 
           {/* Bottom: edit button if not editing */}
-          {!isEditing && (
-            <div className="px-4 pb-4">
+          {!isEditing && !isEditingPassword && (
+            <div className="px-4 pb-4 flex flex-col gap-2">
               <button onClick={() => setIsEditing(true)}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors"
                 style={{ border: '1px solid var(--border-primary)', color: 'var(--text-primary)' }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                 <Pencil size={14} />
-                Cập nhật
+                Cập nhật Hồ sơ
+              </button>
+              <button onClick={() => { setIsEditingPassword(true); setError(''); setSuccess(''); }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors"
+                style={{ border: '1px solid var(--border-primary)', color: '#FF4D4F' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <Lock size={14} />
+                Đổi mật khẩu
               </button>
             </div>
           )}

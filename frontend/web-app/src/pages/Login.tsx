@@ -1,61 +1,133 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from '../services/axios';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
 import { contactService } from '../services/contactService';
-import { Phone, Lock, RefreshCw, ChevronRight, Smartphone } from 'lucide-react';
+import { connectQRSocket, disconnectQRSocket } from '../services/socket';
+import { QRCodeSVG } from 'qrcode.react';
+import { Phone, Lock, RefreshCw, ChevronRight, Smartphone, CheckCircle, Loader2 } from 'lucide-react';
+import type { Socket } from 'socket.io-client';
 
-type LoginMode = 'qr' | 'password';
-
-/* ─── QR SVG placeholder — swap with qrcode.react in production ─── */
-const QRSvg = () => (
-  <svg viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-    <rect width="160" height="160" fill="white" />
-    {/* TL finder */}
-    <rect x="8" y="8" width="44" height="44" rx="5" fill="none" stroke="#111" strokeWidth="5" />
-    <rect x="16" y="16" width="28" height="28" rx="3" fill="#111" />
-    {/* TR finder */}
-    <rect x="108" y="8" width="44" height="44" rx="5" fill="none" stroke="#111" strokeWidth="5" />
-    <rect x="116" y="16" width="28" height="28" rx="3" fill="#111" />
-    {/* BL finder */}
-    <rect x="8" y="108" width="44" height="44" rx="5" fill="none" stroke="#111" strokeWidth="5" />
-    <rect x="16" y="116" width="28" height="28" rx="3" fill="#111" />
-    {/* Data modules */}
-    {[
-      [64, 8], [72, 8], [80, 8], [64, 16], [80, 16], [72, 24], [64, 32], [72, 32], [80, 32], [88, 8], [96, 8], [88, 24], [96, 32], [88, 40], [96, 40],
-      [64, 64], [72, 64], [80, 64], [88, 64], [96, 64], [104, 64], [112, 64], [64, 72], [72, 80], [80, 72], [88, 80], [96, 72], [104, 80], [112, 72],
-      [64, 88], [80, 88], [96, 88], [112, 88], [64, 96], [72, 96], [88, 96], [104, 96], [64, 104], [80, 104], [96, 104], [112, 104],
-      [64, 112], [72, 112], [80, 120], [88, 112], [96, 120], [104, 112], [112, 120], [64, 128], [80, 128], [96, 128], [112, 128],
-      [8, 64], [16, 64], [24, 64], [32, 64], [40, 64], [8, 72], [24, 72], [40, 72], [8, 80], [16, 80], [32, 80], [8, 88], [24, 88], [40, 88],
-      [16, 96], [32, 96], [8, 104], [24, 104], [40, 104], [8, 112], [16, 112], [8, 120], [24, 120], [40, 120], [8, 128], [16, 128], [32, 128], [40, 128],
-      [8, 136], [24, 136], [8, 144], [16, 144], [32, 144], [40, 144]
-    ].map(([x, y], i) => (
-      <rect key={i} x={x} y={y} width="7" height="7" rx="1" fill="#111" />
-    ))}
-    {/* Center Zalo logo */}
-    <circle cx="80" cy="80" r="14" fill="#0068FF" />
-    <text x="80" y="85" textAnchor="middle" fill="white" fontSize="13" fontWeight="900" fontFamily="Arial">Z</text>
-  </svg>
-);
+type LoginMode = 'qr' | 'password' | 'forgot_password';
+type QRStatus = 'loading' | 'ready' | 'scanned' | 'confirmed' | 'expired' | 'error';
 
 /* ─── QR login panel ─── */
 const QRPanel = ({ onSwitchToPassword }: { onSwitchToPassword: () => void }) => {
-  const [expired, setExpired] = useState(false);
+  const [status, setStatus] = useState<QRStatus>('loading');
+  const [qrData, setQrData] = useState<string>('');
+  const [sessionId, setSessionId] = useState<string>('');
   const [seconds, setSeconds] = useState(180);
-  const [key, setKey] = useState(0);
+  const navigate = useNavigate();
+  const setAuth = useAuthStore((state) => state.setAuth);
+  const socketRef = useRef<Socket | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    setExpired(false);
+  const startSession = useCallback(() => {
+    // Cleanup previous
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (socketRef.current && sessionId) {
+      socketRef.current.emit('qr_login_cancel', { sessionId });
+    }
+
+    setStatus('loading');
+    setQrData('');
+    setSessionId('');
     setSeconds(180);
-    const t = setInterval(() => {
-      setSeconds(p => {
-        if (p <= 1) { clearInterval(t); setExpired(true); return 0; }
-        return p - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [key]);
+
+    const s = connectQRSocket();
+    socketRef.current = s;
+
+    // Wait for connection then init
+    const initSession = () => {
+      s.emit('qr_login_init');
+    };
+
+    if (s.connected) {
+      initSession();
+    } else {
+      s.once('connect', initSession);
+    }
+  }, [sessionId]);
+
+  // Setup socket listeners
+  useEffect(() => {
+    const s = connectQRSocket();
+    socketRef.current = s;
+
+    // Receive new QR session
+    s.on('qr_login_session', (data: { sessionId: string; qrData: string }) => {
+      setSessionId(data.sessionId);
+      setQrData(data.qrData);
+      setStatus('ready');
+      setSeconds(180);
+
+      // Start countdown
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setSeconds(prev => {
+          if (prev <= 1) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            setStatus('expired');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    });
+
+    // Mobile scanned the QR
+    s.on('qr_login_scanned', () => {
+      setStatus('scanned');
+    });
+
+    // Mobile confirmed login — receive tokens
+    s.on('qr_login_confirmed', (data: {
+      accessToken: string;
+      refreshToken: string;
+      user: any;
+    }) => {
+      setStatus('confirmed');
+      if (timerRef.current) clearInterval(timerRef.current);
+
+      // Save tokens and login
+      useChatStore.getState().clearChat();
+      sessionStorage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) sessionStorage.setItem('refreshToken', data.refreshToken);
+      setAuth(data.user, data.accessToken);
+
+      // Navigate after brief success animation
+      setTimeout(() => {
+        navigate('/');
+      }, 800);
+    });
+
+    // Error from server
+    s.on('qr_login_error', (data: { message: string }) => {
+      console.error('[QR Login]', data.message);
+      setStatus('error');
+    });
+
+    // Init first session
+    const initSession = () => {
+      s.emit('qr_login_init');
+    };
+
+    if (s.connected) {
+      initSession();
+    } else {
+      s.once('connect', initSession);
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      s.off('qr_login_session');
+      s.off('qr_login_scanned');
+      s.off('qr_login_confirmed');
+      s.off('qr_login_error');
+      disconnectQRSocket();
+    };
+  }, [navigate, setAuth]);
 
   const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
   const ss = String(seconds % 60).padStart(2, '0');
@@ -63,13 +135,60 @@ const QRPanel = ({ onSwitchToPassword }: { onSwitchToPassword: () => void }) => 
   return (
     <div className="flex flex-col items-center gap-5">
       {/* QR code box */}
-      <div className="relative w-[180px] h-[180px] rounded-2xl overflow-hidden border border-gray-200 bg-white p-3 shadow-sm">
-        <QRSvg />
-        {expired && (
+      <div className="relative w-[180px] h-[180px] rounded-2xl overflow-hidden border border-gray-200 bg-white p-3 shadow-sm flex items-center justify-center">
+        {/* Loading state */}
+        {status === 'loading' && (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="w-8 h-8 text-[#0068FF] animate-spin" />
+            <p className="text-xs text-gray-400">Đang tạo mã QR...</p>
+          </div>
+        )}
+
+        {/* QR Code ready */}
+        {(status === 'ready' || status === 'scanned' || status === 'confirmed') && qrData && (
+          <QRCodeSVG
+            value={qrData}
+            size={154}
+            level="M"
+            bgColor="white"
+            fgColor="#111111"
+            imageSettings={{
+              src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='18' fill='%230068FF'/%3E%3Ctext x='20' y='28' text-anchor='middle' fill='white' font-size='22' font-weight='900' font-family='Arial'%3EZ%3C/text%3E%3C/svg%3E",
+              height: 28,
+              width: 28,
+              excavate: true,
+            }}
+          />
+        )}
+
+        {/* Scanned overlay */}
+        {status === 'scanned' && (
+          <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center gap-2 rounded-2xl animate-fade-in">
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-green-500" />
+            </div>
+            <p className="text-green-600 text-xs font-semibold text-center">Đã quét thành công</p>
+            <p className="text-gray-400 text-[10px] text-center">Xác nhận đăng nhập trên điện thoại</p>
+          </div>
+        )}
+
+        {/* Confirmed overlay */}
+        {status === 'confirmed' && (
+          <div className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center gap-2 rounded-2xl animate-fade-in">
+            <div className="w-10 h-10 rounded-full bg-[#0068FF]/10 flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-[#0068FF]" />
+            </div>
+            <p className="text-[#0068FF] text-xs font-bold text-center">Đăng nhập thành công!</p>
+            <Loader2 className="w-4 h-4 text-[#0068FF] animate-spin" />
+          </div>
+        )}
+
+        {/* Expired overlay */}
+        {status === 'expired' && (
           <div className="absolute inset-0 bg-white/96 flex flex-col items-center justify-center gap-3 rounded-2xl">
             <p className="text-gray-500 text-xs font-medium text-center">Mã QR đã hết hạn</p>
             <button
-              onClick={() => setKey(k => k + 1)}
+              onClick={startSession}
               className="flex items-center gap-1.5 px-4 py-2 bg-[#0068FF] text-white text-xs font-semibold rounded-lg hover:bg-[#0057d4] transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -77,41 +196,72 @@ const QRPanel = ({ onSwitchToPassword }: { onSwitchToPassword: () => void }) => 
             </button>
           </div>
         )}
-        {!expired && (
+
+        {/* Error overlay */}
+        {status === 'error' && (
+          <div className="absolute inset-0 bg-white/96 flex flex-col items-center justify-center gap-3 rounded-2xl">
+            <p className="text-red-500 text-xs font-medium text-center">Có lỗi xảy ra</p>
+            <button
+              onClick={startSession}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#0068FF] text-white text-xs font-semibold rounded-lg hover:bg-[#0057d4] transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Thử lại
+            </button>
+          </div>
+        )}
+
+        {/* Countdown timer */}
+        {(status === 'ready') && (
           <div className="absolute bottom-2.5 right-2.5 bg-black/55 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md">
             {mm}:{ss}
           </div>
         )}
       </div>
 
-      {/* Instructions */}
+      {/* Status message */}
       <div className="text-center">
-        <p className="text-sm font-semibold text-gray-800 mb-1">Đăng nhập bằng mã QR</p>
-        <p className="text-xs text-gray-500 leading-relaxed">
-          Mở <strong className="text-gray-700">Zalo</strong> trên điện thoại, vào<br />
-          <strong className="text-gray-700">Cài đặt → Quét mã QR</strong>
-        </p>
+        {status === 'scanned' ? (
+          <>
+            <p className="text-sm font-semibold text-green-600 mb-1">Đã quét mã QR</p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Xác nhận đăng nhập trên <strong className="text-gray-700">điện thoại</strong> của bạn
+            </p>
+          </>
+        ) : status === 'confirmed' ? (
+          <p className="text-sm font-semibold text-[#0068FF] mb-1">Đang đăng nhập...</p>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-gray-800 mb-1">Đăng nhập bằng mã QR</p>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Mở <strong className="text-gray-700">DepLao</strong> trên điện thoại, vào<br />
+              <strong className="text-gray-700">Tin nhắn → Quét mã QR</strong>
+            </p>
+          </>
+        )}
       </div>
 
       {/* Steps */}
-      <div className="flex items-stretch gap-0 bg-gray-50/80 border border-gray-100 rounded-xl overflow-hidden w-full">
-        {[
-          { n: '1', label: 'Mở Zalo', sub: 'trên điện thoại' },
-          { n: '2', label: 'Nhấn biểu tượng', sub: 'quét QR' },
-          { n: '3', label: 'Quét mã', sub: 'để đăng nhập' },
-        ].map((s, i) => (
-          <React.Fragment key={i}>
-            <div className="flex flex-col items-center gap-1.5 flex-1 py-3 px-2">
-              <div className="w-6 h-6 rounded-full bg-[#0068FF]/12 text-[#0068FF] text-[11px] font-bold flex items-center justify-center">
-                {s.n}
+      {status !== 'scanned' && status !== 'confirmed' && (
+        <div className="flex items-stretch gap-0 bg-gray-50/80 border border-gray-100 rounded-xl overflow-hidden w-full">
+          {[
+            { n: '1', label: 'Mở DepLao', sub: 'trên điện thoại' },
+            { n: '2', label: 'Nhấn biểu tượng', sub: 'quét QR' },
+            { n: '3', label: 'Quét mã', sub: 'để đăng nhập' },
+          ].map((s, i) => (
+            <React.Fragment key={i}>
+              <div className="flex flex-col items-center gap-1.5 flex-1 py-3 px-2">
+                <div className="w-6 h-6 rounded-full bg-[#0068FF]/12 text-[#0068FF] text-[11px] font-bold flex items-center justify-center">
+                  {s.n}
+                </div>
+                <p className="text-[11px] font-semibold text-gray-700 text-center leading-tight">{s.label}</p>
+                <p className="text-[10px] text-gray-400 text-center leading-tight">{s.sub}</p>
               </div>
-              <p className="text-[11px] font-semibold text-gray-700 text-center leading-tight">{s.label}</p>
-              <p className="text-[10px] text-gray-400 text-center leading-tight">{s.sub}</p>
-            </div>
-            {i < 2 && <div className="w-px bg-gray-200 my-3" />}
-          </React.Fragment>
-        ))}
-      </div>
+              {i < 2 && <div className="w-px bg-gray-200 my-3" />}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={onSwitchToPassword}
@@ -126,7 +276,7 @@ const QRPanel = ({ onSwitchToPassword }: { onSwitchToPassword: () => void }) => 
 };
 
 /* ─── Password login panel ─── */
-const PasswordPanel = ({ onSwitchToQR }: { onSwitchToQR: () => void }) => {
+const PasswordPanel = ({ onSwitchToQR, onSwitchToForgot }: { onSwitchToQR: () => void, onSwitchToForgot: () => void }) => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -181,7 +331,7 @@ const PasswordPanel = ({ onSwitchToQR }: { onSwitchToQR: () => void }) => {
       </div>
 
       <div className="flex justify-end -mt-1">
-        <button type="button" className="text-xs text-[#0068FF] hover:underline font-medium underline-offset-2">
+        <button type="button" onClick={onSwitchToForgot} className="text-xs text-[#0068FF] hover:underline font-medium underline-offset-2">
           Quên mật khẩu?
         </button>
       </div>
@@ -216,6 +366,118 @@ const PasswordPanel = ({ onSwitchToQR }: { onSwitchToQR: () => void }) => {
         </Link>
       </p>
     </form>
+  );
+};
+
+/* ─── Forgot Password panel ─── */
+const ForgotPasswordPanel = ({ onBack }: { onBack: () => void }) => {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone) { setError('Vui lòng nhập số điện thoại'); return; }
+    setLoading(true); setError('');
+    try {
+      const { data } = await axios.post('/auth/forgot-password/send-otp', { phone });
+      if (data.success) {
+        setStep(2);
+        setSuccess('Mã OTP đã được gửi đến số điện thoại của bạn');
+        setTimeout(() => setSuccess(''), 3000);
+      } else { setError(data.message || 'Không thể gửi mã OTP'); }
+    } catch (err: any) { setError(err?.response?.data?.message || 'Số điện thoại không tồn tại'); }
+    finally { setLoading(false); }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp || !newPassword) { setError('Vui lòng nhập mã OTP và mật khẩu mới'); return; }
+    setLoading(true); setError('');
+    try {
+      const { data } = await axios.post('/auth/forgot-password/reset', { phone, otp, newPassword });
+      if (data.success) {
+        setSuccess('Đặt lại mật khẩu thành công!');
+        setTimeout(() => onBack(), 2000);
+      } else { setError(data.message || 'Không thể đổi mật khẩu'); }
+    } catch (err: any) { setError(err?.response?.data?.message || 'Mã OTP không đúng hoặc đã hết hạn'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="flex flex-col gap-4 animate-fadeIn">
+      <div className="mb-2">
+        <h3 className="text-lg font-bold text-gray-900">Quên mật khẩu</h3>
+        <p className="text-sm text-gray-500">Khôi phục quyền truy cập tài khoản</p>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-100 text-red-500 px-3.5 py-2.5 rounded-xl text-xs font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="flex items-center gap-2 bg-green-50 border border-green-100 text-green-600 px-3.5 py-2.5 rounded-xl text-xs font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+          {success}
+        </div>
+      )}
+
+      {step === 1 ? (
+        <form onSubmit={handleSendOtp} className="space-y-4">
+          <div className="relative group">
+            <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-[#0068FF] transition-colors" />
+            <input
+              type="text" placeholder="Số điện thoại đã đăng ký" value={phone}
+              onChange={e => setPhone(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all"
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onBack} disabled={loading} className="w-1/3 py-3 border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold text-sm rounded-xl transition-all">
+              Hủy
+            </button>
+            <button type="submit" disabled={loading} className="w-2/3 py-3 bg-[#0068FF] hover:bg-[#0057d4] text-white font-bold text-sm rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+              {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={handleResetPassword} className="space-y-4">
+          <div className="space-y-2.5">
+            <div className="relative group">
+              <input
+                type="text" placeholder="Mã OTP 6 số" value={otp}
+                onChange={e => setOtp(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all tracking-widest"
+                maxLength={6}
+              />
+            </div>
+            <div className="relative group">
+              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-[#0068FF] transition-colors" />
+              <input
+                type="password" placeholder="Mật khẩu mới" value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={() => { setStep(1); setError(''); setSuccess(''); }} disabled={loading} className="w-1/3 py-3 border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold text-sm rounded-xl transition-all">
+              Quay lại
+            </button>
+            <button type="submit" disabled={loading} className="w-2/3 py-3 bg-[#0068FF] hover:bg-[#0057d4] text-white font-bold text-sm rounded-xl transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+              {loading ? 'Đang xử lý...' : 'Đổi mật khẩu'}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 };
 
@@ -318,7 +580,9 @@ const Login = () => {
             <div className="flex-1 flex flex-col justify-center px-8 py-6">
               {mode === 'qr'
                 ? <QRPanel onSwitchToPassword={() => setMode('password')} />
-                : <PasswordPanel onSwitchToQR={() => setMode('qr')} />}
+                : mode === 'password' 
+                ? <PasswordPanel onSwitchToQR={() => setMode('qr')} onSwitchToForgot={() => setMode('forgot_password')} />
+                : <ForgotPasswordPanel onBack={() => setMode('password')} />}
             </div>
 
             {/* Footer */}

@@ -26,3 +26,34 @@ export const disconnectSocket = () => {
     socket.disconnect();
   }
 };
+
+// ═══════════ QR Login Socket (unauthenticated) ═══════════
+// Separate socket instance for QR login — used on the login page
+// before user is authenticated. Does not require user_join.
+
+let qrSocket: Socket | null = null;
+
+export const getQRSocket = (): Socket => {
+  if (!qrSocket) {
+    qrSocket = io(URL, {
+      autoConnect: false,
+      transports: ['websocket', 'polling'],
+    });
+  }
+  return qrSocket;
+};
+
+export const connectQRSocket = (): Socket => {
+  const s = getQRSocket();
+  if (!s.connected) {
+    s.connect();
+  }
+  return s;
+};
+
+export const disconnectQRSocket = () => {
+  if (qrSocket) {
+    qrSocket.disconnect();
+    qrSocket = null;
+  }
+};

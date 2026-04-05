@@ -2,6 +2,7 @@ import ChatHeader from '../components/chat/ChatHeader';
 import MessageList from '../components/chat/MessageList';
 import MessageInput from '../components/chat/MessageInput';
 import ConversationInfoPanel from '../components/chat/ConversationInfoPanel';
+import ForwardModal from '../components/chat/ForwardModal';
 import { useChatStore } from '../stores/chatStore';
 
 const ChatDesk = () => {
@@ -21,6 +22,9 @@ const ChatDesk = () => {
       {isInfoPanelOpen && activeConversation && (
         <ConversationInfoPanel />
       )}
+
+      {/* Global Modals */}
+      <ForwardModal />
     </div>
   );
 };
