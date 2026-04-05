@@ -1,20 +1,20 @@
-import { MessageSquare, Users, CloudLightning, ClipboardList, Settings, LogOut, User, Moon, Sun } from 'lucide-react';
+import { MessageSquare, Users, CloudLightning, ClipboardList, Settings } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
-import { useChatStore } from '../stores/chatStore';
 import { useThemeStore } from '../stores/themeStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { contactService } from '../services/contactService';
 import ProfileModal from './ProfileModal';
+import SettingsModal from './SettingsModal';
 
 const NavigationSidebar = () => {
-  const { user, token, setUser, logout } = useAuthStore();
-  const { isDark, toggleTheme } = useThemeStore();
+  const { user, token, setUser } = useAuthStore();
+  const { isDark } = useThemeStore();
+  const { openSettings } = useSettingsStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,23 +32,6 @@ const NavigationSidebar = () => {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-
-  // Close settings menu on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
-        setIsSettingsOpen(false);
-      }
-    };
-    if (isSettingsOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isSettingsOpen]);
-
-  const handleLogout = () => {
-    useChatStore.getState().clearChat();
-    logout();
-    navigate('/login');
-  };
 
   const currentTab = location.pathname.startsWith('/contacts') ? 'contacts' : 'messages';
   const avatarLetter = user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'U';
@@ -112,63 +95,16 @@ const NavigationSidebar = () => {
         })}
       </nav>
 
-      {/* Settings Button */}
-      <div className="flex flex-col w-full gap-1 mt-auto relative" ref={settingsRef}>
+      {/* Settings Button — opens Settings Side Panel */}
+      <div className="flex flex-col w-full gap-1 mt-auto">
         <button
-          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+          onClick={openSettings}
           className="w-full py-3 flex justify-center items-center transition-all"
           style={{ color: 'var(--text-sidebar-icon)' }}
           title="Cài đặt"
         >
           <Settings size={24} strokeWidth={1.5} />
         </button>
-
-        {/* Settings Popup Menu */}
-        {isSettingsOpen && (
-          <div
-            className="absolute bottom-14 left-2 w-56 rounded-lg overflow-hidden z-50 theme-transition"
-            style={{
-              background: 'var(--bg-panel)',
-              boxShadow: 'var(--shadow-popup)',
-              border: '1px solid var(--border-primary)',
-            }}
-          >
-            <button
-              onClick={() => { setIsProfileModalOpen(true); setIsSettingsOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left"
-              style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            >
-              <User size={18} style={{ color: 'var(--text-secondary)' }} />
-              Thông tin tài khoản
-            </button>
-
-            <button
-              onClick={toggleTheme}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left"
-              style={{ color: 'var(--text-primary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            >
-              {isDark ? <Sun size={18} style={{ color: '#f59e0b' }} /> : <Moon size={18} style={{ color: 'var(--text-secondary)' }} />}
-              {isDark ? 'Chế độ sáng' : 'Chế độ tối'}
-            </button>
-
-            <div style={{ borderTop: '1px solid var(--border-primary)' }} />
-
-            <button
-              onClick={() => { handleLogout(); setIsSettingsOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-left"
-              style={{ color: '#ef4444' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-            >
-              <LogOut size={18} />
-              Đăng xuất
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Profile Modal */}
@@ -177,6 +113,9 @@ const NavigationSidebar = () => {
         onClose={() => setIsProfileModalOpen(false)}
         user={user}
       />
+
+      {/* Settings Side Panel */}
+      <SettingsModal />
     </div>
   );
 };

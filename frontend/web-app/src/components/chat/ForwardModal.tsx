@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Search } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
 import { createConversation } from '../../services/message.service';
+import { contactService, type ContactResponse } from '../../services/contactService';
+import api from '../../services/axios';
 
 const ForwardModal = () => {
   const { 
@@ -16,11 +18,89 @@ const ForwardModal = () => {
   const { user } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [sendingTo, setSendingTo] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<ContactResponse[]>([]);
+  const [userMap, setUserMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+
+  // Load contacts and build name map when modal opens
+  useEffect(() => {
+    if (!isForwardModalOpen || !user) return;
+
+    const loadData = async () => {
+      // 1. Load contacts
+      try {
+        const res = await contactService.getContacts(0, 100);
+        setContacts(res.content || []);
+      } catch (err) {
+        console.error('Failed to load contacts for forward', err);
+      }
+    };
+    loadData();
+  }, [isForwardModalOpen, user]);
+
+  // Build userMap from contacts + resolve unknown participants
+  useEffect(() => {
+    if (!user || (!contacts.length && !conversations.length)) return;
+
+    const buildMap = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+
+      // Add all contacts to the map
+      for (const c of contacts) {
+        const key = String(c.contactUserId);
+        map[key] = { fullName: c.nickname || c.fullName, avatarUrl: c.avatarUrl };
+      }
+
+      // Find unknown participant IDs
+      const unknownIds: string[] = [];
+      for (const conv of conversations) {
+        for (const p of conv.participants) {
+          const pid = String((p as any).userId || (p as any).id || p);
+          if (pid && pid !== String(user.id) && !map[pid]) {
+            unknownIds.push(pid);
+          }
+        }
+      }
+
+      // Fetch unknown users from API
+      for (const uid of [...new Set(unknownIds)]) {
+        try {
+          const res = await api.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName, avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+
+      setUserMap(map);
+    };
+
+    buildMap();
+  }, [contacts, conversations, user]);
 
   if (!isForwardModalOpen || !forwardingMessage || !user) return null;
 
+  // Helper: get display name & avatar for a conversation
+  const getConversationInfo = (conv: any) => {
+    if (conv.isGroup) return { name: 'Nhóm', avatar: undefined };
+    for (const p of conv.participants) {
+      const pid = String((p as any).userId || (p as any).id || p);
+      if (pid !== String(user.id)) {
+        // First check our resolved userMap
+        if (userMap[pid]) {
+          return { name: userMap[pid].fullName, avatar: userMap[pid].avatarUrl };
+        }
+        // Fallback to participant object fields
+        if ((p as any).fullName) return { name: (p as any).fullName, avatar: (p as any).avatarUrl };
+        if ((p as any).nickname) return { name: (p as any).nickname, avatar: (p as any).avatarUrl };
+        return { name: 'Người dùng', avatar: undefined };
+      }
+    }
+    return { name: 'Người dùng', avatar: undefined };
+  };
+
   const handleClose = () => {
     setForwardModalOpen(false);
+    setSearchTerm('');
     setTimeout(() => setForwardingMessage(null), 200);
   };
 
@@ -28,12 +108,10 @@ const ForwardModal = () => {
     setSendingTo(conversation.conversationId);
     
     let targetConversationId = conversation.conversationId;
-    let recipientId = conversation.participants?.find((p: any) => 
-      p !== user.id && p !== user.id.toString() &&
-      p.id !== user.id && p.id?.toString() !== user.id.toString() &&
-      p.userId !== user.id && p.userId !== user.id.toString() &&
-      p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
-    );
+    let recipientId = conversation.participants?.find((p: any) => {
+      const pid = String((p as any).userId || (p as any).id || p);
+      return pid !== String(user.id);
+    });
 
     // If it's a new contact without conversation yet
     if (targetConversationId.startsWith('new_') || targetConversationId.startsWith('contact_')) {
@@ -67,7 +145,6 @@ const ForwardModal = () => {
 
     socket.emit('send_message', messagePayload);
     
-    // Simulate slight delay for better UX
     setTimeout(() => {
       setSendingTo(null);
       handleClose();
@@ -75,15 +152,15 @@ const ForwardModal = () => {
   };
 
   const filteredConversations = conversations.filter(c => {
-    const contact = c.participants?.find((p: any) => p?.id !== user.id && p?.userId !== user.id);
-    const name = contact?.nickname || contact?.fullName || 'Nhóm';
+    const { name } = getConversationInfo(c);
     return name.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-fadeIn" onClick={handleClose}>
       <div 
-        className="w-full max-w-sm rounded-xl overflow-hidden shadow-2xl animate-scaleIn bg-[var(--bg-panel)] flex flex-col"
+        className="w-full max-w-sm rounded-xl overflow-hidden shadow-2xl bg-[var(--bg-panel)] flex flex-col"
+        style={{ animation: 'fadeIn 0.2s ease-out' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-light)]">
@@ -94,7 +171,7 @@ const ForwardModal = () => {
         </div>
         
         <div className="p-3 border-b border-[var(--border-light)] bg-[var(--bg-chat)] flex items-center gap-2">
-          <div className="border-l-4 border-[#0068FF] pl-2 opacity-80 text-sm truncate">
+          <div className="border-l-4 pl-2 opacity-80 text-sm truncate" style={{ borderColor: 'var(--accent-primary)' }}>
             {forwardingMessage.messageType === 'sticker' ? '[Nhãn dán]' : (forwardingMessage.content || forwardingMessage.text)}
           </div>
         </div>
@@ -107,7 +184,7 @@ const ForwardModal = () => {
               placeholder="Tìm kiếm trò chuyện..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-3 py-2 bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg outline-none border border-[var(--border-light)] focus:border-[#0068FF]"
+              className="w-full pl-10 pr-3 py-2 bg-[var(--bg-input)] text-[var(--text-primary)] rounded-lg outline-none border border-[var(--border-light)] focus:border-[var(--accent-primary)]"
             />
           </div>
         </div>
@@ -117,9 +194,7 @@ const ForwardModal = () => {
             <div className="p-4 text-center text-[var(--text-secondary)] text-sm">Không tìm thấy kết quả</div>
           ) : (
             filteredConversations.map(conv => {
-              const contact = conv.participants?.find((p: any) => p?.id !== user.id && p?.userId !== user.id);
-              const name = contact?.nickname || contact?.fullName || 'Người dùng Zalo';
-              const avatarUrl = contact?.avatarUrl;
+              const { name, avatar } = getConversationInfo(conv);
 
               return (
                 <div 
@@ -128,14 +203,21 @@ const ForwardModal = () => {
                   onClick={() => handleForward(conv)}
                 >
                   <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-10 h-10 rounded-full bg-[#0068FF] flex-shrink-0 flex items-center justify-center text-white overflow-hidden font-bold">
-                      {avatarUrl ? <img src={avatarUrl} alt={name} className="w-full h-full object-cover" /> : name.charAt(0).toUpperCase()}
+                    <div className="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white overflow-hidden font-bold"
+                      style={{ background: avatar ? 'transparent' : 'var(--accent-primary)' }}>
+                      {avatar ? <img src={avatar} alt={name} className="w-full h-full object-cover" /> : name.charAt(0).toUpperCase()}
                     </div>
                     <span className="text-[var(--text-primary)] font-medium truncate max-w-[150px] text-sm">{name}</span>
                   </div>
                   <button 
                     disabled={sendingTo === conv.conversationId}
-                    className="px-4 py-1.5 rounded-full text-xs font-medium min-w-[70px] bg-[#0068FF]/10 text-[#0068FF] hover:bg-[#0068FF] hover:text-white transition-colors"
+                    className="px-4 py-1.5 rounded-full text-xs font-medium min-w-[70px] transition-colors"
+                    style={{
+                      background: sendingTo === conv.conversationId ? 'var(--bg-hover)' : 'var(--accent-light)',
+                      color: sendingTo === conv.conversationId ? 'var(--text-secondary)' : 'var(--accent-primary)',
+                    }}
+                    onMouseEnter={(e) => { if (sendingTo !== conv.conversationId) { e.currentTarget.style.background = 'var(--accent-primary)'; e.currentTarget.style.color = '#fff'; }}}
+                    onMouseLeave={(e) => { if (sendingTo !== conv.conversationId) { e.currentTarget.style.background = 'var(--accent-light)'; e.currentTarget.style.color = 'var(--accent-primary)'; }}}
                   >
                     {sendingTo === conv.conversationId ? 'Đang gửi...' : 'Gửi'}
                   </button>

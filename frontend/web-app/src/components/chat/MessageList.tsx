@@ -5,13 +5,22 @@ import { MoreHorizontal } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
 import { useAuthStore } from '../../stores/authStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { socket } from '../../services/socket';
+
+const BUBBLE_RADIUS = {
+  modern: { normal: '18px', corner: '6px' },
+  classic: { normal: '8px', corner: '3px' },
+  minimal: { normal: '4px', corner: '2px' },
+};
 
 const MessageList = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const { activeConversation, messages, setMessages, setReplyingMessage, setForwardingMessage, updateMessage, activeContactInfo } = useChatStore();
   const { user } = useAuthStore();
+  const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
 
   useEffect(() => {
     if (!activeConversation) return;
@@ -74,7 +83,7 @@ const MessageList = () => {
 
   if (!activeConversation) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center" style={{ background: 'var(--bg-chat)' }}>
+      <div className="flex-1 flex flex-col items-center justify-center" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
         <div className="text-center max-w-sm animate-fadeIn">
           <div className="w-20 h-20 mx-auto mb-5 rounded-full flex items-center justify-center"
             style={{ background: 'var(--bg-hover)' }}>
@@ -97,7 +106,7 @@ const MessageList = () => {
   const contactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--bg-chat)' }}>
+    <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
       <div className="max-w-3xl mx-auto space-y-1">
         {messages.map((msg, idx) => {
           const isMe = msg.senderId === user?.id?.toString();
@@ -204,12 +213,18 @@ const MessageList = () => {
                           </span>
                         </div>
                       ) : (
-                        <div className="px-3 py-[7px] rounded-2xl relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-md"
+                        <div className="px-3 py-[7px] relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-md"
                           style={{
-                            background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)',
+                            background: settings.bubbleStyle === 'minimal'
+                              ? 'transparent'
+                              : (isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)'),
                             color: 'var(--text-primary)',
-                            borderBottomRightRadius: isMe ? '6px' : undefined,
-                            borderBottomLeftRadius: !isMe ? '6px' : undefined,
+                            borderRadius: bubbleR.normal,
+                            borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
+                            borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+                            border: settings.bubbleStyle === 'minimal'
+                              ? '1px solid var(--border-primary)'
+                              : 'none',
                           }}>
                           
                           {/* Reply Block */}
@@ -222,16 +237,18 @@ const MessageList = () => {
                           )}
 
                           <span className="pr-12">{msg.content || msg.text}</span>
-                          <span className="absolute bottom-1.5 right-2.5 text-[10px] flex items-center gap-0.5 select-none whitespace-nowrap opacity-70"
-                            style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
-                            {format(msgTime, 'HH:mm')}
-                            {isMe && (
-                              <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <polyline points="20 6 9 17 4 12"></polyline>
-                              </svg>
-                            )}
-                          </span>
+                          {settings.showMessageTime && (
+                            <span className="absolute bottom-1.5 right-2.5 text-[10px] flex items-center gap-0.5 select-none whitespace-nowrap opacity-70"
+                              style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
+                              {format(msgTime, 'HH:mm')}
+                              {isMe && (
+                                <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                              )}
+                            </span>
+                          )}
                         </div>
                       )}
                     </>

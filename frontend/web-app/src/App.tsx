@@ -7,13 +7,25 @@ import Register from './pages/Register';
 import ChatDesk from './pages/ChatDesk';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useThemeStore } from './stores/themeStore';
+import { useSettingsStore } from './stores/settingsStore';
+import { useAuthStore } from './stores/authStore';
 
 function App() {
   const { isDark } = useThemeStore();
+  const { user } = useAuthStore();
+  const { loadSettings } = useSettingsStore();
 
+  // Apply dark class
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
+
+  // Load user-specific settings when user changes (login/logout)
+  useEffect(() => {
+    if (user?.id) {
+      loadSettings(String(user.id));
+    }
+  }, [user?.id, loadSettings]);
 
   return (
     <Router>
@@ -40,4 +52,3 @@ function App() {
 }
 
 export default App;
-

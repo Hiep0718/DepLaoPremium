@@ -8,6 +8,19 @@
   --zalo-blue-hover: #0055D4;
   --zalo-blue-light: #E7F0FF;
 
+  /* Accent (dynamically overridden by settingsStore) */
+  --accent-primary: #0068FF;
+  --accent-hover: #0055D4;
+  --accent-light: #E7F0FF;
+
+  /* Font size (dynamically overridden by settingsStore) */
+  --font-size-base: 15px;
+  --font-size-sm: 13px;
+  --font-size-lg: 17px;
+
+  /* Chat wallpaper (dynamically overridden) */
+  --chat-wallpaper: #E4DDD6;
+
   /* Light theme */
   --bg-app: #ffffff;
   --bg-sidebar: #0068FF;
@@ -74,9 +87,10 @@
   body {
     @apply m-0 p-0 antialiased;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-size-base);
     background: var(--bg-app);
     color: var(--text-primary);
-    transition: background-color 0.2s, color 0.2s;
+    transition: background-color 0.2s, color 0.2s, font-size 0.2s;
   }
 }
 

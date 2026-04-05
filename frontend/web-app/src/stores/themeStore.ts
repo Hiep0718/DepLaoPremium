@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useSettingsStore } from './settingsStore';
 
 interface ThemeState {
   isDark: boolean;
@@ -6,26 +7,27 @@ interface ThemeState {
   setDark: (isDark: boolean) => void;
 }
 
-const getInitialTheme = (): boolean => {
-  try {
-    return localStorage.getItem('theme') === 'dark';
-  } catch {
-    return false;
-  }
-};
-
+/**
+ * Legacy theme store — now delegates to settingsStore.
+ * Kept for backward compatibility with components that still reference useThemeStore.
+ */
 export const useThemeStore = create<ThemeState>((set) => ({
-  isDark: getInitialTheme(),
-  toggleTheme: () =>
-    set((state) => {
-      const newDark = !state.isDark;
-      localStorage.setItem('theme', newDark ? 'dark' : 'light');
-      document.documentElement.classList.toggle('dark', newDark);
-      return { isDark: newDark };
-    }),
+  isDark: useSettingsStore.getState().isDark,
+  toggleTheme: () => {
+    const settingsStore = useSettingsStore.getState();
+    const currentMode = settingsStore.settings.themeMode;
+    const newMode = currentMode === 'dark' ? 'light' : 'dark';
+    settingsStore.updateSettings({ themeMode: newMode });
+    set({ isDark: newMode === 'dark' });
+  },
   setDark: (isDark) => {
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-    document.documentElement.classList.toggle('dark', isDark);
+    const settingsStore = useSettingsStore.getState();
+    settingsStore.updateSettings({ themeMode: isDark ? 'dark' : 'light' });
     set({ isDark });
   },
 }));
+
+// Sync themeStore whenever settingsStore.isDark changes
+useSettingsStore.subscribe((state) => {
+  useThemeStore.setState({ isDark: state.isDark });
+});
