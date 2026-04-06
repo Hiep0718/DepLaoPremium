@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ImagePickerButton } from '@/components/ImagePickerButton';
 import { useProfile } from '@/hooks/useProfile';
 import { ZaloColors } from '@/constants/zalo';
+import apiClient from '@/constants/api';
 
 const ZALO_BLUE = '#0068FF';
 
@@ -19,10 +20,14 @@ export function ProfileScreen() {
   // ─── Edit Profile Modal ───────────────────────────────────────────
   const [editVisible, setEditVisible] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editGender, setEditGender] = useState('');
+  const [editBirthday, setEditBirthday] = useState('');
   const [saving, setSaving] = useState(false);
 
   const openEdit = () => {
     setEditName(profile?.fullName ?? '');
+    setEditGender(profile?.gender ?? '');
+    setEditBirthday(profile?.birthday ?? '');
     setEditVisible(true);
   };
 
@@ -32,9 +37,59 @@ export function ProfileScreen() {
       return;
     }
     setSaving(true);
-    const ok = await updateProfile({ fullName: editName.trim() });
+    const ok = await updateProfile({ 
+      fullName: editName.trim(), 
+      gender: editGender, 
+      birthday: editBirthday 
+    });
     setSaving(false);
-    if (ok) setEditVisible(false);
+    if (ok) {
+      Alert.alert('Thành công', 'Cập nhật tài khoản thành công');
+      setEditVisible(false);
+    }
+  };
+
+  // ─── Change Password Modal ────────────────────────────────────────
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  const openPassword = () => {
+    setOldPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordVisible(true);
+  };
+
+  const handleSavePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Lỗi', 'Vui lòng nhập đủ thông tin');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Lỗi', 'Mật khẩu xác nhận không khớp');
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert('Lỗi', 'Mật khẩu mới phải có ít nhất 6 ký tự');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const res = await apiClient.put('/users/password', { oldPassword, newPassword });
+      if (res.data.success) {
+        Alert.alert('Thành công', 'Cập nhật mật khẩu thành công');
+        setPasswordVisible(false);
+      } else {
+        Alert.alert('Lỗi', res.data.message || 'Có lỗi xảy ra');
+      }
+    } catch (err: any) {
+      Alert.alert('Lỗi', err?.response?.data?.message || 'Có lỗi xảy ra');
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   // ─── Đăng xuất ───────────────────────────────────────────────────
@@ -54,8 +109,9 @@ export function ProfileScreen() {
 
   const menuItems = [
     { id: '1', name: 'Chỉnh sửa hồ sơ', icon: 'pencil-outline', onPress: openEdit },
+    { id: '1-1', name: 'Đổi mật khẩu', icon: 'lock-closed-outline', onPress: openPassword },
     { id: '2', name: 'Cài đặt', icon: 'settings-outline', onPress: () => {} },
-    { id: '3', name: 'Quyền riêng tư', icon: 'lock-closed-outline', onPress: () => {} },
+    { id: '3', name: 'Quyền riêng tư', icon: 'shield-checkmark-outline', onPress: () => {} },
     { id: '4', name: 'Tài khoản', icon: 'person-outline', onPress: () => {} },
     { id: '5', name: 'Hỗ trợ', icon: 'help-circle-outline', onPress: () => {} },
     { id: '6', name: 'Đăng xuất', icon: 'log-out-outline', onPress: handleLogout },
@@ -68,6 +124,17 @@ export function ProfileScreen() {
       </View>
     );
   }
+
+  const formatBirthday = (date: string) => {
+    if (!date) return 'Chưa cập nhật';
+    try {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return date;
+      return d.toLocaleDateString('vi-VN');
+    } catch {
+      return date;
+    }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
@@ -111,6 +178,25 @@ export function ProfileScreen() {
           <Text style={styles.phone}>{profile?.phone ?? ''}</Text>
         </View>
 
+        {/* ── Thông tin cá nhân ──────────────────────────────────── */}
+        <View style={[styles.menuCard, { paddingVertical: 12, marginBottom: 8 }]}>
+          <Text style={{ fontSize: 16, fontWeight: '600', marginLeft: 16, marginBottom: 8, color: '#111' }}>
+            Thông tin cá nhân
+          </Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Giới tính</Text>
+            <Text style={styles.infoValue}>{profile?.gender || 'Chưa cập nhật'}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Ngày sinh</Text>
+            <Text style={styles.infoValue}>{formatBirthday(profile?.birthday || '')}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>ID</Text>
+            <Text style={styles.infoValue}>#{profile?.id || '---'}</Text>
+          </View>
+        </View>
+
         {/* ── Menu items ─────────────────────────────────────────── */}
         <View style={styles.menuCard}>
           {menuItems.map((item, idx) => (
@@ -141,24 +227,57 @@ export function ProfileScreen() {
             </TouchableOpacity>
           ))}
         </View>
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* ── Modal chỉnh sửa tên ─────────────────────────────────── */}
+      {/* ── Modal chỉnh sửa hồ sơ ─────────────────────────────────── */}
       <Modal visible={editVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>Chỉnh sửa hồ sơ</Text>
 
-            <Text style={styles.label}>Tên hiển thị</Text>
-            <TextInput
-              style={styles.input}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Nhập tên của bạn"
-              maxLength={100}
-            />
+            <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+              <Text style={styles.label}>Tên hiển thị</Text>
+              <TextInput
+                style={styles.input}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Nhập tên của bạn"
+                maxLength={100}
+              />
 
-            <View style={styles.modalActions}>
+              <Text style={styles.label}>Giới tính</Text>
+              <View style={styles.pickerContainer}>
+                <TouchableOpacity 
+                  style={[styles.genderOption, editGender === 'Nam' && styles.genderOptionActive]} 
+                  onPress={() => setEditGender('Nam')}
+                >
+                  <Text style={[styles.genderOptionText, editGender === 'Nam' && styles.genderOptionTextActive]}>Nam</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.genderOption, editGender === 'Nữ' && styles.genderOptionActive]} 
+                  onPress={() => setEditGender('Nữ')}
+                >
+                  <Text style={[styles.genderOptionText, editGender === 'Nữ' && styles.genderOptionTextActive]}>Nữ</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.genderOption, editGender === 'Khác' && styles.genderOptionActive]} 
+                  onPress={() => setEditGender('Khác')}
+                >
+                  <Text style={[styles.genderOptionText, editGender === 'Khác' && styles.genderOptionTextActive]}>Khác</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.label}>Ngày sinh (YYYY-MM-DD)</Text>
+              <TextInput
+                style={styles.input}
+                value={editBirthday}
+                onChangeText={setEditBirthday}
+                placeholder="VD: 2000-12-31"
+              />
+            </ScrollView>
+
+            <View style={[styles.modalActions, { marginTop: 16 }]}>
               <TouchableOpacity
                 style={styles.btnCancel}
                 onPress={() => setEditVisible(false)}
@@ -181,6 +300,65 @@ export function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Modal đổi mật khẩu ────────────────────────────────────── */}
+      <Modal visible={passwordVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Đổi mật khẩu</Text>
+
+            <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
+              <Text style={styles.label}>Mật khẩu hiện tại</Text>
+              <TextInput
+                style={styles.input}
+                value={oldPassword}
+                onChangeText={setOldPassword}
+                placeholder="Nhập mật khẩu hiện tại"
+                secureTextEntry
+              />
+
+              <Text style={styles.label}>Mật khẩu mới</Text>
+              <TextInput
+                style={styles.input}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Nhập mật khẩu mới"
+                secureTextEntry
+              />
+
+              <Text style={styles.label}>Xác nhận mật khẩu mới</Text>
+              <TextInput
+                style={styles.input}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Nhập lại mật khẩu mới"
+                secureTextEntry
+              />
+            </ScrollView>
+
+            <View style={[styles.modalActions, { marginTop: 16 }]}>
+              <TouchableOpacity
+                style={styles.btnCancel}
+                onPress={() => setPasswordVisible(false)}
+              >
+                <Text style={{ color: '#666' }}>Hủy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.btnSave, passwordSaving && { opacity: 0.6 }]}
+                onPress={handleSavePassword}
+                disabled={passwordSaving}
+              >
+                {passwordSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: '#fff', fontWeight: '600' }}>Cập nhật</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -193,7 +371,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     paddingBottom: 20,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   coverWrap: { width: '100%', height: 140, position: 'relative' },
   cover: { width: '100%', height: 140 },
@@ -234,6 +412,24 @@ const styles = StyleSheet.create({
   name: { fontSize: 20, fontWeight: '700', color: '#000' },
   phone: { fontSize: 13, color: '#888', marginTop: 4 },
 
+  // Info Section
+  infoRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  infoLabel: {
+    width: 100,
+    fontSize: 14,
+    color: '#888',
+  },
+  infoValue: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111',
+    fontWeight: '500',
+  },
+
   // Menu
   menuCard: {
     backgroundColor: '#fff',
@@ -264,9 +460,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     padding: 24,
     paddingBottom: 40,
+    maxHeight: '90%',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 20 },
-  label: { fontSize: 13, color: '#888', marginBottom: 6 },
+  label: { fontSize: 13, color: '#888', marginBottom: 6, marginTop: 12 },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -274,9 +471,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    marginBottom: 24,
     color: '#000',
   },
+  pickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  genderOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  genderOptionActive: {
+    borderColor: ZaloColors.blue,
+    backgroundColor: 'rgba(0, 104, 255, 0.05)',
+  },
+  genderOptionText: {
+    color: '#666',
+    fontWeight: '500',
+  },
+  genderOptionTextActive: {
+    color: ZaloColors.blue,
+  },
+
   modalActions: { flexDirection: 'row', gap: 12 },
   btnCancel: {
     flex: 1,

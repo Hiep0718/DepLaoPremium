@@ -105,7 +105,7 @@ export default function LoginScreen() {
                         )}
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.forgotWrap} disabled={isLoading}>
+                    <TouchableOpacity style={styles.forgotWrap} onPress={() => router.push("/forgot-password")} disabled={isLoading}>
                         <Text style={styles.forgotTextBottom}>Quên mật khẩu?</Text>
                     </TouchableOpacity>
 

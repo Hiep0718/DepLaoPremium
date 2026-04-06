@@ -1,9 +1,6 @@
 package com.zaloclone.core.services;
 
-import com.zaloclone.core.dtos.LoginRequest;
-import com.zaloclone.core.dtos.RegisterRequest;
-import com.zaloclone.core.dtos.UpdateUserProfileRequest;
-import com.zaloclone.core.dtos.UserResponse;
+import com.zaloclone.core.dtos.*;
 import com.zaloclone.core.entities.User;
 import com.zaloclone.core.repositories.UserRepository;
 import com.zaloclone.core.security.JwtProvider;
@@ -76,6 +73,24 @@ public class UserService {
 
         User updatedUser = userRepository.save(user);
         return toUserResponse(updatedUser);
+    }
+
+    @Transactional
+    public void updatePassword(User user, UpdatePasswordRequest request) {
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+            throw new RuntimeException("Mật khẩu hiện tại không chính xác!");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+    }
+
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request) {
+        User user = userRepository.findByPhone(request.getPhone())
+                .orElseThrow(() -> new RuntimeException("Số điện thoại không tồn tại ghép nối trong hệ thống!"));
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
     }
 
     public UserResponse getUserProfile(User user) {

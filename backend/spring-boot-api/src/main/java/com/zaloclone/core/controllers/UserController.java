@@ -53,6 +53,22 @@ public class UserController {
     }
 
     /**
+     * Cập nhật mật khẩu đang đăng nhập
+     */
+    @PutMapping("/password")
+    public ResponseEntity<ApiResponse<?>> updatePassword(
+            @Valid @RequestBody UpdatePasswordRequest request) {
+        try {
+            var user = authorizationUtil.getCurrentUser();
+            userService.updatePassword(user, request);
+            return ResponseEntity.ok(ApiResponse.success("Cập nhật mật khẩu thành công", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Cập nhật mật khẩu thất bại: " + e.getMessage()));
+        }
+    }
+
+    /**
      * Lấy thông tin user theo ID
      */
     @GetMapping("/{userId}")

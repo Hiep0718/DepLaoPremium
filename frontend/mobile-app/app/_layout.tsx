@@ -25,6 +25,8 @@ export default function RootLayout() {
           <Stack.Screen name="register-info" options={{ headerShown: false }} />
           <Stack.Screen name="register-avatar" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+          <Stack.Screen name="qr-scanner" options={{ headerShown: false, animation: 'slide_from_bottom' }} />
           <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>

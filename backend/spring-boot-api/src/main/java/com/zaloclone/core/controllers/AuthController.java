@@ -45,6 +45,33 @@ public class AuthController {
         }
     }
 
+    @PostMapping(value = "/forgot-password/send-otp", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> sendForgotPasswordOtp(@Valid @RequestBody SendOtpRequest request) {
+        try {
+            // Kiểm tra số điện thoại có tồn tại không trước khi gửi OTP
+            userService.getUserByPhone(request.getPhone());
+            otpService.generateAndSendOtp(request.getPhone());
+            return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP thành công", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Số điện thoại không tồn tại trong hệ thống"));
+        }
+    }
+
+    @PostMapping(value = "/forgot-password/reset", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        try {
+            boolean isValid = otpService.verifyOtp(request.getPhone(), request.getOtp());
+            if (!isValid) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("Mã OTP không chính xác hoặc đã hết hạn"));
+            }
+            userService.resetPassword(request);
+            return ResponseEntity.ok(ApiResponse.success("Đặt lại mật khẩu thành công", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("Lỗi: " + e.getMessage()));
+        }
+    }
+
     @PostMapping(value = "/register", consumes = "application/json")
     public ResponseEntity<ApiResponse<?>> register(@Valid @RequestBody RegisterRequest request) {
         try {
@@ -110,6 +137,61 @@ public class AuthController {
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Làm mới token thất bại: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * QR Login: Mobile xác nhận đăng nhập cho Web.
+     * Mobile gửi accessToken của mình → Server validate → Tạo token mới cho Web session.
+     */
+    @PostMapping(value = "/qr-login/confirm", consumes = "application/json")
+    public ResponseEntity<ApiResponse<?>> qrLoginConfirm(@RequestBody Map<String, String> request) {
+        try {
+            String mobileToken = request.get("accessToken");
+            if (mobileToken == null || mobileToken.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Access token không được để trống"));
+            }
+
+            // Validate mobile token
+            if (!jwtProvider.validateToken(mobileToken)) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Token không hợp lệ hoặc đã hết hạn"));
+            }
+
+            String tokenType = jwtProvider.getTokenType(mobileToken);
+            if (!"access".equals(tokenType)) {
+                return ResponseEntity.badRequest()
+                        .body(ApiResponse.error("Chỉ chấp nhận access token"));
+            }
+
+            // Get user from mobile token
+            String phone = jwtProvider.getPhoneFromToken(mobileToken);
+            User user = userService.getUserByPhone(phone);
+
+            // Generate new token pair for web session
+            String webAccessToken = jwtProvider.generateAccessToken(phone);
+            String webRefreshToken = jwtProvider.generateRefreshToken(phone);
+
+            // Build response with tokens + user info
+            Map<String, Object> responseData = new java.util.HashMap<>();
+            responseData.put("accessToken", webAccessToken);
+            responseData.put("refreshToken", webRefreshToken);
+            responseData.put("tokenType", "Bearer");
+            responseData.put("expiresIn", 900L);
+            responseData.put("user", UserResponse.builder()
+                    .id(user.getId())
+                    .phone(user.getPhone())
+                    .fullName(user.getFullName())
+                    .avatarUrl(user.getAvatarUrl())
+                    .role(user.getRole().toString())
+                    .build());
+
+            return ResponseEntity.ok()
+                    .body(ApiResponse.success("Xác nhận QR login thành công", responseData));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("QR login thất bại: " + e.getMessage()));
         }
     }
 

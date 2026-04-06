@@ -46,6 +46,16 @@ const messageSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    isRevoked: {
+      type: Boolean,
+      default: false,
+    },
+    replyTo: {
+      messageId: String,
+      content: String,
+      senderId: String,
+      messageType: String,
+    },
   },
   {
     timestamps: true,

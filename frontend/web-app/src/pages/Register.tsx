@@ -73,10 +73,10 @@ const Register = () => {
       <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
       <div className="w-full max-w-[820px] p-2 sm:p-4">
-        <div className="flex bg-white rounded-2xl overflow-hidden shadow-xl shadow-blue-100/50" style={{ minHeight: 520 }}>
+        <div className="flex rounded-2xl overflow-hidden shadow-2xl shadow-black/20" style={{ minHeight: 520 }}>
 
           {/* ── Left branding ── */}
-          <div className="hidden md:flex w-[42%] flex-shrink-0 flex-col justify-between bg-gradient-to-b from-[#1a6de0] to-[#0052cc] p-9">
+          <div className="hidden md:flex w-[42%] flex-shrink-0 flex-col justify-between bg-gradient-to-b from-[#1a6de0]/75 to-[#0052cc]/75 backdrop-blur-lg p-9">
             {/* Logo */}
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
@@ -116,7 +116,7 @@ const Register = () => {
           </div>
 
           {/* ── Right form ── */}
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col bg-white/80 backdrop-blur-lg">
             {/* Header */}
             <div className="px-8 pt-7 pb-1">
               <h2 className="text-base font-bold text-gray-900">Tạo tài khoản mới</h2>

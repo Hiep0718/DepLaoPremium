@@ -42,14 +42,18 @@ const setupSocketEvents = (io) => {
     // Send message via WebSocket
     socket.on('send_message', async (data) => {
       try {
-        const { conversationId, senderId, text, recipientId } = data;
+        const { conversationId, senderId, text, recipientId, messageType, fileUrl, replyTo } = data;
 
         // Save message to database (use 'content' and 'receiverId' to match Message schema)
+        // Also map optional messageType and fileUrl
         const message = new Message({
           conversationId,
           senderId,
           receiverId: recipientId,
           content: text,
+          messageType: messageType || 'text',
+          fileUrl: fileUrl || null,
+          replyTo: replyTo || null,
           status: 'sent',
         });
 
@@ -60,8 +64,9 @@ const setupSocketEvents = (io) => {
           { conversationId },
           {
             lastMessage: {
-              content: text,
+              content: text, // e.g. '[Nhãn dán]' or '[Hình ảnh]' sent from client
               senderId,
+              messageType: messageType || 'text',
               timestamp: new Date(),
             },
             lastMessageTime: new Date(),
@@ -74,6 +79,10 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
+          messageType: message.messageType,
+          fileUrl: message.fileUrl,
+          replyTo: message.replyTo,
+          isRevoked: message.isRevoked,
           timestamp: message.createdAt,
           status: 'sent',
         });
@@ -83,11 +92,15 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
+          messageType: message.messageType,
+          fileUrl: message.fileUrl,
+          replyTo: message.replyTo,
+          isRevoked: message.isRevoked,
           timestamp: message.createdAt,
           status: 'received',
         });
 
-        console.log(`[Socket] Message sent from ${senderId} to ${recipientId}`);
+        console.log(`[Socket] Message sent from ${senderId} to ${recipientId} (type: ${message.messageType})`);
       } catch (error) {
         console.error('[Socket] Error sending message:', error);
         socket.emit('error', { message: 'Failed to send message' });
@@ -115,6 +128,32 @@ const setupSocketEvents = (io) => {
         console.log(`[Socket] Message ${messageId} marked as seen`);
       } catch (error) {
         console.error('[Socket] Error marking message as seen:', error);
+      }
+    });
+
+    // Revoke message
+    socket.on('revoke_message', async (data) => {
+      try {
+        const { messageId, conversationId, userId } = data;
+
+        const message = await Message.findById(messageId);
+        if (!message || message.senderId !== userId) return;
+
+        message.isRevoked = true;
+        await message.save();
+
+        io.to(`conv_${conversationId}`).emit('message_revoked', {
+          messageId,
+          conversationId,
+        });
+
+        // Also emit to users directly if they aren't in conv_ room
+        io.to(`user_${message.senderId}`).emit('message_revoked', { messageId, conversationId });
+        io.to(`user_${message.receiverId}`).emit('message_revoked', { messageId, conversationId });
+
+        console.log(`[Socket] Message ${messageId} revoked by ${userId}`);
+      } catch (error) {
+        console.error('[Socket] Error revoking message:', error);
       }
     });
 

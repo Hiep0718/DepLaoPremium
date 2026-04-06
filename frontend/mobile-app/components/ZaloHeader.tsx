@@ -146,7 +146,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 // Tin nhắn: icon quét QR và dấu cộng
                 return (
                     <>
-                        <TouchableOpacity>
+                        <TouchableOpacity onPress={() => router.push("/qr-scanner")}>
                             <Ionicons name="scan" size={20} color="#fff" />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setShowMenu(true)}>
@@ -171,7 +171,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
             case "discover":
                 // Khám phá: icon QR
                 return (
-                    <TouchableOpacity>
+                    <TouchableOpacity onPress={() => router.push("/qr-scanner")}>
                         <Ionicons name="scan" size={20} color="#fff" />
                     </TouchableOpacity>
                 )
