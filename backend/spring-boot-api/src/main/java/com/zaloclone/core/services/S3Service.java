@@ -86,4 +86,45 @@ public class S3Service {
         // Return public URL
         return String.format("https://%s.s3.%s.amazonaws.com/%s", bucketName, region, key);
     }
+
+    /**
+     * Upload chat file (image, video, document) lên S3
+     * @param file MultipartFile từ request
+     * @param folder "chat-images", "chat-videos", "chat-files"
+     * @return URL public của file đã upload
+     */
+    public String uploadChatFile(MultipartFile file, String folder) throws IOException {
+        if (s3Client == null) {
+            throw new RuntimeException("AWS S3 chưa được cấu hình. Vui lòng thêm AWS credentials vào application.properties");
+        }
+
+        if (file.isEmpty()) {
+            throw new RuntimeException("File rỗng");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null) {
+            contentType = "application/octet-stream";
+        }
+
+        // Generate unique file name
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String key = folder + "/" + UUID.randomUUID() + extension;
+
+        // Upload to S3
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(bucketName)
+                .key(key)
+                .contentType(contentType)
+                .build();
+
+        s3Client.putObject(putObjectRequest, RequestBody.fromBytes(file.getBytes()));
+
+        // Return public URL
+        return String.format("https://%s.s3.%s.amazonaws.com/%s", bucketName, region, key);
+    }
 }

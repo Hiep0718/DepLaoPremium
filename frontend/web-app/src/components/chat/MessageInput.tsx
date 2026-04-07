@@ -1,18 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
-  ScreenShare, Code, Type, Zap, MoreHorizontal, X
+  ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
 import { createConversation } from '../../services/message.service';
+import { uploadChatFile } from '../../services/upload.service';
 import { STICKERS } from '../../constants/stickers';
+
+// Helper: format file size
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
 
 const MessageInput = () => {
   const [text, setText] = useState('');
   const [showStickers, setShowStickers] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const stickerRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { activeConversation, setActiveConversation, addMessage, replyingMessage, setReplyingMessage } = useChatStore();
   const { user } = useAuthStore();
 
@@ -26,13 +39,17 @@ const MessageInput = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim() || !activeConversation || !user) return;
+  // Clean up preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [previewUrls]);
 
+  // Ensure conversation exists (shared logic)
+  const ensureConversation = async () => {
     let currentConversation = activeConversation;
-    const activeText = text.trim();
-    setText('');
+    if (!currentConversation || !user) return null;
 
     if (currentConversation.conversationId.startsWith('new_') || currentConversation.conversationId.startsWith('contact_')) {
       try {
@@ -48,23 +65,41 @@ const MessageInput = () => {
         }
       } catch (err) {
         console.error('Failed to create conversation', err);
-        setText(activeText);
-        return;
+        return null;
       }
     }
+    return currentConversation;
+  };
 
-    const recipientPart = currentConversation.isGroup
+  // Get recipient ID from conversation
+  const getRecipientId = (conv: any) => {
+    if (!user) return undefined;
+    const recipientPart = conv.isGroup
       ? null
-      : currentConversation.participants.find((p: any) =>
+      : conv.participants.find((p: any) =>
           p !== user.id && p !== user.id.toString() &&
           p.id !== user.id && p.id?.toString() !== user.id.toString() &&
           p.userId !== user.id && p.userId !== user.id.toString() &&
           p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
         );
+    return recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
+  };
 
-    const recipientId = recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || !activeConversation || !user) return;
+
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) { return; }
+
+    const activeText = text.trim();
+    setText('');
+
+    const recipientId = getRecipientId(currentConversation);
+    const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
 
     const messagePayload = {
+      tempId,
       conversationId: currentConversation.conversationId,
       senderId: user.id.toString(),
       recipientId: recipientId?.toString(),
@@ -80,45 +115,21 @@ const MessageInput = () => {
     };
 
     socket.emit('send_message', messagePayload);
-    addMessage({ id: Date.now().toString(), ...messagePayload, createdAt: new Date().toISOString() });
+    addMessage({ id: tempId, ...messagePayload, createdAt: new Date().toISOString() });
     setReplyingMessage(null);
   };
 
   const sendSticker = async (stickerUrl: string) => {
     if (!activeConversation || !user) return;
     
-    let currentConversation = activeConversation;
-    // Handle new conversation logic same as handleSend if needed
-    if (currentConversation.conversationId.startsWith('new_') || currentConversation.conversationId.startsWith('contact_')) {
-      try {
-        const friendPart = currentConversation.participants[0];
-        const friendId = friendPart.contactUserId || friendPart.id || friendPart.userId;
-        const res = await createConversation([user.id.toString(), friendId.toString()], false);
-        if (res.data?.data) {
-          currentConversation = res.data.data;
-          setActiveConversation(res.data.data);
-        } else if (res.data) {
-          currentConversation = res.data;
-          setActiveConversation(res.data);
-        }
-      } catch (err) {
-        console.error('Failed to create conversation', err);
-        return;
-      }
-    }
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) return;
 
-    const recipientPart = currentConversation.isGroup
-      ? null
-      : currentConversation.participants.find((p: any) =>
-          p !== user.id && p !== user.id.toString() &&
-          p.id !== user.id && p.id?.toString() !== user.id.toString() &&
-          p.userId !== user.id && p.userId !== user.id.toString() &&
-          p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
-        );
-
-    const recipientId = recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
+    const recipientId = getRecipientId(currentConversation);
+    const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
 
     const messagePayload = {
+      tempId,
       conversationId: currentConversation.conversationId,
       senderId: user.id.toString(),
       recipientId: recipientId?.toString(),
@@ -134,9 +145,144 @@ const MessageInput = () => {
     };
 
     socket.emit('send_message', messagePayload);
-    addMessage({ id: Date.now().toString(), ...messagePayload, createdAt: new Date().toISOString() });
+    addMessage({ id: tempId, ...messagePayload, createdAt: new Date().toISOString() });
     setShowStickers(false);
     setReplyingMessage(null);
+  };
+
+  // Handle image selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newFiles = Array.from(files);
+    const newPreviews = newFiles.map(f => URL.createObjectURL(f));
+
+    setPendingFiles(prev => [...prev, ...newFiles]);
+    setPreviewUrls(prev => [...prev, ...newPreviews]);
+
+    // Reset the input
+    e.target.value = '';
+  };
+
+  // Handle file selection  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newFiles = Array.from(files);
+    setPendingFiles(prev => [...prev, ...newFiles]);
+    setPreviewUrls(prev => [...prev, ...newFiles.map(() => '')]);
+
+    e.target.value = '';
+  };
+
+  // Remove a pending file
+  const removePendingFile = (index: number) => {
+    if (previewUrls[index]) URL.revokeObjectURL(previewUrls[index]);
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Send pending files
+  const sendFiles = async () => {
+    if (pendingFiles.length === 0 || !activeConversation || !user) return;
+
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) return;
+
+    const recipientId = getRecipientId(currentConversation);
+    setUploading(true);
+
+    try {
+      for (const file of pendingFiles) {
+        const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+
+        // Determine local messageType for preview
+        let localType: string = 'file';
+        if (file.type.startsWith('image/')) localType = 'image';
+        else if (file.type.startsWith('video/')) localType = 'video';
+
+        const previewText = localType === 'image' ? '[Hình ảnh]' : localType === 'video' ? '[Video]' : `[Tệp] ${file.name}`;
+
+        // Optimistic add
+        addMessage({
+          id: tempId,
+          conversationId: currentConversation.conversationId,
+          senderId: user.id.toString(),
+          text: previewText,
+          messageType: localType,
+          fileUrl: localType === 'image' ? URL.createObjectURL(file) : undefined,
+          fileName: file.name,
+          fileSize: file.size,
+          createdAt: new Date().toISOString(),
+          _uploading: true,
+        } as any);
+
+        try {
+          // Upload to S3
+          const result = await uploadChatFile(file);
+
+          const messagePayload = {
+            tempId,
+            conversationId: currentConversation.conversationId,
+            senderId: user.id.toString(),
+            recipientId: recipientId?.toString(),
+            text: previewText,
+            messageType: result.messageType,
+            fileUrl: result.url,
+            fileName: result.fileName,
+            fileSize: result.fileSize,
+            replyTo: replyingMessage ? {
+              messageId: replyingMessage.id || replyingMessage._id || '',
+              content: replyingMessage.content || replyingMessage.text || '',
+              senderId: replyingMessage.senderId,
+              messageType: replyingMessage.messageType || 'text',
+            } : undefined,
+          };
+
+          socket.emit('send_message', messagePayload);
+
+          // Update optimistic message with real URL
+          const { updateMessage } = useChatStore.getState();
+          updateMessage(tempId, {
+            fileUrl: result.url,
+            messageType: result.messageType,
+            _uploading: false,
+          } as any);
+        } catch (err) {
+          console.error('Upload failed for file:', file.name, err);
+          // Mark as failed
+          const { updateMessage } = useChatStore.getState();
+          updateMessage(tempId, { _uploadFailed: true, _uploading: false } as any);
+        }
+      }
+    } finally {
+      setUploading(false);
+      setPendingFiles([]);
+      previewUrls.forEach(url => { if (url) URL.revokeObjectURL(url); });
+      setPreviewUrls([]);
+      setReplyingMessage(null);
+    }
+  };
+
+  // Handle paste for images
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const preview = URL.createObjectURL(file);
+          setPendingFiles(prev => [...prev, file]);
+          setPreviewUrls(prev => [...prev, preview]);
+        }
+        break;
+      }
+    }
   };
 
   if (!activeConversation) return null;
@@ -147,9 +293,9 @@ const MessageInput = () => {
 
   // Zalo toolbar icons — matches real Zalo PC exactly
   const toolButtons = [
-    { icon: Sticker, title: 'Sticker' },
-    { icon: ImageIcon, title: 'Hình ảnh' },
-    { icon: Paperclip, title: 'Đính kèm tệp' },
+    { icon: Sticker, title: 'Sticker', action: () => setShowStickers(!showStickers) },
+    { icon: ImageIcon, title: 'Hình ảnh', action: () => imageInputRef.current?.click() },
+    { icon: Paperclip, title: 'Đính kèm tệp', action: () => fileInputRef.current?.click() },
     { icon: ScreenShare, title: 'Chụp màn hình' },
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
@@ -159,17 +305,30 @@ const MessageInput = () => {
 
   return (
     <div className="relative z-10 theme-transition" style={{ background: 'var(--bg-input)', borderTop: '1px solid var(--border-primary)' }}>
+      {/* Hidden file inputs */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={handleImageSelect}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Zalo-style Toolbar */}
       <div className="flex items-center px-2 py-1 relative" style={{ borderBottom: '1px solid var(--border-light)' }}>
         {toolButtons.map((btn, i) => (
           <button key={i} type="button"
             className="p-2 rounded-md transition-all duration-150 hover:scale-105"
             style={{ color: btn.title === 'Sticker' && showStickers ? '#0068FF' : 'var(--text-secondary)' }}
-            onClick={() => {
-              if (btn.title === 'Sticker') {
-                setShowStickers(!showStickers);
-              }
-            }}
+            onClick={() => btn.action?.()}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'var(--bg-hover)';
               if (btn.title !== 'Sticker' || !showStickers) e.currentTarget.style.color = 'var(--text-accent)';
@@ -210,6 +369,48 @@ const MessageInput = () => {
         )}
       </div>
 
+      {/* Pending Files Preview */}
+      {pendingFiles.length > 0 && (
+        <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border-light)', background: 'var(--bg-panel)' }}>
+          <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+            {pendingFiles.map((file, idx) => (
+              <div key={idx} className="relative flex-shrink-0 group/preview">
+                {file.type.startsWith('image/') ? (
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border border-[var(--border-light)] bg-[var(--bg-hover)]">
+                    <img src={previewUrls[idx]} alt={file.name} className="w-full h-full object-cover" />
+                  </div>
+                ) : file.type.startsWith('video/') ? (
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border border-[var(--border-light)] bg-[var(--bg-hover)] flex flex-col items-center justify-center gap-1">
+                    <Film size={24} style={{ color: 'var(--text-secondary)' }} />
+                    <span className="text-[10px] text-center truncate w-full px-1" style={{ color: 'var(--text-secondary)' }}>
+                      {file.name.length > 10 ? file.name.substring(0, 10) + '...' : file.name}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border border-[var(--border-light)] bg-[var(--bg-hover)] flex flex-col items-center justify-center gap-1 px-1">
+                    <FileText size={24} style={{ color: 'var(--text-secondary)' }} />
+                    <span className="text-[10px] text-center truncate w-full" style={{ color: 'var(--text-secondary)' }}>
+                      {file.name.length > 10 ? file.name.substring(0, 10) + '...' : file.name}
+                    </span>
+                    <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>
+                      {formatFileSize(file.size)}
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removePendingFile(idx)}
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center
+                    opacity-0 group-hover/preview:opacity-100 transition-opacity shadow-md hover:bg-red-600"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Replying Preview Banner */}
       {replyingMessage && (
         <div className="flex items-center justify-between px-3 py-2 text-sm border-b" style={{ background: 'var(--bg-panel)', borderColor: 'var(--border-light)' }}>
@@ -218,7 +419,11 @@ const MessageInput = () => {
               Đang trả lời {replyingMessage.senderId === user.id.toString() ? 'chính mình' : 'người khác'}
             </span>
             <span className="truncate text-xs mt-0.5 opacity-80" style={{ color: 'var(--text-secondary)' }}>
-              {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' : (replyingMessage.content || replyingMessage.text)}
+              {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' : 
+               replyingMessage.messageType === 'image' ? '[Hình ảnh]' :
+               replyingMessage.messageType === 'video' ? '[Video]' :
+               replyingMessage.messageType === 'file' ? '[Tệp]' :
+               (replyingMessage.content || replyingMessage.text)}
             </span>
           </div>
           <button type="button" onClick={() => setReplyingMessage(null)} className="p-1 rounded-full hover:bg-[var(--bg-hover)] transition-colors">
@@ -228,19 +433,24 @@ const MessageInput = () => {
       )}
 
       {/* Input Row */}
-      <form onSubmit={handleSend} className="flex items-end gap-1 px-3 py-2">
+      <form onSubmit={pendingFiles.length > 0 ? (e) => { e.preventDefault(); sendFiles(); } : handleSend} className="flex items-end gap-1 px-3 py-2">
         <div className="flex-1">
           <textarea
             className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
             style={{ color: 'var(--text-primary)' }}
             rows={1}
-            placeholder={`Nhập @, tin nhắn tới ${recipientName}`}
+            placeholder={pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleSend(e);
+                if (pendingFiles.length > 0) {
+                  sendFiles();
+                } else {
+                  handleSend(e);
+                }
               }
             }}
           />
@@ -256,14 +466,21 @@ const MessageInput = () => {
             <Smile size={22} strokeWidth={1.5} />
           </button>
 
-          {text.trim() ? (
-            <button type="submit" className="p-2 rounded-md transition-all duration-150"
+          {(text.trim() || pendingFiles.length > 0) ? (
+            <button
+              type="submit"
+              disabled={uploading}
+              className="p-2 rounded-md transition-all duration-150 disabled:opacity-50"
               style={{ color: '#0068FF' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-              title="Gửi"
+              title={uploading ? 'Đang tải lên...' : 'Gửi'}
             >
-              <Send size={22} strokeWidth={1.5} />
+              {uploading ? (
+                <Loader2 size={22} strokeWidth={1.5} className="animate-spin" />
+              ) : (
+                <Send size={22} strokeWidth={1.5} />
+              )}
             </button>
           ) : (
             <button type="button" className="p-2 rounded-md transition-all duration-150"

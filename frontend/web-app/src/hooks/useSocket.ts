@@ -28,7 +28,16 @@ export const useSocketSetup = () => {
             
           if (!exists) {
             // Ensure the local message has proper ID mapping and content payload mapped over from socket
-            const normalizedMsg = { ...data, _id: incomingId, id: incomingId, content: data.content || data.text };
+            const normalizedMsg = {
+              ...data,
+              _id: incomingId,
+              id: incomingId,
+              content: data.content || data.text,
+              fileUrl: (data as any).fileUrl,
+              fileName: (data as any).fileName,
+              fileSize: (data as any).fileSize,
+              messageType: (data as any).messageType || 'text',
+            };
             state.addMessage(normalizedMsg);
           }
         }
@@ -43,6 +52,21 @@ export const useSocketSetup = () => {
         state.setConversations(updatedConversations);
       });
 
+      // Lắng nghe khi tin nhắn của mình đã gửi thành công để upate lại tempId
+      socket.on('message_sent', (data: any) => {
+        const state = useChatStore.getState();
+        if (data.tempId && data.messageId) {
+          state.updateMessage(data.tempId, {
+            id: data.messageId,
+            _id: data.messageId,
+            fileUrl: data.fileUrl,
+            fileName: data.fileName,
+            fileSize: data.fileSize,
+            messageType: data.messageType,
+          });
+        }
+      });
+
       // Lắng nghe trạng thái bạn bè online/offline (mock)
       socket.on('user_online', (data) => {
         console.log('User online:', data);
@@ -50,6 +74,7 @@ export const useSocketSetup = () => {
 
       return () => {
         socket.off('message_received');
+        socket.off('message_sent');
         socket.off('user_online');
         disconnectSocket();
       };

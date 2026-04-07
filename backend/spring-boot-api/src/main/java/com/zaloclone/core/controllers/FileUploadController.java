@@ -48,4 +48,44 @@ public class FileUploadController {
                     .body(ApiResponse.error("Upload ảnh bìa thất bại: " + e.getMessage()));
         }
     }
+
+    /**
+     * Upload chat file (image, video, document)
+     * POST /api/upload/chat
+     * Content-Type: multipart/form-data
+     * Auto-detects file type and routes to correct S3 folder
+     */
+    @PostMapping(value = "/chat", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<?>> uploadChatFile(@RequestParam("file") MultipartFile file) {
+        try {
+            String contentType = file.getContentType();
+            String folder;
+            String messageType;
+
+            if (contentType != null && contentType.startsWith("image/")) {
+                folder = "chat-images";
+                messageType = "image";
+            } else if (contentType != null && contentType.startsWith("video/")) {
+                folder = "chat-videos";
+                messageType = "video";
+            } else {
+                folder = "chat-files";
+                messageType = "file";
+            }
+
+            String url = s3Service.uploadChatFile(file, folder);
+            String originalName = file.getOriginalFilename();
+            long fileSize = file.getSize();
+
+            return ResponseEntity.ok(ApiResponse.success("Upload thành công", Map.of(
+                "url", url,
+                "messageType", messageType,
+                "fileName", originalName != null ? originalName : "file",
+                "fileSize", fileSize
+            )));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Upload thất bại: " + e.getMessage()));
+        }
+    }
 }

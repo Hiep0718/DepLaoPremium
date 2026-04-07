@@ -1,5 +1,6 @@
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
+import mongoose from 'mongoose';
 import crypto from 'crypto';
 
 // Store active users: userId -> socketId
@@ -42,7 +43,7 @@ const setupSocketEvents = (io) => {
     // Send message via WebSocket
     socket.on('send_message', async (data) => {
       try {
-        const { conversationId, senderId, text, recipientId, messageType, fileUrl, replyTo } = data;
+        const { conversationId, senderId, text, recipientId, messageType, fileUrl, fileName, fileSize, replyTo, tempId } = data;
 
         // Save message to database (use 'content' and 'receiverId' to match Message schema)
         // Also map optional messageType and fileUrl
@@ -53,6 +54,8 @@ const setupSocketEvents = (io) => {
           content: text,
           messageType: messageType || 'text',
           fileUrl: fileUrl || null,
+          fileName: fileName || null,
+          fileSize: fileSize || null,
           replyTo: replyTo || null,
           status: 'sent',
         });
@@ -76,11 +79,14 @@ const setupSocketEvents = (io) => {
         // Emit to both sender and recipient
         io.to(`user_${senderId}`).emit('message_sent', {
           messageId: message._id,
+          tempId,
           conversationId,
           senderId,
           text,
           messageType: message.messageType,
           fileUrl: message.fileUrl,
+          fileName: message.fileName,
+          fileSize: message.fileSize,
           replyTo: message.replyTo,
           isRevoked: message.isRevoked,
           timestamp: message.createdAt,
@@ -94,6 +100,8 @@ const setupSocketEvents = (io) => {
           text,
           messageType: message.messageType,
           fileUrl: message.fileUrl,
+          fileName: message.fileName,
+          fileSize: message.fileSize,
           replyTo: message.replyTo,
           isRevoked: message.isRevoked,
           timestamp: message.createdAt,
@@ -135,6 +143,10 @@ const setupSocketEvents = (io) => {
     socket.on('revoke_message', async (data) => {
       try {
         const { messageId, conversationId, userId } = data;
+
+        if (!mongoose.Types.ObjectId.isValid(messageId)) {
+          return;
+        }
 
         const message = await Message.findById(messageId);
         if (!message || message.senderId !== userId) return;

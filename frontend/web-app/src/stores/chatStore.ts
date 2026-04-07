@@ -9,6 +9,8 @@ export interface Message {
   content?: string;
   messageType?: string;
   fileUrl?: string;
+  fileName?: string;
+  fileSize?: number;
   replyTo?: {
     messageId: string;
     content: string;
@@ -18,6 +20,8 @@ export interface Message {
   isRevoked?: boolean;
   timestamp?: string;
   createdAt?: string;
+  _uploading?: boolean;
+  _uploadFailed?: boolean;
 }
 
 export interface Conversation {

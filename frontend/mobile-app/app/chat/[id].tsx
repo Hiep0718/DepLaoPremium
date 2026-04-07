@@ -140,9 +140,9 @@ export default function ChatScreen() {
     const handleMessageSent = (data: any) => {
       if (data.conversationId !== id) return;
       setMessages(prev => {
-        // Tìm tin pending của mình khớp nội dung
+        // Tìm tin pending của mình khớp tempId hoặc fallback sang nội dung
         const pendingIdx = prev.findIndex(
-          m => m.status === 'pending' && m.content === data.text && String(m.senderId) === String(currentUserId)
+          m => m.status === 'pending' && (data.tempId ? m._id === data.tempId : (m.content === data.text && String(m.senderId) === String(currentUserId)))
         );
         if (pendingIdx !== -1) {
           const updated = [...prev];
@@ -234,8 +234,9 @@ export default function ChatScreen() {
     const trimmed = text.trim();
     if (!trimmed || !socket || !currentUserId) return;
 
+    const tempId = `pending-${Date.now()}`;
     const tempMsg: Message = {
-      _id: `pending-${Date.now()}`,
+      _id: tempId,
       senderId: currentUserId,
       recipientId: recipientId as string,
       content: trimmed,
@@ -247,6 +248,7 @@ export default function ChatScreen() {
     setText('');
 
     socket.emit('send_message', {
+      tempId,
       conversationId: id,
       senderId: currentUserId,
       recipientId,
@@ -288,8 +290,9 @@ export default function ChatScreen() {
       });
       const imageUrl: string = res.data?.data?.url;
       if (imageUrl) {
+        const tempId = `pending-img-${Date.now()}`;
         const tempMsg: Message = {
-          _id: `pending-img-${Date.now()}`,
+          _id: tempId,
           senderId: currentUserId,
           recipientId: recipientId as string,
           content: '[Hình ảnh]',
@@ -298,7 +301,7 @@ export default function ChatScreen() {
           status: 'pending',
         };
         setMessages(prev => [tempMsg, ...prev]);
-        socket.emit('send_message', { conversationId: id, senderId: currentUserId, recipientId, text: imageUrl, type: 'image' });
+        socket.emit('send_message', { conversationId: id, senderId: currentUserId, recipientId, tempId, text: imageUrl, type: 'image' });
       } else {
         Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
       }
