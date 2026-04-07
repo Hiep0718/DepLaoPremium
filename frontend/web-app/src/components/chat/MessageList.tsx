@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { MoreHorizontal, Download, FileText, Loader2, AlertCircle } from 'lucide-react';
@@ -453,16 +454,29 @@ const MessageList = () => {
         <div ref={bottomRef} className="h-4" />
       </div>
 
-      {/* Image Lightbox */}
-      {lightboxUrl && (
+      {/* Image Lightbox - rendered via Portal to escape stacking context */}
+      {lightboxUrl && createPortal(
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fadeIn cursor-pointer"
+          className="fixed inset-0 flex items-center justify-center bg-black/90 backdrop-blur-md cursor-pointer"
+          style={{ zIndex: 99999 }}
           onClick={() => setLightboxUrl(null)}
         >
+          {/* Close button */}
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-6 left-6 p-3 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
+            title="Đóng"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
           <img
             src={lightboxUrl}
             alt="Preview"
             className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            style={{ animation: 'fadeIn 0.2s ease-out' }}
             onClick={(e) => e.stopPropagation()}
           />
           <a
@@ -476,7 +490,8 @@ const MessageList = () => {
           >
             <Download size={22} />
           </a>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

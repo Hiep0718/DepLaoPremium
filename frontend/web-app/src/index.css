@@ -176,3 +176,10 @@
   animation: subtitleReveal 0.6s ease-out 0.4s forwards;
   opacity: 0;
 }
+
+/* Toast fade-out */
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; transform: translateX(30px); }
+}
+
