@@ -3,7 +3,8 @@ import Conversation from '../models/Conversation.js';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 
-// Store active users: userId -> socketId
+// Store active users: userId -> { socketId, platform }
+// platform: 'web' | 'mobile'
 const activeUsers = new Map();
 
 // Store QR login sessions: sessionId -> { webSocketId, status, createdAt, ... }
@@ -24,20 +25,46 @@ const setupSocketEvents = (io) => {
   io.on('connection', (socket) => {
     console.log(`[Socket] User connected: ${socket.id}`);
 
-    // User joins with their userId
-    socket.on('user_join', (userId) => {
-      activeUsers.set(userId, socket.id);
+    // User joins with their userId and platform
+    // data can be: string (userId) for backward compat, or { userId, platform }
+    socket.on('user_join', (data) => {
+      let userId, platform;
+      if (typeof data === 'object' && data !== null) {
+        userId = String(data.userId);  // Always normalize to string
+        platform = data.platform || 'mobile';
+      } else {
+        userId = String(data);  // Always normalize to string
+        platform = 'mobile';
+      }
+
+      console.log(`[Socket] user_join received: userId=${userId}, platform=${platform}, socketId=${socket.id}`);
+      console.log(`[Socket] Current activeUsers:`, JSON.stringify([...activeUsers.entries()]));
+
+      // ═══ Single Session: Force logout previous WEB session ═══
+      if (platform === 'web') {
+        const existing = activeUsers.get(userId);
+        console.log(`[Socket] Checking existing session for ${userId}:`, existing);
+        if (existing && existing.platform === 'web' && existing.socketId !== socket.id) {
+          console.log(`[Socket] ★ Force logout previous web session for user ${userId} (old socket: ${existing.socketId}, new socket: ${socket.id})`);
+          io.to(existing.socketId).emit('force_logout', {
+            message: 'Tài khoản của bạn đã được đăng nhập trên một trình duyệt khác.',
+          });
+        }
+      }
+
+      activeUsers.set(userId, { socketId: socket.id, platform });
       socket.userId = userId;
+      socket.platform = platform;
       socket.join(`user_${userId}`);
-      
+
       // Broadcast user online status
       io.emit('user_online', {
         userId,
         status: 'online',
         timestamp: new Date(),
       });
-      
-      console.log(`[Socket] User ${userId} joined. Active users: ${activeUsers.size}`);
+
+      console.log(`[Socket] User ${userId} joined (${platform}). Active users: ${activeUsers.size}`);
     });
 
     // Send message via WebSocket
@@ -268,7 +295,7 @@ const setupSocketEvents = (io) => {
       });
 
       console.log(`[QR Login] Session ${sessionId} confirmed. Web client will login.`);
-      
+
       // Cleanup session
       qrSessions.delete(sessionId);
     });
@@ -285,6 +312,7 @@ const setupSocketEvents = (io) => {
     // ═══════════════════ END QR LOGIN ═══════════════════
 
     // User disconnects
+    // User disconnects
     socket.on('disconnect', () => {
       // Cleanup any QR sessions owned by this web socket
       for (const [sessionId, session] of qrSessions) {
@@ -295,16 +323,25 @@ const setupSocketEvents = (io) => {
       }
 
       if (socket.userId) {
-        activeUsers.delete(socket.userId);
+        // Lấy thông tin session hiện tại đang lưu
+        const currentUserSession = activeUsers.get(socket.userId);
 
-        // Broadcast user offline status
-        io.emit('user_offline', {
-          userId: socket.userId,
-          status: 'offline',
-          timestamp: new Date(),
-        });
+        // CHỈ XÓA khi socket ngắt kết nối chính là socket đang được lưu là active
+        if (currentUserSession && currentUserSession.socketId === socket.id) {
+          activeUsers.delete(socket.userId);
 
-        console.log(`[Socket] User ${socket.userId} disconnected. Active users: ${activeUsers.size}`);
+          // Broadcast user offline status
+          io.emit('user_offline', {
+            userId: socket.userId,
+            status: 'offline',
+            timestamp: new Date(),
+          });
+
+          console.log(`[Socket] User ${socket.userId} disconnected. Active users: ${activeUsers.size}`);
+        } else {
+          // Ghi log để biết là một session cũ/phụ vừa ngắt kết nối, không ảnh hưởng session chính
+          console.log(`[Socket] Old/Secondary session for user ${socket.userId} disconnected (socket: ${socket.id}). Active users remains: ${activeUsers.size}`);
+        }
       }
     });
 

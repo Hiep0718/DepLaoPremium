@@ -10,14 +10,14 @@ export const connectSocket = (userId: string) => {
   // Always set up the connect listener to handle reconnects
   socket.off('connect');
   socket.on('connect', () => {
-    socket.emit('user_join', userId);
+    socket.emit('user_join', { userId, platform: 'web' });
   });
 
   if (!socket.connected) {
     socket.connect();
   } else {
     // If already connected, emit immediately
-    socket.emit('user_join', userId);
+    socket.emit('user_join', { userId, platform: 'web' });
   }
 };
 

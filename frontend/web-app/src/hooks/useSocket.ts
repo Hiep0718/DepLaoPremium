@@ -22,6 +22,23 @@ export const useSocketSetup = () => {
       // Yêu cầu quyền thông báo
       requestNotificationPermission();
 
+      // ═══ FORCE LOGOUT: Single Session trên Web ═══
+      socket.on('force_logout', (data: { message: string }) => {
+        console.warn('[Socket] Force logout:', data.message);
+
+        // Hiển thị thông báo cho user
+        showToast('Phiên đăng nhập', data.message, 'warning');
+
+        // Logout và redirect
+        useAuthStore.getState().logout();
+        disconnectSocket();
+
+        // Delay nhẹ để toast kịp hiển thị
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 500);
+      });
+
       // Lắng nghe tin nhắn mới tới
       socket.on('message_received', (data: Message) => {
         const state = useChatStore.getState();
@@ -121,6 +138,7 @@ export const useSocketSetup = () => {
       });
 
       return () => {
+        socket.off('force_logout');
         socket.off('message_received');
         socket.off('message_sent');
         socket.off('user_online');
