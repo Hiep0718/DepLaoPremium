@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { useAuthStore } from './authStore';
+import { markConversationAsRead } from '../services/message.service';
 
 export interface Message {
   id: string;
@@ -47,6 +49,7 @@ interface ChatState {
   replyingMessage: Message | null;
   forwardingMessage: Message | null;
   isForwardModalOpen: boolean;
+  markAsRead: (conversationId: string) => void;
   setConversations: (conversations: Conversation[]) => void;
   setActiveConversation: (conversation: Conversation) => void;
   setActiveContactInfo: (info: ContactInfo) => void;
@@ -69,13 +72,28 @@ export const useChatStore = create<ChatState>((set) => ({
   replyingMessage: null,
   forwardingMessage: null,
   isForwardModalOpen: false,
+  markAsRead: async (conversationId) => {
+    set((state) => ({
+      conversations: state.conversations.map(c =>
+        c.conversationId === conversationId ? { ...c, unreadCount: 0 } : c
+      )
+    }));
+    try {
+      const user = useAuthStore.getState().user;
+      if (user?.id) {
+        await markConversationAsRead(conversationId, user.id.toString());
+      }
+    } catch (e) {
+      console.error('Failed to mark conversation as read:', e);
+    }
+  },
   setConversations: (conversations) => set({ conversations }),
   setActiveConversation: (activeConversation) => set({ activeConversation }),
   setActiveContactInfo: (activeContactInfo) => set({ activeContactInfo }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
   updateMessage: (messageId, updates) => set((state) => ({
-    messages: state.messages.map(msg => 
+    messages: state.messages.map(msg =>
       (msg.id === messageId || msg._id === messageId) ? { ...msg, ...updates } : msg
     )
   })),
@@ -83,10 +101,10 @@ export const useChatStore = create<ChatState>((set) => ({
   setForwardingMessage: (forwardingMessage) => set({ forwardingMessage, isForwardModalOpen: !!forwardingMessage }),
   setForwardModalOpen: (isForwardModalOpen) => set({ isForwardModalOpen }),
   toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen })),
-  clearChat: () => set({ 
-    conversations: [], 
-    activeConversation: null, 
-    activeContactInfo: null, 
+  clearChat: () => set({
+    conversations: [],
+    activeConversation: null,
+    activeContactInfo: null,
     messages: [],
     replyingMessage: null,
     forwardingMessage: null,

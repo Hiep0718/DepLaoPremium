@@ -210,6 +210,42 @@ const MessageList = () => {
     );
   };
 
+  // Render audio message
+  const renderAudioMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+    const isUploading = (msg as any)._uploading;
+
+    return (
+      <div className="relative group/media rounded-xl p-2 max-w-[320px]"
+        style={{ background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)' }}>
+        {isUploading ? (
+          <div className="flex items-center gap-2 w-48 h-10 px-2 justify-center">
+            <Loader2 size={24} className="animate-spin" style={{ color: isMe ? '#fff' : 'var(--text-secondary)' }} />
+          </div>
+        ) : (
+          <audio
+            src={msg.fileUrl}
+            controls
+            preload="metadata"
+            className="w-64 h-12 outline-none rounded-lg"
+          />
+        )}
+        {/* Time overlay */}
+        <div className="flex justify-end mt-1 px-1">
+          <span className="text-[10px] flex items-center gap-0.5 select-none"
+             style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
+            {format(msgTime, 'HH:mm')}
+            {isMe && (
+              <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   // Render file message
   const renderFileMessage = (msg: any, isMe: boolean, msgTime: Date) => {
     const isUploading = (msg as any)._uploading;
@@ -371,6 +407,7 @@ const MessageList = () => {
                               {msg.replyTo.messageType === 'sticker' ? '[Nhãn dán]' : 
                                msg.replyTo.messageType === 'image' ? '[Hình ảnh]' :
                                msg.replyTo.messageType === 'video' ? '[Video]' :
+                               msg.replyTo.messageType === 'audio' ? '[Tin nhắn thoại]' :
                                msg.replyTo.messageType === 'file' ? '[Tệp]' :
                                msg.replyTo.content}
                             </span>
@@ -407,6 +444,10 @@ const MessageList = () => {
                         /* File */
                         ) : msg.messageType === 'file' && msg.fileUrl ? (
                           renderFileMessage(msg, isMe, msgTime)
+
+                        /* Audio */
+                        ) : msg.messageType === 'audio' && msg.fileUrl ? (
+                          renderAudioMessage(msg, isMe, msgTime)
 
                         /* Text (default) */
                         ) : (

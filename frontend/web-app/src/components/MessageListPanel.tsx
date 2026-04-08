@@ -204,10 +204,19 @@ const MessageListPanel = () => {
           filteredConversations.map((conv) => {
             const { name: displayName, avatar } = getOtherParticipant(conv);
             const isActive = activeConversation?.conversationId === conv.conversationId;
+            const hasUnread = (conv.unreadCount || 0) > 0;
+
+            const handleItemClick = () => {
+              handleConversationClick(conv);
+              if (hasUnread) {
+                useChatStore.getState().markAsRead(conv.conversationId);
+              }
+            };
+
             return (
               <div
                 key={conv.conversationId}
-                onClick={() => handleConversationClick(conv)}
+                onClick={handleItemClick}
                 className="flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors"
                 style={{ background: isActive ? 'var(--bg-active)' : 'transparent' }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
@@ -223,22 +232,22 @@ const MessageListPanel = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline mb-0.5">
-                    <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{displayName}</h3>
-                    <span className="text-[11px] shrink-0 ml-2" style={{ color: 'var(--text-secondary)' }}>
+                    <h3 className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-primary)' }}>{displayName}</h3>
+                    <span className={`text-[11px] shrink-0 ml-2 ${hasUnread ? 'font-bold text-blue-500' : ''}`} style={{ color: hasUnread ? '' : 'var(--text-secondary)' }}>
                       {conv.lastMessage?.timestamp
                         ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                         : ''}
                     </span>
                   </div>
-                  <p className="text-[13px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                  <p className={`text-[13px] truncate ${hasUnread ? 'font-semibold' : ''}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                     {typeof conv.lastMessage === 'object' && conv.lastMessage !== null
                       ? (conv.lastMessage as any).content
                       : (conv.lastMessage as string) || 'Chưa có tin nhắn'}
                   </p>
                 </div>
-                {conv.unreadCount && conv.unreadCount > 0 && (
+                {hasUnread && (
                   <div className="w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {conv.unreadCount}
+                    {conv.unreadCount! > 9 ? '9+' : conv.unreadCount}
                   </div>
                 )}
               </div>

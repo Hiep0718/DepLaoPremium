@@ -68,6 +68,9 @@ public class FileUploadController {
             } else if (contentType != null && contentType.startsWith("video/")) {
                 folder = "chat-videos";
                 messageType = "video";
+            } else if (contentType != null && contentType.startsWith("audio/")) {
+                folder = "chat-audio";
+                messageType = "audio";
             } else {
                 folder = "chat-files";
                 messageType = "file";

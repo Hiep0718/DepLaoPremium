@@ -43,3 +43,7 @@ export const createConversation = async (participants: string[], isGroup = false
     isGroup,
   });
 };
+
+export const markConversationAsRead = async (conversationId: string, userId: string) => {
+  return messagingApi.put(`/conversations/${conversationId}/read`, { userId });
+};

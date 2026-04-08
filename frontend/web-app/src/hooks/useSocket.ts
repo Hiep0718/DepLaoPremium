@@ -57,14 +57,30 @@ export const useSocketSetup = () => {
         }
 
         // 2. Cập nhật số lượng tin nhắn chưa đọc bên Sidebar
-        const updatedConversations = chatState.conversations.map(c => {
-          if (c.conversationId === data.conversationId) {
-            return { ...c, lastMessage: data.content || data.text, unreadCount: (c.unreadCount || 0) + 1 };
-          }
-          return c;
-        });
-        chatState.setConversations(updatedConversations);
+        // 2. Cập nhật số lượng tin nhắn chưa đọc bên Sidebar VÀ ĐẨY LÊN ĐẦU
+        const updatedConversations = [...chatState.conversations];
+        const targetIndex = updatedConversations.findIndex(c => c.conversationId === data.conversationId);
 
+        if (targetIndex !== -1) {
+          // TẠO BẢN SAO MỚI CỦA OBJECT (Deep clone) ĐỂ REACT NHẬN DIỆN SỰ THAY ĐỔI
+          const targetConv = { ...updatedConversations[targetIndex] };
+
+          // Rút ra khỏi mảng hiện tại
+          updatedConversations.splice(targetIndex, 1);
+
+          // Cập nhật nội dung
+          targetConv.lastMessage = data.content || data.text;
+
+          // Chỉ tăng biến đếm nếu KHÔNG ĐANG MỞ cửa sổ chat đó
+          if (chatState.activeConversation?.conversationId !== data.conversationId) {
+            targetConv.unreadCount = (targetConv.unreadCount || 0) + 1;
+            console.log(`[Socket] Đã tăng unreadCount của ${targetConv.conversationId} lên:`, targetConv.unreadCount);
+          }
+
+          // Đẩy object MỚI lên đầu mảng
+          updatedConversations.unshift(targetConv);
+          chatState.setConversations(updatedConversations);
+        }
         // 3. ═══ NOTIFICATIONS ═══
         // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt
         if (!settingsState.notifyMessages) return;
@@ -109,6 +125,7 @@ export const useSocketSetup = () => {
           if (settingsState.notifyPreview) {
             if (msgType === 'image') toastMsg = '📷 Đã gửi một hình ảnh';
             else if (msgType === 'video') toastMsg = '🎬 Đã gửi một video';
+            else if (msgType === 'audio') toastMsg = '🎤 Đã gửi một tin nhắn thoại';
             else if (msgType === 'file') toastMsg = '📎 Đã gửi một tệp';
             else if (msgType === 'sticker') toastMsg = '😊 Đã gửi một nhãn dán';
           }

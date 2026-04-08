@@ -24,17 +24,28 @@ export const sendMessage = async (req, res) => {
 
     await message.save();
 
-    // Update conversation last message
-    await Conversation.updateOne(
-      { conversationId },
-      {
-        lastMessage: {
-          content,
-          senderId,
-          timestamp: new Date(),
-        },
+    // Update conversation last message and unread count
+    const conversation = await Conversation.findOne({ conversationId });
+    
+    if (conversation) {
+      conversation.lastMessage = {
+        content,
+        senderId,
+        timestamp: new Date(),
+      };
+      
+      // Task 1: Increment unreadCount for all participants EXCEPT the sender
+      if (conversation.participants) {
+        conversation.participants.forEach(p => {
+          if (p.userId !== senderId) {
+            const currentCount = conversation.unreadCount.get(p.userId) || 0;
+            conversation.unreadCount.set(p.userId, currentCount + 1);
+          }
+        });
       }
-    );
+      
+      await conversation.save();
+    }
 
     res.status(201).json({
       success: true,
@@ -93,9 +104,22 @@ export const getConversations = async (req, res) => {
       'participants.userId': userId,
     }).sort({ 'lastMessage.timestamp': -1 });
 
+    // Task 2: Format unreadCount as a number for the fetching user
+    const formattedConversations = conversations.map(c => {
+      const convObj = c.toObject();
+      let count = 0;
+      if (c.unreadCount && c.unreadCount.get) {
+        count = c.unreadCount.get(userId) || 0;
+      } else if (convObj.unreadCount && convObj.unreadCount[userId]) {
+        count = convObj.unreadCount[userId] || 0;
+      }
+      convObj.unreadCount = count;
+      return convObj;
+    });
+
     res.status(200).json({
       success: true,
-      data: conversations,
+      data: formattedConversations,
     });
   } catch (error) {
     console.error('Get conversations error:', error);
@@ -214,6 +238,46 @@ export const searchMessages = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to search messages',
+      error: error.message,
+    });
+  }
+};
+
+// Task 3: API markAsRead
+export const markConversationAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { userId } = req.body;
+
+    if (!conversationId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing conversationId or userId',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Conversation not found',
+      });
+    }
+
+    // Set unreadCount cho user đo về 0
+    conversation.unreadCount.set(userId, 0);
+    await conversation.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Conversation marked as read',
+    });
+  } catch (error) {
+    console.error('Mark as read error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark conversation as read',
       error: error.message,
     });
   }

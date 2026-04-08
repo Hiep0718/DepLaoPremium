@@ -9,7 +9,7 @@ const SPRING_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/ap
  */
 export const uploadChatFile = async (file: File): Promise<{
   url: string;
-  messageType: 'image' | 'video' | 'file';
+  messageType: 'image' | 'video' | 'audio' | 'file';
   fileName: string;
   fileSize: number;
 }> => {

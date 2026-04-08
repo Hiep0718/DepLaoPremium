@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
-  ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2
+  ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2,
+  Mic, Trash2, StopCircle
 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -23,6 +24,14 @@ const MessageInput = () => {
   const [uploading, setUploading] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  
+  // Voice Recording States
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const stickerRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -39,10 +48,14 @@ const MessageInput = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Clean up preview URLs on unmount
+  // Clean up preview URLs and recording timer on unmount
   useEffect(() => {
     return () => {
       previewUrls.forEach(url => URL.revokeObjectURL(url));
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
     };
   }, [previewUrls]);
 
@@ -285,6 +298,77 @@ const MessageInput = () => {
     }
   };
 
+  // --- VOICE RECORDING LOGIC ---
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        // Clean up tracks to stop microphone usage indicator
+        stream.getTracks().forEach(track => track.stop());
+
+        // Create a File from Blob
+        const file = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
+        
+        // Push file to pendingFiles and trigger send directly
+        setPendingFiles([file]);
+        setPreviewUrls(['']); // No preview url needed for audio right away
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (err) {
+      console.error('Microphone access denied or error:', err);
+      // Optional: Add a toast notification here "Vui lòng cấp quyền Microphone"
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      // Clearing chunks before they process ensures we don't send anything
+      audioChunksRef.current = [];
+    }
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    setRecordingTime(0);
+  };
+
+  const stopAndSendRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop(); // Triggers onstop and creates file -> pendingFiles
+    }
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    setRecordingTime(0);
+    // We rely on an effect to automatically sendFiles if pendingFiles was updated with an audio message
+    setTimeout(() => {
+       sendFiles();
+    }, 100);
+  };
+
+  const formatRecordTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
   if (!activeConversation) return null;
 
   // Get recipient name for placeholder
@@ -299,8 +383,7 @@ const MessageInput = () => {
     { icon: ScreenShare, title: 'Chụp màn hình' },
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
-    { icon: Zap, title: 'Tin nhắn nhanh' },
-    { icon: MoreHorizontal, title: 'Thêm' },
+    { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() }
   ];
 
   return (
@@ -433,28 +516,58 @@ const MessageInput = () => {
       )}
 
       {/* Input Row */}
-      <form onSubmit={pendingFiles.length > 0 ? (e) => { e.preventDefault(); sendFiles(); } : handleSend} className="flex items-end gap-1 px-3 py-2">
-        <div className="flex-1">
-          <textarea
-            className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
-            style={{ color: 'var(--text-primary)' }}
-            rows={1}
-            placeholder={pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (pendingFiles.length > 0) {
-                  sendFiles();
-                } else {
-                  handleSend(e);
+      <form onSubmit={pendingFiles.length > 0 ? (e) => { e.preventDefault(); sendFiles(); } : handleSend} className="flex items-end gap-1 px-3 py-2 min-h-[50px]">
+        {isRecording ? (
+          /* Voice Recording UI */
+          <div className="flex-1 flex items-center justify-between py-2.5 px-4 bg-red-50 rounded-full border border-red-100 mr-2 animate-fadeIn">
+            <div className="flex items-center gap-3 text-red-500 font-medium overflow-hidden">
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)] shrink-0"></span>
+              <span className="text-sm shrink-0">{formatRecordTime(recordingTime)}</span>
+              <span className="text-xs truncate opacity-70 whitespace-nowrap hidden sm:inline">Đang ghi âm...</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              <button
+                type="button"
+                onClick={cancelRecording}
+                className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-100 rounded-full transition-colors"
+                title="Hủy ghi âm"
+              >
+                <Trash2 size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={stopAndSendRecording}
+                className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded-full transition-colors ml-1"
+                title="Gửi"
+              >
+                <Send size={18} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Text Input UI */
+          <div className="flex-1">
+            <textarea
+              className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
+              style={{ color: 'var(--text-primary)' }}
+              rows={1}
+              placeholder={pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (pendingFiles.length > 0) {
+                    sendFiles();
+                  } else {
+                    handleSend(e);
+                  }
                 }
-              }
-            }}
-          />
-        </div>
+              }}
+            />
+          </div>
+        )}
 
         <div className="flex items-center gap-0.5 pb-1.5">
           <button type="button" className="p-2 rounded-md transition-all duration-150"
@@ -482,7 +595,7 @@ const MessageInput = () => {
                 <Send size={22} strokeWidth={1.5} />
               )}
             </button>
-          ) : (
+          ) : !isRecording ? (
             <button type="button" className="p-2 rounded-md transition-all duration-150"
               style={{ color: '#0068FF' }}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -491,7 +604,7 @@ const MessageInput = () => {
             >
               <ThumbsUp size={22} strokeWidth={1.5} />
             </button>
-          )}
+          ) : null}
         </div>
       </form>
     </div>
