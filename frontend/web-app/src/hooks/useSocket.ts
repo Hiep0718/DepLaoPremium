@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
+import { useSettingsStore } from '../stores/settingsStore'; // Đã thêm
 import type { Message } from '../stores/chatStore';
 import {
   requestNotificationPermission,
@@ -16,44 +17,31 @@ export const useSocketSetup = () => {
 
   useEffect(() => {
     if (user?.id) {
-      // Kết nối socket khi có user
       connectSocket(user.id);
-
-      // Yêu cầu quyền thông báo
       requestNotificationPermission();
 
       // ═══ FORCE LOGOUT: Single Session trên Web ═══
       socket.on('force_logout', (data: { message: string }) => {
         console.warn('[Socket] Force logout:', data.message);
-
-        // Hiển thị thông báo cho user
         showToast('Phiên đăng nhập', data.message, 'warning');
-
-        // Logout và redirect
         useAuthStore.getState().logout();
         disconnectSocket();
-
-        // Delay nhẹ để toast kịp hiển thị
         setTimeout(() => {
           window.location.href = '/login';
         }, 500);
       });
 
-      // Lắng nghe tin nhắn mới tới
+      // ═══ LẮNG NGHE TIN NHẮN ═══
       socket.on('message_received', (data: Message) => {
-        const state = useChatStore.getState();
-        // Chỉ thêm vào danh sách tin nhắn hiện tại nếu đang mở đúng conversation đó
-        if (state.activeConversation?.conversationId === data.conversationId) {
-          // Normalize the incoming ID from socket
+        const chatState = useChatStore.getState();
+        const settingsState = useSettingsStore.getState().settings; // Lấy settings hiện tại
+
+        // 1. Cập nhật vào màn hình chat nếu đang mở
+        if (chatState.activeConversation?.conversationId === data.conversationId) {
           const incomingId = (data as any).messageId || data._id || data.id;
-          
-          // Check duplicate first to be safe
-          const exists = incomingId 
-            ? state.messages.find(m => m.id === incomingId || m._id === incomingId)
-            : false;
-            
+          const exists = incomingId ? chatState.messages.find(m => m.id === incomingId || m._id === incomingId) : false;
+
           if (!exists) {
-            // Ensure the local message has proper ID mapping and content payload mapped over from socket
             const normalizedMsg = {
               ...data,
               _id: incomingId,
@@ -64,60 +52,76 @@ export const useSocketSetup = () => {
               fileSize: (data as any).fileSize,
               messageType: (data as any).messageType || 'text',
             };
-            state.addMessage(normalizedMsg);
+            chatState.addMessage(normalizedMsg);
           }
         }
-        
-        // Optimize: Cập nhật tin nhắn mới nhất trong danh sách conversations
-        const updatedConversations = state.conversations.map(c => {
+
+        // 2. Cập nhật số lượng tin nhắn chưa đọc bên Sidebar
+        const updatedConversations = chatState.conversations.map(c => {
           if (c.conversationId === data.conversationId) {
             return { ...c, lastMessage: data.content || data.text, unreadCount: (c.unreadCount || 0) + 1 };
           }
           return c;
         });
-        state.setConversations(updatedConversations);
+        chatState.setConversations(updatedConversations);
 
-        // ═══ NOTIFICATIONS ═══
+        // 3. ═══ NOTIFICATIONS ═══
+        // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt
+        if (!settingsState.notifyMessages) return;
+
         const msgType = (data as any).messageType || 'text';
-        const msgContent = data.content || data.text || '';
 
-        // Tìm tên người gửi từ conversations
+        // Nếu user tắt preview (ẩn nội dung), thay thế bằng dòng chữ chung chung
+        const msgContent = settingsState.notifyPreview ? (data.content || data.text || '') : 'Bạn có một tin nhắn mới';
+
         let senderName = 'Tin nhắn mới';
         let senderAvatar: string | undefined;
-        const conv = state.conversations.find(c => c.conversationId === data.conversationId);
+        const conv = chatState.conversations.find(c => c.conversationId === data.conversationId);
+
         if (conv?.participants) {
-          const sender = conv.participants.find(
-            (p: any) => {
-              const pId = p.userId || p.contactUserId || p.id || p;
-              return pId?.toString() === data.senderId;
-            }
-          );
+          const sender = conv.participants.find((p: any) => {
+            const pId = p.userId || p.contactUserId || p.id || p;
+            return pId?.toString() === data.senderId;
+          });
           if (sender) {
             senderName = sender.nickname || sender.fullName || sender.name || senderName;
             senderAvatar = sender.avatarUrl;
           }
         }
 
-        // Gửi thông báo nếu đang ở conversation khác hoặc tab không focus
-        const isInActiveConv = state.activeConversation?.conversationId === data.conversationId;
+        const isInActiveConv = chatState.activeConversation?.conversationId === data.conversationId;
+
+        // Hành động khi Click vào Toast / Notification
+        const handleNotificationClick = () => {
+          const targetConv = useChatStore.getState().conversations.find(c => c.conversationId === data.conversationId);
+          if (targetConv) {
+            useChatStore.getState().setActiveConversation(targetConv);
+            window.focus(); // Đưa trình duyệt lên trên cùng nếu bị thu nhỏ
+          }
+        };
 
         // Browser desktop notification (chỉ khi tab mất focus)
-        showMessageNotification(senderName, msgContent, msgType, senderAvatar);
+        showMessageNotification(senderName, msgContent, msgType, senderAvatar, handleNotificationClick);
 
         // In-app toast (khi đang ở conversation khác)
         if (!isInActiveConv) {
           let toastMsg = msgContent;
-          if (msgType === 'image') toastMsg = '📷 Đã gửi một hình ảnh';
-          else if (msgType === 'video') toastMsg = '🎬 Đã gửi một video';
-          else if (msgType === 'file') toastMsg = '📎 Đã gửi một tệp';
-          else if (msgType === 'sticker') toastMsg = '😊 Đã gửi một nhãn dán';
+          if (settingsState.notifyPreview) {
+            if (msgType === 'image') toastMsg = '📷 Đã gửi một hình ảnh';
+            else if (msgType === 'video') toastMsg = '🎬 Đã gửi một video';
+            else if (msgType === 'file') toastMsg = '📎 Đã gửi một tệp';
+            else if (msgType === 'sticker') toastMsg = '😊 Đã gửi một nhãn dán';
+          }
 
-          showToast(senderName, toastMsg, 'info', senderAvatar);
-          playNotificationSound();
+          showToast(senderName, toastMsg, 'info', senderAvatar, handleNotificationClick);
+
+          // Phát âm thanh nếu user không tắt
+          if (settingsState.notifySound) {
+            playNotificationSound();
+          }
         }
       });
 
-      // Lắng nghe khi tin nhắn của mình đã gửi thành công để update lại tempId
       socket.on('message_sent', (data: any) => {
         const state = useChatStore.getState();
         if (data.tempId && data.messageId) {
@@ -132,7 +136,6 @@ export const useSocketSetup = () => {
         }
       });
 
-      // Lắng nghe trạng thái bạn bè online/offline (mock)
       socket.on('user_online', (data) => {
         console.log('User online:', data);
       });

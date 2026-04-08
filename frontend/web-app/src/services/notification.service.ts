@@ -118,11 +118,7 @@ export const showToast = (
   activeToasts = [...activeToasts, toast];
   notifyListeners();
 
-  // Auto-remove after 4 seconds
-  setTimeout(() => {
-    removeToast(id);
-  }, 4000);
-
+  // BỎ setTimeout ở đây, component ToastItem (ở dưới) sẽ tự đếm ngược
   return id;
 };
 
