@@ -7,6 +7,7 @@ import {
   updateMessageStatus,
   searchMessages,
   markConversationAsRead,
+  deleteConversationHistory,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -25,5 +26,6 @@ router.put('/status/:messageId', updateMessageStatus);
 router.post('/conversation', createConversation);
 router.get('/conversations/:userId', getConversations);
 router.put('/conversations/:conversationId/read', markConversationAsRead);
+router.delete('/conversations/:conversationId/history', deleteConversationHistory);
 
 export default router;

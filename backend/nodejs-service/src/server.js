@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3001;
 const httpServer = createServer(app);
 const io = new SocketIOServer(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN?.split(',') || '*',
+    origin: (origin, callback) => callback(null, true),
     credentials: true,
   },
   transports: ['websocket', 'polling'],
@@ -25,7 +25,7 @@ const io = new SocketIOServer(httpServer, {
 
 // Middleware
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || '*',
+  origin: (origin, callback) => callback(null, true),
   credentials: true,
 }));
 app.use(express.json());

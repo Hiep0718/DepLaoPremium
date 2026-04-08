@@ -8,6 +8,8 @@ import { getConversationHistory } from '../../services/message.service';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { socket } from '../../services/socket';
+import { contactService } from '../../services/contactService';
+import ProfileModal from '../ProfileModal';
 
 const BUBBLE_RADIUS = {
   modern: { normal: '18px', corner: '6px' },
@@ -41,13 +43,15 @@ const MessageList = () => {
   const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [activeProfile, setActiveProfile] = useState<any>(null);
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
 
   useEffect(() => {
-    if (!activeConversation) return;
+    if (!activeConversation || !user?.id) return;
     const fetchHistory = async () => {
       try {
-        const res = await getConversationHistory(activeConversation.conversationId);
+        const res = await getConversationHistory(activeConversation.conversationId, user.id.toString());
         if (res.data && Array.isArray(res.data.data)) setMessages(res.data.data);
         else if (res.data && Array.isArray(res.data)) setMessages(res.data);
       } catch (err) {
@@ -59,7 +63,7 @@ const MessageList = () => {
     } else {
       setMessages([]);
     }
-  }, [activeConversation, setMessages]);
+  }, [activeConversation, user, setMessages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -219,7 +223,7 @@ const MessageList = () => {
         style={{ background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)' }}>
         {isUploading ? (
           <div className="flex items-center gap-2 w-48 h-10 px-2 justify-center">
-            <Loader2 size={24} className="animate-spin" style={{ color: isMe ? '#fff' : 'var(--text-secondary)' }} />
+            <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-secondary)' }} />
           </div>
         ) : (
           <audio
@@ -232,7 +236,7 @@ const MessageList = () => {
         {/* Time overlay */}
         <div className="flex justify-end mt-1 px-1">
           <span className="text-[10px] flex items-center gap-0.5 select-none"
-             style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
+             style={{ color: 'var(--text-msg-time)' }}>
             {format(msgTime, 'HH:mm')}
             {isMe && (
               <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
@@ -269,19 +273,19 @@ const MessageList = () => {
         }}
       >
         <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: isMe ? 'rgba(255,255,255,0.15)' : 'rgba(0,104,255,0.1)' }}
+          style={{ background: 'rgba(0,104,255,0.1)' }}
         >
           {isUploading ? (
-            <Loader2 size={20} className="animate-spin" style={{ color: isMe ? '#fff' : '#0068FF' }} />
+            <Loader2 size={20} className="animate-spin" style={{ color: '#0068FF' }} />
           ) : (
-            <FileText size={20} style={{ color: isMe ? '#fff' : '#0068FF' }} />
+            <FileText size={20} style={{ color: '#0068FF' }} />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
             {typeof fileName === 'string' && fileName.startsWith('[Tệp]') ? fileName.replace('[Tệp] ', '') : fileName}
           </p>
-          <p className="text-[11px] mt-0.5" style={{ color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--text-secondary)' }}>
+          <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             {ext && <span className="mr-1">{ext}</span>}
             {fileSize ? formatFileSize(fileSize) : ''}
           </p>
@@ -294,14 +298,14 @@ const MessageList = () => {
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             className="p-1.5 rounded-full transition-colors flex-shrink-0"
-            style={{ color: isMe ? '#fff' : '#0068FF' }}
+            style={{ color: '#0068FF' }}
           >
             <Download size={18} />
           </a>
         )}
         {/* Time inside file bubble */}
         <span className="text-[10px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
-          style={{ color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--text-msg-time)' }}>
+          style={{ color: 'var(--text-msg-time)' }}>
           {format(msgTime, 'HH:mm')}
           {isMe && (
             <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
@@ -310,6 +314,93 @@ const MessageList = () => {
             </svg>
           )}
         </span>
+      </div>
+    );
+  };
+
+  // Render contact message
+  const renderContactMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+    let parsedContact: any = null;
+    try {
+      parsedContact = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+    } catch {
+      parsedContact = {};
+    }
+
+    const { fullName, nickname, avatarUrl, phone, contactUserId, id } = parsedContact || {};
+    const displayName = nickname || fullName || 'Người dùng';
+    const avatar = avatarUrl;
+    const targetUserId = contactUserId || id;
+    
+    return (
+      <div
+        className="flex flex-col gap-2 px-3 py-2.5 rounded-2xl min-w-[220px] max-w-[280px] shadow-sm cursor-default"
+        style={{
+          background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
+          border: isMe ? 'none' : '1px solid var(--border-light)',
+          borderRadius: bubbleR.normal,
+          borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
+          borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center font-bold text-lg text-white"
+            style={{ background: avatar ? 'transparent' : 'var(--accent-primary)' }}>
+            {avatar ? <img src={avatar} alt={displayName} className="w-full h-full object-cover" /> : displayName.charAt(0).toUpperCase()}
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{displayName}</span>
+            <span className="text-xs truncate opacity-80" style={{ color: 'var(--text-secondary)' }}>
+              {phone || 'Không có SĐT'}
+            </span>
+          </div>
+        </div>
+        
+        <div className="border-t pt-2 mt-1 flex items-center justify-between gap-2" style={{ borderColor: 'var(--border-light)' }}>
+          <button 
+            className="flex-1 text-[11px] py-1.5 rounded-md font-medium transition-colors text-center"
+            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            onClick={async (e) => {
+              e.stopPropagation();
+              if (phone) {
+                try {
+                  await contactService.sendFriendRequest(phone);
+                  alert("Đã gửi lời mời kết bạn");
+                } catch (err: any) {
+                  alert(err?.response?.data?.message || "Không thể gửi kết bạn");
+                }
+              }
+            }}
+          >
+            Kết bạn
+          </button>
+          
+          <button 
+            className="flex-1 text-[11px] py-1.5 rounded-md font-medium transition-colors text-center"
+            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            onClick={(e) => {
+               e.stopPropagation();
+               setActiveProfile({ id: targetUserId, fullName: displayName, avatarUrl: avatar, phone });
+               setIsProfileModalOpen(true);
+            }}
+          >
+            Trang cá nhân
+          </button>
+        </div>
+        
+        {/* Time overlay */}
+        <div className="flex justify-end mt-1 px-1">
+          <span className="text-[10px] flex items-center gap-0.5 select-none"
+             style={{ color: 'var(--text-msg-time)' }}>
+            {format(msgTime, 'HH:mm')}
+            {isMe && (
+              <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            )}
+          </span>
+        </div>
       </div>
     );
   };
@@ -408,6 +499,7 @@ const MessageList = () => {
                                msg.replyTo.messageType === 'image' ? '[Hình ảnh]' :
                                msg.replyTo.messageType === 'video' ? '[Video]' :
                                msg.replyTo.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                               msg.replyTo.messageType === 'contact' ? '[Danh thiếp]' :
                                msg.replyTo.messageType === 'file' ? '[Tệp]' :
                                msg.replyTo.content}
                             </span>
@@ -448,6 +540,10 @@ const MessageList = () => {
                         /* Audio */
                         ) : msg.messageType === 'audio' && msg.fileUrl ? (
                           renderAudioMessage(msg, isMe, msgTime)
+
+                        /* Contact */
+                        ) : msg.messageType === 'contact' ? (
+                          renderContactMessage(msg, isMe, msgTime)
 
                         /* Text (default) */
                         ) : (
@@ -534,6 +630,13 @@ const MessageList = () => {
         </div>,
         document.body
       )}
+
+      {/* Profile Modal */}
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={activeProfile}
+      />
     </>
   );
 };

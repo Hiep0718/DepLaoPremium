@@ -80,6 +80,17 @@ export const useSocketSetup = () => {
           // Đẩy object MỚI lên đầu mảng
           updatedConversations.unshift(targetConv);
           chatState.setConversations(updatedConversations);
+        } else {
+          // Cuộc trò chuyện mới hoặc đã bị xóa trước đó -> Load lại toàn bộ danh sách hội thoại
+          import('../services/message.service').then(({ getConversationsList }) => {
+            if (user?.id) {
+              getConversationsList(user.id.toString()).then(res => {
+                if (res.data?.success) {
+                  chatState.setConversations(res.data.data);
+                }
+              });
+            }
+          });
         }
         // 3. ═══ NOTIFICATIONS ═══
         // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt

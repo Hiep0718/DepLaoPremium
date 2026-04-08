@@ -70,7 +70,9 @@ const setupSocketEvents = (io) => {
     // Send message via WebSocket
     socket.on('send_message', async (data) => {
       try {
-        const { conversationId, senderId, text, recipientId, messageType, fileUrl, fileName, fileSize, replyTo, tempId } = data;
+        const { conversationId, senderId, text, recipientId, messageType, fileUrl, fileName, fileSize, replyTo, tempId, content } = data;
+
+        const messageContent = content || text;
 
         // Save message to database (use 'content' and 'receiverId' to match Message schema)
         // Also map optional messageType and fileUrl
@@ -78,7 +80,7 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           receiverId: recipientId,
-          content: text,
+          content: messageContent,
           messageType: messageType || 'text',
           fileUrl: fileUrl || null,
           fileName: fileName || null,
@@ -110,6 +112,7 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
+          content: message.content,
           messageType: message.messageType,
           fileUrl: message.fileUrl,
           fileName: message.fileName,
@@ -125,6 +128,7 @@ const setupSocketEvents = (io) => {
           conversationId,
           senderId,
           text,
+          content: message.content,
           messageType: message.messageType,
           fileUrl: message.fileUrl,
           fileName: message.fileName,
@@ -218,6 +222,169 @@ const setupSocketEvents = (io) => {
       socket.leave(`conv_${conversationId}`);
       console.log(`[Socket] User left conversation: ${conversationId}`);
     });
+
+    // ═══════════════════ WEBRTC CALL SIGNALING ═══════════════════
+
+    // Initiate a call
+    socket.on('call_request', (data) => {
+      const { recipientId, callerInfo, isVideo, conversationId } = data;
+      
+      // Prevent self-calling
+      if (String(recipientId) === String(socket.userId)) {
+        return;
+      }
+
+      console.log(`[Call] Request from ${socket.userId} to ${recipientId} (Video: ${isVideo})`);
+      io.to(`user_${recipientId}`).emit('call_incoming', {
+        callerId: socket.userId,
+        callerInfo,
+        isVideo,
+        conversationId
+      });
+    });
+
+    // Accept a call
+    socket.on('call_accepted', (data) => {
+      const { callerId } = data;
+      console.log(`[Call] Callee ${socket.userId} accepted call from ${callerId}`);
+      io.to(`user_${callerId}`).emit('call_accepted', {
+        calleeId: socket.userId
+      });
+    });
+
+    // Reject/Busy a call
+    socket.on('call_rejected', async (data) => {
+      const { callerId, reason, conversationId } = data;
+      console.log(`[Call] Callee ${socket.userId} rejected call from ${callerId}. Reason: ${reason}`);
+      io.to(`user_${callerId}`).emit('call_rejected', {
+        calleeId: socket.userId,
+        reason
+      });
+
+      // Save system message
+      if (conversationId) {
+        try {
+          const sysMsg = new Message({
+            conversationId,
+            senderId: socket.userId, // System message attributed to callee
+            receiverId: callerId,
+            messageType: 'system',
+            content: `📞 Nhỡ cuộc gọi từ ${callerId === socket.userId ? 'tôi' : 'người gọi'}`,
+            status: 'sent'
+          });
+          await sysMsg.save();
+          
+          await Conversation.findOneAndUpdate(
+            { conversationId },
+            {
+              lastMessage: {
+                content: sysMsg.content,
+                senderId: socket.userId,
+                messageType: 'system',
+                timestamp: new Date(),
+              },
+              lastMessageTime: new Date(),
+            }
+          );
+          
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: socket.userId,
+            messageType: 'system',
+            content: sysMsg.content,
+            timestamp: sysMsg.createdAt,
+            status: 'sent'
+          };
+          io.to(`user_${socket.userId}`).emit('message_received', payload);
+          io.to(`user_${callerId}`).emit('message_received', payload);
+        } catch (err) {
+          console.error("Failed to save missed call message", err);
+        }
+      }
+    });
+
+    // End a call
+    socket.on('call_ended', async (data) => {
+      const { peerId, conversationId } = data;
+      console.log(`[Call] User ${socket.userId} ended call with ${peerId}`);
+      io.to(`user_${peerId}`).emit('call_ended', {
+        peerId: socket.userId
+      });
+
+      // Save system message
+      if (conversationId) {
+        try {
+          const sysMsg = new Message({
+            conversationId,
+            senderId: socket.userId,
+            receiverId: peerId,
+            messageType: 'system',
+            content: `📞 Cuộc gọi đã kết thúc`,
+            status: 'sent'
+          });
+          await sysMsg.save();
+          
+          await Conversation.findOneAndUpdate(
+            { conversationId },
+            {
+              lastMessage: {
+                content: sysMsg.content,
+                senderId: socket.userId,
+                messageType: 'system',
+                timestamp: new Date(),
+              },
+              lastMessageTime: new Date(),
+            }
+          );
+          
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: socket.userId,
+            messageType: 'system',
+            content: sysMsg.content,
+            timestamp: sysMsg.createdAt,
+            status: 'sent'
+          };
+          io.to(`user_${socket.userId}`).emit('message_received', payload);
+          io.to(`user_${peerId}`).emit('message_received', payload);
+          
+          console.log(`[Call] System message saved and emitted to users`);
+        } catch (err) {
+          console.error("[Call] Failed to save ended call message:", err);
+        }
+      }
+    });
+
+    // WebRTC: Send Offer
+    socket.on('webrtc_offer', (data) => {
+      const { peerId, offer } = data;
+      io.to(`user_${peerId}`).emit('webrtc_offer', {
+        peerId: socket.userId,
+        offer
+      });
+    });
+
+    // WebRTC: Send Answer
+    socket.on('webrtc_answer', (data) => {
+      const { peerId, answer } = data;
+      io.to(`user_${peerId}`).emit('webrtc_answer', {
+        peerId: socket.userId,
+        answer
+      });
+    });
+
+    // WebRTC: ICE Candidate
+    socket.on('webrtc_ice_candidate', (data) => {
+      const { peerId, candidate } = data;
+      io.to(`user_${peerId}`).emit('webrtc_ice_candidate', {
+        peerId: socket.userId,
+        candidate
+      });
+    });
+
+    // ═══════════════════ END WEBRTC CALL SIGNALING ═══════════════════
 
     // ═══════════════════ QR LOGIN EVENTS ═══════════════════
 

@@ -65,16 +65,24 @@ export const sendMessage = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 50, userId } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    let query = { conversationId };
 
-    const messages = await Message.find({ conversationId })
+    if (userId) {
+      const conversation = await Conversation.findOne({ conversationId });
+      if (conversation && conversation.deletedAt && conversation.deletedAt.get(userId)) {
+        query.createdAt = { $gt: conversation.deletedAt.get(userId) };
+      }
+    }
+
+    const messages = await Message.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await Message.countDocuments({ conversationId });
+    const total = await Message.countDocuments(query);
 
     res.status(200).json({
       success: true,
@@ -115,6 +123,16 @@ export const getConversations = async (req, res) => {
       }
       convObj.unreadCount = count;
       return convObj;
+    }).filter(c => {
+      // Exclude conversations if they were deleted by the user AFTER the last message
+      if (c.deletedAt && c.deletedAt[userId]) {
+        const deletedTime = new Date(c.deletedAt[userId]).getTime();
+        const lastMsgTime = c.lastMessage && c.lastMessage.timestamp ? new Date(c.lastMessage.timestamp).getTime() : 0;
+        if (lastMsgTime <= deletedTime) {
+          return false;
+        }
+      }
+      return true;
     });
 
     res.status(200).json({
@@ -278,6 +296,48 @@ export const markConversationAsRead = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to mark conversation as read',
+      error: error.message,
+    });
+  }
+};
+
+export const deleteConversationHistory = async (req, res) => {
+  try {
+    const { conversationId: convId } = req.params;
+    const { userId } = req.body;
+
+    if (!convId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing conversationId or userId',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId: convId });
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Conversation not found',
+      });
+    }
+
+    // Set deletedAt cho user đo = hiện tại
+    if (!conversation.deletedAt) {
+      conversation.deletedAt = new Map();
+    }
+    conversation.deletedAt.set(userId, new Date());
+    await conversation.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Conversation history deleted for user',
+    });
+  } catch (error) {
+    console.error('Delete history error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete conversation history',
       error: error.message,
     });
   }

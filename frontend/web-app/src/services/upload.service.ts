@@ -1,7 +1,6 @@
 import axios from 'axios';
 
-// This service talks directly to the Spring Boot API for file uploads
-const SPRING_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+const SPRING_API_URL = '/api';
 
 /**
  * Upload a chat file (image, video, or document) to S3 via Spring Boot

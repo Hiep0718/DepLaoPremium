@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
@@ -25,7 +26,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const currentUser = useAuthStore(state => state.user);
   const setUser = useAuthStore(state => state.setUser);
+  
+  const isCurrentUser = Boolean(user && currentUser && user.id === currentUser.id);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -134,8 +138,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+  const modalContent = (
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.5)' }}
       onClick={handleOverlayClick}>
       <div className="w-full max-w-md rounded-lg overflow-hidden theme-transition"
@@ -162,22 +166,24 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                 ? `url(${coverUrl}) center/cover no-repeat`
                 : 'linear-gradient(135deg, #0068FF 0%, #00C6FB 100%)',
             }}
-            onClick={() => coverInputRef.current?.click()}>
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-white text-sm font-medium">
-                <Camera size={18} />
-                {uploadingCover ? 'Đang tải...' : 'Đổi ảnh bìa'}
+            onClick={() => isCurrentUser && coverInputRef.current?.click()}>
+            {isCurrentUser && (
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2 text-white text-sm font-medium">
+                  <Camera size={18} />
+                  {uploadingCover ? 'Đang tải...' : 'Đổi ảnh bìa'}
+                </div>
               </div>
-            </div>
-            <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
-              onChange={handleCoverUpload} />
+            )}
+            {isCurrentUser && <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
+              onChange={handleCoverUpload} />}
           </div>
 
           {/* Avatar + Name */}
           <div className="px-4 -mt-12 relative z-10">
             <div className="flex items-end gap-3">
               {/* Avatar with upload button */}
-              <div className="relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+              <div className="relative group cursor-pointer" onClick={() => isCurrentUser && avatarInputRef.current?.click()}>
                 <div className="w-20 h-20 rounded-full overflow-hidden flex items-center justify-center font-bold text-2xl text-white border-4"
                   style={{
                     borderColor: 'var(--bg-panel)',
@@ -189,28 +195,32 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                     avatarLetter
                   )}
                 </div>
-                <div className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-white border-2"
-                  style={{ background: '#0068FF', borderColor: 'var(--bg-panel)' }}>
-                  <Camera size={12} />
-                </div>
-                {uploadingAvatar && (
+                {isCurrentUser && (
+                  <div className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-white border-2"
+                    style={{ background: '#0068FF', borderColor: 'var(--bg-panel)' }}>
+                    <Camera size={12} />
+                  </div>
+                )}
+                {isCurrentUser && uploadingAvatar && (
                   <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
-                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
-                  onChange={handleAvatarUpload} />
+                {isCurrentUser && <input ref={avatarInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={handleAvatarUpload} />}
               </div>
 
               <div className="pb-2 flex items-center gap-2">
                 <span className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
                   {user?.fullName || 'Người dùng'}
                 </span>
-                <button onClick={() => setIsEditing(!isEditing)}
-                  className="p-1 rounded transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}>
-                  <Pencil size={14} />
-                </button>
+                {isCurrentUser && (
+                  <button onClick={() => setIsEditing(!isEditing)}
+                    className="p-1 rounded transition-colors"
+                    style={{ color: 'var(--text-secondary)' }}>
+                    <Pencil size={14} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -378,7 +388,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
           )}
 
           {/* Bottom: edit button if not editing */}
-          {!isEditing && !isEditingPassword && (
+          {isCurrentUser && !isEditing && !isEditingPassword && (
             <div className="px-4 pb-4 flex flex-col gap-2">
               <button onClick={() => setIsEditing(true)}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors"
@@ -402,6 +412,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 };
 
 export default ProfileModal;

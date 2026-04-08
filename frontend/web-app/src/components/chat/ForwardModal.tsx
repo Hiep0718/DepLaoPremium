@@ -138,7 +138,7 @@ const ForwardModal = () => {
       conversationId: targetConversationId,
       senderId: user.id.toString(),
       recipientId: recipientId?.toString(),
-      text: forwardingMessage.messageType === 'sticker' ? '[Nhãn dán]' : (forwardingMessage.content || forwardingMessage.text),
+      text: forwardingMessage.messageType === 'sticker' ? '[Nhãn dán]' : forwardingMessage.messageType === 'contact' ? '[Danh thiếp]' : (forwardingMessage.content || forwardingMessage.text),
       messageType: forwardingMessage.messageType || 'text',
       fileUrl: forwardingMessage.fileUrl,
     };
@@ -172,7 +172,7 @@ const ForwardModal = () => {
         
         <div className="p-3 border-b border-[var(--border-light)] bg-[var(--bg-chat)] flex items-center gap-2">
           <div className="border-l-4 pl-2 opacity-80 text-sm truncate" style={{ borderColor: 'var(--accent-primary)' }}>
-            {forwardingMessage.messageType === 'sticker' ? '[Nhãn dán]' : (forwardingMessage.content || forwardingMessage.text)}
+            {forwardingMessage.messageType === 'sticker' ? '[Nhãn dán]' : forwardingMessage.messageType === 'contact' ? '[Danh thiếp]' : (forwardingMessage.content || forwardingMessage.text)}
           </div>
         </div>
 

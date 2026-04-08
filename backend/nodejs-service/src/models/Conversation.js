@@ -35,6 +35,11 @@ const conversationSchema = new mongoose.Schema(
       of: Number,
       default: new Map(),
     },
+    deletedAt: {
+      type: Map,
+      of: Date,
+      default: new Map(),
+    },
   },
   {
     timestamps: true,

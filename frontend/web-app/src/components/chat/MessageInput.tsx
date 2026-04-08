@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
   ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2,
-  Mic, Trash2, StopCircle
+  Mic, Trash2, StopCircle, Contact
 } from 'lucide-react';
+import ContactSelectionModal from './ContactSelectionModal';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
@@ -24,6 +25,7 @@ const MessageInput = () => {
   const [uploading, setUploading] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -163,6 +165,37 @@ const MessageInput = () => {
     setReplyingMessage(null);
   };
 
+  const sendContact = async (contactInfo: any) => {
+    if (!activeConversation || !user) return;
+    
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) return;
+
+    const recipientId = getRecipientId(currentConversation);
+    const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+
+    const messagePayload = {
+      tempId,
+      conversationId: currentConversation.conversationId,
+      senderId: user.id.toString(),
+      recipientId: recipientId?.toString(),
+      text: '[Danh thiếp]',
+      content: JSON.stringify(contactInfo),
+      messageType: 'contact',
+      fileUrl: undefined,
+      replyTo: replyingMessage ? {
+        messageId: replyingMessage.id || replyingMessage._id || '',
+        content: replyingMessage.content || replyingMessage.text || '',
+        senderId: replyingMessage.senderId,
+        messageType: replyingMessage.messageType || 'text',
+      } : undefined,
+    };
+
+    socket.emit('send_message', messagePayload);
+    addMessage({ id: tempId, ...messagePayload, createdAt: new Date().toISOString() });
+    setReplyingMessage(null);
+  };
+
   // Handle image selection
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -215,8 +248,9 @@ const MessageInput = () => {
         let localType: string = 'file';
         if (file.type.startsWith('image/')) localType = 'image';
         else if (file.type.startsWith('video/')) localType = 'video';
+        else if (file.type.startsWith('audio/')) localType = 'audio';
 
-        const previewText = localType === 'image' ? '[Hình ảnh]' : localType === 'video' ? '[Video]' : `[Tệp] ${file.name}`;
+        const previewText = localType === 'image' ? '[Hình ảnh]' : localType === 'video' ? '[Video]' : localType === 'audio' ? '[Tin nhắn thoại]' : `[Tệp] ${file.name}`;
 
         // Optimistic add
         addMessage({
@@ -380,6 +414,7 @@ const MessageInput = () => {
     { icon: Sticker, title: 'Sticker', action: () => setShowStickers(!showStickers) },
     { icon: ImageIcon, title: 'Hình ảnh', action: () => imageInputRef.current?.click() },
     { icon: Paperclip, title: 'Đính kèm tệp', action: () => fileInputRef.current?.click() },
+    { icon: Contact, title: 'Gửi danh thiếp', action: () => setIsContactModalOpen(true) },
     { icon: ScreenShare, title: 'Chụp màn hình' },
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
@@ -504,6 +539,7 @@ const MessageInput = () => {
             <span className="truncate text-xs mt-0.5 opacity-80" style={{ color: 'var(--text-secondary)' }}>
               {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' : 
                replyingMessage.messageType === 'image' ? '[Hình ảnh]' :
+               replyingMessage.messageType === 'contact' ? '[Danh thiếp]' :
                replyingMessage.messageType === 'video' ? '[Video]' :
                replyingMessage.messageType === 'file' ? '[Tệp]' :
                (replyingMessage.content || replyingMessage.text)}
@@ -607,6 +643,12 @@ const MessageInput = () => {
           ) : null}
         </div>
       </form>
+
+      <ContactSelectionModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        onSelect={sendContact}
+      />
     </div>
   );
 };

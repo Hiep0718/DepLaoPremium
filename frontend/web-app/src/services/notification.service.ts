@@ -54,6 +54,7 @@ export const showMessageNotification = (
   else if (messageType === 'video') body = '🎬 Đã gửi một video';
   else if (messageType === 'file') body = '📎 Đã gửi một tệp';
   else if (messageType === 'sticker') body = '😊 Đã gửi một nhãn dán';
+  else if (messageType === 'contact') body = '👤 Đã gửi một danh thiếp';
 
   try {
     const notification = new Notification(senderName, {

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
-import { markConversationAsRead } from '../services/message.service';
+import { markConversationAsRead, deleteConversationHistory } from '../services/message.service';
 
 export interface Message {
   id: string;
@@ -61,6 +61,7 @@ interface ChatState {
   setForwardModalOpen: (isOpen: boolean) => void;
   toggleInfoPanel: () => void;
   clearChat: () => void;
+  deleteActiveConversationHistory: (userId: string) => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -110,4 +111,22 @@ export const useChatStore = create<ChatState>((set) => ({
     forwardingMessage: null,
     isForwardModalOpen: false
   }),
+  deleteActiveConversationHistory: async (userId: string) => {
+    const state = useChatStore.getState();
+    const convId = state.activeConversation?.conversationId;
+    if (!convId) return;
+    try {
+      await deleteConversationHistory(convId, userId);
+      set((s) => ({
+        conversations: s.conversations.filter(c => c.conversationId !== convId),
+        activeConversation: null,
+        activeContactInfo: null,
+        messages: [],
+        isInfoPanelOpen: false
+      }));
+    } catch (e) {
+      console.error('Failed to delete conversation history:', e);
+      throw e;
+    }
+  }
 }));
