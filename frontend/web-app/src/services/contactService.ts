@@ -52,6 +52,11 @@ export const contactService = {
     return response.data.data;
   },
   
+  searchContacts: async (search: string, page = 0, size = 20) => {
+    const response = await axios.get<ApiResponse<PageResponse<ContactResponse>>>(`/contacts/search?search=${search}&page=${page}&size=${size}`);
+    return response.data.data;
+  },
+  
   addContact: async (phone: string, nickname?: string) => {
     const response = await axios.post<ApiResponse<ContactResponse>>('/contacts', { phone, nickname });
     return response.data;

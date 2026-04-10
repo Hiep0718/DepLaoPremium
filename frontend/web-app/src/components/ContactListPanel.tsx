@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { UserPlus, Users, UserCheck, Mail, MoreHorizontal } from 'lucide-react';
 import { contactService, type ContactResponse, type FriendRequestResponse } from '../services/contactService';
 import { useChatStore } from '../stores/chatStore';
+import { socket } from '../services/socket';
 import SearchUserModal from './SearchUserModal';
 
 const ContactListPanel = () => {
@@ -52,9 +53,32 @@ const ContactListPanel = () => {
     }
   }, [activeMenu]);
 
+  useEffect(() => {
+    if (!socket.connected) return;
+    
+    const handleFriendAction = () => {
+      fetchContacts();
+      if (activeMenu === 'invites') {
+        fetchFriendRequests();
+      }
+    };
+    
+    socket.on('friend_action_received', handleFriendAction);
+    
+    return () => {
+      socket.off('friend_action_received', handleFriendAction);
+    };
+  }, [activeMenu]);
+
   const handleAcceptRequest = async (id: number) => {
     try {
       await contactService.acceptFriendRequest(id);
+
+      const req = pendingRequests.find(r => r.id === id);
+      if (req && socket.connected) {
+        socket.emit('friend_action', { recipientId: req.sender.id, action: 'accept' });
+      }
+
       fetchFriendRequests();
       fetchContacts();
     } catch(err) { console.error(err); }
@@ -63,6 +87,12 @@ const ContactListPanel = () => {
   const handleRejectRequest = async (id: number) => {
     try {
       await contactService.rejectFriendRequest(id);
+
+      const req = pendingRequests.find(r => r.id === id);
+      if (req && socket.connected) {
+        socket.emit('friend_action', { recipientId: req.sender.id, action: 'reject' });
+      }
+
       fetchFriendRequests();
     } catch(err) { console.error(err); }
   };
@@ -70,6 +100,12 @@ const ContactListPanel = () => {
   const handleCancelRequest = async (id: number) => {
     try {
       await contactService.cancelFriendRequest(id);
+
+      const req = sentRequests.find(r => r.id === id);
+      if (req && socket.connected) {
+        socket.emit('friend_action', { recipientId: req.receiver.id, action: 'cancel' });
+      }
+
       fetchFriendRequests();
     } catch(err) { console.error(err); }
   };

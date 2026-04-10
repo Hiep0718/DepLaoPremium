@@ -223,6 +223,22 @@ const setupSocketEvents = (io) => {
       console.log(`[Socket] User left conversation: ${conversationId}`);
     });
 
+    // ═══════════════════ FRIEND ACTIONS ═══════════════════
+
+    // Friend Action Event Handler
+    socket.on('friend_action', (data) => {
+      const { recipientId, action, senderId } = data;
+      // Tránh tự gửi cho mình nếu lỗi logic frontend
+      if (String(recipientId) === String(socket.userId)) return;
+
+      console.log(`[Socket] friend_action: ${action} from ${socket.userId} to ${recipientId}`);
+      // Phát tín hiệu cho recipient để họ cập nhật Real-time (Badge/Danh sách)
+      io.to(`user_${recipientId}`).emit('friend_action_received', {
+        action,
+        senderId: socket.userId
+      });
+    });
+
     // ═══════════════════ WEBRTC CALL SIGNALING ═══════════════════
 
     // Initiate a call

@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Search, UserPlus, X, Phone } from 'lucide-react';
 import { searchUsers } from '../services/user.service';
 import { contactService, type UserResponse } from '../services/contactService';
+import { socket } from '../services/socket';
+import { useChatStore } from '../stores/chatStore';
+import { useNavigate } from 'react-router-dom';
 
 interface SearchUserModalProps {
   isOpen: boolean;
@@ -15,6 +18,8 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
   const [results, setResults] = useState<UserResponse[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const setActiveConversation = useChatStore((state) => state.setActiveConversation);
+  const navigate = useNavigate();
 
   if (!isOpen) return null;
 
@@ -26,8 +31,40 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     setError('');
     setSuccessMsg('');
     try {
-      const res = await searchUsers(query);
-      setResults(res.data?.data?.content || []);
+      const isPhoneNumber = /^\d+$/.test(query.trim());
+      let finalResults: any[] = [];
+      
+      // 1. Luôn tìm trong danh bạ trước (hiển thị bạn bè)
+      try {
+        const contactRes = await contactService.searchContacts(query.trim());
+        const friends = contactRes.content || [];
+        finalResults = friends.map((f: any) => ({
+          ...f,
+          id: f.contactUserId || f.id,
+          isFriend: true
+        }));
+      } catch (err) {
+        console.error("Lỗi tìm kiếm danh bạ", err);
+      }
+
+      // 2. Nếu tìm số điện thoại, tìm người lạ (đúng 100%)
+      if (isPhoneNumber) {
+        const userRes = await searchUsers(query.trim());
+        const allUsers = userRes.data?.data?.content || [];
+        
+        const friendIds = new Set(finalResults.map(f => f.id));
+        const exactStrangers = allUsers.filter((u: any) => 
+          u.phone === query.trim() && !friendIds.has(u.id)
+        ).map((u: any) => ({ ...u, isFriend: false }));
+
+        finalResults = [...finalResults, ...exactStrangers];
+      }
+
+      if (finalResults.length === 0) {
+        setError('Không tìm thấy kết quả phù hợp.');
+      }
+      
+      setResults(finalResults as any[]);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Lỗi tìm kiếm');
     } finally {
@@ -35,11 +72,16 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     }
   };
 
-  const handleAddFriend = async (phone: string, fullName: string) => {
+  const handleAddFriend = async (userData: UserResponse) => {
     try {
-      await contactService.sendFriendRequest(phone, 'Xin chào, mình muốn kết bạn với bạn!');
-      setSuccessMsg(`Đã gửi lời mời kết bạn đến ${fullName}!`);
-      // onUserAdded(); // Mới chỉ gửi request, chưa thể hiện ở danh bạ ngay, không cần reload ngay
+      await contactService.sendFriendRequest(userData.phone, 'Xin chào, mình muốn kết bạn với bạn!');
+      setSuccessMsg(`Đã gửi lời mời kết bạn đến ${userData.fullName}!`);
+      
+      // Phát tín hiệu Real-time
+      if (socket.connected) {
+        socket.emit('friend_action', { recipientId: userData.id, action: 'new_request' });
+      }
+
       setTimeout(() => {
         onClose();
         setSuccessMsg('');
@@ -49,6 +91,19 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     } catch (err: any) {
       setError(err.response?.data?.message || err.response?.data?.detail || 'Không thể gửi lời mời');
     }
+  };
+
+  const handleSelectUser = (user: UserResponse) => {
+    // Current user can chat directly by providing a synthetic conversation
+    // Node.js will handle mapping this or creating it in the real system
+    setActiveConversation({
+      conversationId: `1to1_web_${user.id}`, 
+      participants: [user as any], 
+      isGroup: false,
+      lastMessage: '...',
+    });
+    onClose();
+    navigate('/');
   };
 
   return (
@@ -93,8 +148,12 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
               <p className="text-center text-slate-500 p-4">Không tìm thấy người dùng phù hợp.</p>
             ) : (
               results.map((u) => (
-                <div key={u.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100/50 hover:border-slate-200 transition-colors">
-                  <div className="flex items-center gap-3">
+                <div 
+                  key={u.id} 
+                  onClick={() => handleSelectUser(u)}
+                  className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100/50 hover:border-slate-200 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 w-full">
                     <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg shrink-0 overflow-hidden">
                       {u.avatarUrl ? (
                          <img src={u.avatarUrl} alt={u.fullName} className="w-full h-full object-cover" />
@@ -103,19 +162,29 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
                       )}
                     </div>
                     <div>
-                      <p className="font-semibold text-slate-800">{u.fullName}</p>
+                      <div className="flex items-center gap-2">
+                         <p className="font-semibold text-slate-800">{u.nickname || u.fullName}</p>
+                         {(u as any).isFriend && (
+                           <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">Bạn bè</span>
+                         )}
+                      </div>
                       <p className="text-sm text-slate-500 flex items-center gap-1">
                         <Phone size={12} /> {u.phone}
                       </p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => handleAddFriend(u.phone, u.fullName)}
-                    className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-colors active:scale-95"
-                    title="Thêm bạn"
-                  >
-                    <UserPlus size={18} />
-                  </button>
+                  {!(u as any).isFriend && (
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddFriend(u);
+                      }}
+                      className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition-colors active:scale-95"
+                      title="Thêm bạn"
+                    >
+                      <UserPlus size={18} />
+                    </button>
+                  )}
                 </div>
               ))
             )}

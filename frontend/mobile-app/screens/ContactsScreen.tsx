@@ -4,14 +4,34 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+  RefreshControl,
+  Image
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { useRouter } from "expo-router"
+import { useFocusEffect } from "@react-navigation/native"
+import { useCallback, useEffect } from "react"
+import apiClient from "@/constants/api"
+import { useSocket } from "@/contexts/SocketContext"
 import { ZaloColors } from "@/constants/zalo"
 
 type Tab = "friends" | "groups" | "oa"
 
 export function ContactsScreen() {
   const [tab, setTab] = useState<Tab>("friends")
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true)
+    // Cập nhật key để ép các component con (Friends, Groups, OA) render lại và gọi lại API
+    setRefreshKey(prev => prev + 1)
+    setTimeout(() => {
+      setRefreshing(false)
+    }, 1000)
+  }, [])
 
   return (
     <View style={{ flex: 1, backgroundColor: "#f2f2f2" }}>
@@ -27,9 +47,14 @@ export function ContactsScreen() {
         ))}
       </View>
 
-      {tab === "friends" && <Friends />}
-      {tab === "groups" && <Groups />}
-      {tab === "oa" && <OA />}
+      <ScrollView 
+        contentContainerStyle={{ paddingBottom: 20 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ZaloColors.blue]} />}
+      >
+        {tab === "friends" && <Friends key={`friends-${refreshKey}`} />}
+        {tab === "groups" && <Groups key={`groups-${refreshKey}`} />}
+        {tab === "oa" && <OA key={`oa-${refreshKey}`} />}
+      </ScrollView>
     </View>
   )
 }
@@ -37,19 +62,116 @@ export function ContactsScreen() {
 /* ------------------ FRIENDS ------------------ */
 
 function Friends() {
-  const data = ["Ngọc Đăng", "Thanh Hiệp", "Viết Hiếu", "Văn Khang"]
+  const router = useRouter()
+  const { socket } = useSocket()
+  const [contacts, setContacts] = useState<any[]>([])
+  const [pendingCount, setPendingCount] = useState<number>(0)
+  const [loading, setLoading] = useState<boolean>(true)
+
+  const fetchData = async () => {
+    try {
+      const [pendingRes, contactsRes] = await Promise.all([
+        apiClient.get('/contacts/requests/pending'),
+        apiClient.get('/contacts')
+      ])
+      
+      setPendingCount(pendingRes.data?.data?.totalElements || 0)
+      setContacts(contactsRes.data?.data?.content || [])
+    } catch (error) {
+      console.log("Error fetching contacts data:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchData()
+    }, [])
+  )
+
+  useEffect(() => {
+    if (!socket) return;
+    
+    const handleFriendAction = (data: any) => {
+      // Whenever a friend request is sent to us, or accepted, reload lists
+      fetchData()
+    }
+
+    socket.on('friend_action_received', handleFriendAction)
+    
+    return () => {
+      socket.off('friend_action_received', handleFriendAction)
+    }
+  }, [socket])
+
+  // Phân nhóm bạn bè theo chữ cái đầu giống Web App
+  const groupedContacts = contacts.reduce((acc, contact) => {
+    const name = contact.nickname || contact.fullName || '?';
+    const letter = name.charAt(0).toUpperCase();
+    if (!acc[letter]) acc[letter] = [];
+    acc[letter].push(contact);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const sortedLetters = Object.keys(groupedContacts).sort();
 
   return (
     <View>
       <View style={styles.quickBox}>
-        <Item icon="person-add-outline" color={ZaloColors.blue} text="Lời mời kết bạn (7)" />
+        <TouchableOpacity onPress={() => router.push("/friend-requests")}>
+          <Item 
+            icon="person-add-outline" 
+            color={ZaloColors.blue} 
+            text="Lời mời kết bạn"
+            badgeCount={pendingCount} 
+          />
+        </TouchableOpacity>
         <Item icon="gift-outline" color="#ff7043" text="Sinh nhật" />
       </View>
 
-      <Text style={styles.section}>A</Text>
+      {contacts.length === 0 && !loading && (
+        <View style={{ padding: 30, alignItems: 'center' }}>
+          <Text style={{ color: '#888' }}>Bạn chưa có bạn bè nào.</Text>
+        </View>
+      )}
 
-      {data.map((name, i) => (
-        <Row key={i} name={name} />
+      {sortedLetters.map(letter => (
+        <View key={letter}>
+          <Text style={styles.section}>{letter}</Text>
+          {groupedContacts[letter].map((c: any) => (
+            <Row 
+               key={c.id} 
+               name={c.nickname || c.fullName} 
+               avatarUrl={c.avatarUrl} 
+               onPress={async () => {
+                 const targetUserId = c.contactUserId || c.id;
+                 if (!currentUserId || !targetUserId) return;
+                 const ids = [currentUserId.toString(), targetUserId.toString()].sort();
+                 const convId = `1to1_${ids[0]}_${ids[1]}`;
+                 try {
+                     const { chatApiClient } = await import('@/constants/chatApi');
+                     await chatApiClient.post('/conversation', {
+                         conversationId: convId,
+                         participants: [currentUserId.toString(), targetUserId.toString()],
+                         isGroup: false
+                     });
+                     router.push({
+                         pathname: "/chat/[id]",
+                         params: {
+                             id: convId,
+                             name: c.nickname || c.fullName,
+                             recipientId: targetUserId.toString(),
+                             avatar: c.avatarUrl || ""
+                         }
+                     });
+                 } catch (error) {
+                     console.error("Failed to start conversation", error);
+                 }
+               }}
+            />
+          ))}
+        </View>
       ))}
     </View>
   )
@@ -143,23 +265,32 @@ function OA() {
 
 /* ------------------ COMPONENTS ------------------ */
 
-function Item({ icon, color, text }: any) {
+function Item({ icon, color, text, badgeCount }: any) {
   return (
     <View style={styles.quickItem}>
       <Ionicons name={icon} size={22} color={color} />
-      <Text style={{ marginLeft: 12 }}>{text}</Text>
+      <Text style={{ marginLeft: 12, flex: 1 }}>{text}</Text>
+      {badgeCount > 0 && (
+        <View style={styles.badgeContainer}>
+          <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+        </View>
+      )}
     </View>
   )
 }
 
-function Row({ name }: { name: string }) {
+function Row({ name, avatarUrl, onPress }: { name: string; avatarUrl?: string; onPress?: () => void }) {
   return (
-    <View style={styles.row}>
+    <TouchableOpacity style={styles.row} onPress={onPress}>
       <View style={styles.avatar}>
-        <Ionicons name="person" size={28} color="#fff" style={{ marginTop: 6 }} />
+        {avatarUrl ? (
+           <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+        ) : (
+           <Ionicons name="person" size={28} color="#fff" style={{ marginTop: 6 }} />
+        )}
       </View>
 
-      <Text style={{ flex: 1 }}>{name}</Text>
+      <Text style={{ flex: 1, fontWeight: '500' }}>{name}</Text>
 
       {/* Nút gọi */}
       <TouchableOpacity
@@ -176,7 +307,7 @@ function Row({ name }: { name: string }) {
       >
         <Ionicons name="videocam-outline" size={22} color="#1a1a1a" />
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   )
 }
 
@@ -204,6 +335,20 @@ const styles = StyleSheet.create({
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
+  },
+  badgeContainer: {
+    backgroundColor: '#ff3b30',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 
   section: { margin: 12, fontWeight: "600", color: "#888" },

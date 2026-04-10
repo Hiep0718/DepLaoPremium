@@ -1,10 +1,20 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-// 💡 LƯU Ý CHO DEVELOPER (IP CONFIGURATION):
-// Nếu bạn chạy trên máy giả lập hoặc máy thật, sử dụng IP thật nội bộ (IPv4 của máy tính) thay cho localhost.
-// Mở CMD/Terminal gõ `ipconfig` -> Coppy dòng IPv4 Address (Ví dụ: 192.168.1.x) và đổi vào dưới đây:
-export const API_IP = '172.20.10.3'; // <-- Đã sửa đúng IP máy tính của bạn
+// Tự động Lấy IP của máy dev khi chạy qua Expo (hoạt động tốt trên cùng mạng Wi-Fi)
+const getLocalIp = () => {
+  if (__DEV__) {
+    // Lấy uri máy chủ Expo đang chạy: VD "192.168.1.110:8081"
+    const hostUri = Constants.expoConfig?.hostUri; 
+    if (hostUri) {
+      return hostUri.split(':')[0];
+    }
+  }
+  return '192.168.1.110'; // Fallback nếu không xác định được hoặc khi build production
+};
+
+export const API_IP = getLocalIp();
 
 const API_PORT = '8082'; // Port mặc định của Spring Boot API
 const BASE_URL = `http://${API_IP}:${API_PORT}/api`;

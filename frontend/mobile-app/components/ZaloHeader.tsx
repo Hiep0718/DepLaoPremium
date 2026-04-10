@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { View, Text, TouchableOpacity, TextInput, Modal, FlatList, ActivityIndicator, StyleSheet, Image } from "react-native"
+import { View, Text, TouchableOpacity, TextInput, Modal, FlatList, ActivityIndicator, StyleSheet, Image, Alert } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { useRouter } from "expo-router"
 import apiClient from "@/constants/api"
@@ -30,6 +30,10 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
     const [searchResults, setSearchResults] = useState<any[]>([])
     const [isSearching, setIsSearching] = useState(false)
     const [showResults, setShowResults] = useState(false)
+    
+    // States for Friend Requests
+    const [loadingRequests, setLoadingRequests] = useState<Set<string>>(new Set())
+    const [sentRequests, setSentRequests] = useState<Set<string>>(new Set())
 
     // Debounce search
     useEffect(() => {
@@ -48,48 +52,36 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         setIsSearching(true)
         setShowResults(true)
         try {
-            // 1. Tìm trong danh bạ (luôn gọi)
+            // 1. Tìm trong danh bạ (API đã filter LIKE fullname hoặc phone)
             const contactRes = await apiClient.get(`/contacts/search?search=${query}`)
-            let friends = contactRes.data?.data?.content || []
+            const friends = contactRes.data?.data?.content || []
             
-            const isNumeric = /^\d+$/.test(query)
-            
-            // Nếu là tìm bằng số, lọc bạn bè để sđt phải tuyệt đối đúng HOẶC tên phải chứa query
-            if (isNumeric) {
-                const qLower = query.toLowerCase()
-                friends = friends.filter((f: any) => {
-                    const name = (f.nickname || f.fullName || "").toLowerCase()
-                    return name.includes(qLower) || f.phone === query
-                })
+            const finalFriends = friends.map((f: any) => ({ ...f, isFriend: true }))
+
+            // 2. Chỉ tìm người lạ nếu query là số điện thoại (100% khớp)
+            let nonFriends: any[] = []
+            const isPhoneNumber = /^\d+$/.test(query)
+
+            if (isPhoneNumber) {
+                // Tối ưu: Nếu muốn nhanh, có thể vẫn gọi /users/search và filter
+                const userRes = await apiClient.get(`/users/search?search=${query}`)
+                const globalUsers = userRes.data?.data?.content || []
+                
+                // Lọc bỏ những người đã là bạn bè
+                const friendsIds = new Set(friends.map((f: any) => f.contactUserId?.toString() || f.id?.toString()))
+                
+                // Lọc ra network strangers: KHÔNG phải hiện tại, CHƯA kết bạn, ĐÚNG 100% SĐT
+                nonFriends = globalUsers.filter((u: any) => {
+                    const uid = u.id?.toString()
+                    const isSelf = uid === currentUserId?.toString()
+                    const isFriend = friendsIds.has(uid)
+                    const isExactPhoneMatch = u.phone === query
+                    
+                    return !isSelf && !isFriend && isExactPhoneMatch
+                }).map((u: any) => ({ ...u, isFriend: false }))
             }
 
-            let finalResults = friends.map((f: any) => ({ ...f, isFriend: true }))
-
-            // 2. Tìm trong toàn bộ User (Cho phép cả chữ lẫn số)
-            const userRes = await apiClient.get(`/users/search?search=${query}`)
-            const globalUsers = userRes.data?.data?.content || []
-            
-            // Lọc bỏ những người đã là bạn bè (để tránh trùng lặp)
-            const friendsIds = new Set(friends.map((f: any) => f.contactUserId?.toString() || f.id?.toString()))
-            
-            const nonFriends = globalUsers.filter((u: any) => {
-                const uid = u.id?.toString()
-                const isNotFriend = uid !== currentUserId?.toString() && !friendsIds.has(uid)
-                
-                const name = (u.nickname || u.fullName || "").toLowerCase()
-                const containsInName = name.includes(query.toLowerCase())
-
-                if (isNumeric) {
-                    // TÌM NGƯỜI LẠ BẰNG SĐT BẮT BUỘC PHẢI KHỚP TUYỆT ĐỐI
-                    const isExactPhone = u.phone === query
-                    return isNotFriend && (isExactPhone || containsInName)
-                } else {
-                    // Nếu là gõ tên thì tìm tương đối theo tên
-                    return isNotFriend && containsInName
-                }
-            }).map((u: any) => ({ ...u, isFriend: false }))
-
-            finalResults = [...finalResults, ...nonFriends]
+            const finalResults = [...finalFriends, ...nonFriends]
 
             setSearchResults(finalResults)
         } catch (error) {
@@ -126,7 +118,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                     id: convId,
                     name: targetName,
                     recipientId: targetUserId.toString(),
-                    avatar: user.avatarUrl
+                    avatar: user.avatarUrl || ""
                 }
             })
         } catch (error) {
@@ -138,6 +130,46 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
         setSearchText("")
         setSearchResults([])
         setShowResults(false)
+    }
+
+    const handleSendFriendRequest = async (user: any) => {
+        const targetUserId = user.id?.toString() || user.contactUserId?.toString();
+        if (!targetUserId || !user.phone) return;
+
+        setLoadingRequests(prev => new Set(prev).add(targetUserId));
+        
+        try {
+            await apiClient.post('/contacts/requests', { 
+                phone: user.phone, 
+                message: "Xin chào, mình muốn kết bạn với bạn!" 
+            });
+            
+            // Cập nhật trạng thái thành công
+            setSentRequests(prev => new Set(prev).add(targetUserId));
+
+            // Phát tín hiệu Real-time cho bên kia
+            if (socket) {
+                socket.emit('friend_action', { recipientId: targetUserId, action: 'new_request' });
+            }
+
+            Alert.alert("Thành công", `Đã gửi yêu cầu kết bạn tới ${user.nickname || user.fullName}`);
+        } catch (error: any) {
+            console.error("Gửi kết bạn lỗi:", error);
+            const errorMsg = error.response?.data?.message || "Không thể gửi lời mời kết bạn vào lúc này.";
+            
+            // Nếu lỗi báo đã gửi rồi, auto cập nhật UI
+            if (errorMsg.toLowerCase().includes('đã tồn tại') || errorMsg.toLowerCase().includes('already')) {
+                setSentRequests(prev => new Set(prev).add(targetUserId));
+            }
+            
+            Alert.alert("Lỗi", errorMsg);
+        } finally {
+            setLoadingRequests(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(targetUserId);
+                return newSet;
+            });
+        }
     }
 
     const renderHeaderIcons = () => {
@@ -302,7 +334,36 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                                             </View>
                                             <Text style={styles.resultPhone}>{item.phone}</Text>
                                         </View>
-                                        <Ionicons name="chatbubble-outline" size={20} color={ZaloColors.blue} />
+                                        
+                                        {/* Hiển thị nút Kết bạn nếu không phải là bạn bè */}
+                                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                            {!item.isFriend && (
+                                                <TouchableOpacity 
+                                                    style={{ 
+                                                        marginRight: 16,
+                                                        padding: 8,
+                                                        backgroundColor: sentRequests.has(item.id?.toString()) ? '#f0f0f0' : '#e1f5fe',
+                                                        borderRadius: 20
+                                                    }}
+                                                    onPress={() => !sentRequests.has(item.id?.toString()) && handleSendFriendRequest(item)}
+                                                    disabled={loadingRequests.has(item.id?.toString()) || sentRequests.has(item.id?.toString())}
+                                                >
+                                                    {loadingRequests.has(item.id?.toString()) ? (
+                                                        <ActivityIndicator size="small" color={ZaloColors.blue} />
+                                                    ) : sentRequests.has(item.id?.toString()) ? (
+                                                        <Ionicons name="checkmark" size={18} color="#4caf50" />
+                                                    ) : (
+                                                        <Ionicons name="person-add-outline" size={18} color={ZaloColors.blue} />
+                                                    )}
+                                                </TouchableOpacity>
+                                            )}
+                                            <TouchableOpacity 
+                                                style={{ padding: 8, marginLeft: item.isFriend ? 0 : 8 }}
+                                                onPress={() => handleSelectUser(item)}
+                                            >
+                                                <Ionicons name="chatbubble-outline" size={22} color={ZaloColors.blue} />
+                                            </TouchableOpacity>
+                                        </View>
                                     </TouchableOpacity>
                                 )}
                             />
