@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Alert, Modal
+  FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Alert, Modal,
+  ScrollView, Animated as RNAnimated, Keyboard
 } from 'react-native';
+import { STICKERS } from '@/constants/stickers';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -27,6 +29,8 @@ interface Message {
   recipientId: string;
   content: string;
   imageUrl?: string;   // ← thêm field ảnh
+  messageType?: string; // text | sticker | image | file | ...
+  fileUrl?: string;     // URL cho sticker hoặc file đính kèm
   createdAt?: string;
   status: MessageStatus;
 }
@@ -76,6 +80,8 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
+  const [showStickers, setShowStickers] = useState(false);
+  const stickerPanelHeight = useRef(new RNAnimated.Value(0)).current;
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   // _id của tin nhắn MỚI NHẤT mà đối phương đã xem
   const [lastSeenMessageId, setLastSeenMessageId] = useState<string | null>(null);
@@ -105,6 +111,8 @@ export default function ChatScreen() {
           senderId: String(m.senderId),
           recipientId: String(m.recipientId || ''),
           content: m.content,
+          messageType: m.messageType || 'text',
+          fileUrl: m.fileUrl,
           createdAt: m.createdAt || m.timestamp,
           // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
           status: (m.status as MessageStatus) || 'sent',
@@ -168,6 +176,8 @@ export default function ChatScreen() {
           senderId: String(data.senderId),
           recipientId: String(data.recipientId || ''),
           content: data.text,
+          messageType: data.messageType || 'text',
+          fileUrl: data.fileUrl,
           createdAt: data.timestamp || new Date().toISOString(),
           status: 'received',
         };
@@ -240,6 +250,7 @@ export default function ChatScreen() {
       senderId: currentUserId,
       recipientId: recipientId as string,
       content: trimmed,
+      messageType: 'text',
       createdAt: new Date().toISOString(),
       status: 'pending',
     };
@@ -253,12 +264,57 @@ export default function ChatScreen() {
       senderId: currentUserId,
       recipientId,
       text: trimmed,
+      messageType: 'text',
     });
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     setIsTyping(false);
     socket.emit('typing', { conversationId: id, userId: currentUserId, isTyping: false });
   }, [text, socket, currentUserId, id, recipientId]);
+
+  // ─── Gửi Sticker ────────────────────────────────────────────────────────────
+  const sendSticker = useCallback((stickerUrl: string) => {
+    if (!socket || !currentUserId) return;
+
+    const tempId = `pending-sticker-${Date.now()}`;
+    const tempMsg: Message = {
+      _id: tempId,
+      senderId: currentUserId,
+      recipientId: recipientId as string,
+      content: '[Nhãn dán]',
+      messageType: 'sticker',
+      fileUrl: stickerUrl,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    };
+
+    setMessages(prev => [tempMsg, ...prev]);
+    toggleStickerPanel(false);
+
+    socket.emit('send_message', {
+      tempId,
+      conversationId: id,
+      senderId: currentUserId,
+      recipientId,
+      text: '[Nhãn dán]',
+      messageType: 'sticker',
+      fileUrl: stickerUrl,
+    });
+  }, [socket, currentUserId, id, recipientId]);
+
+  // ─── Toggle Sticker Panel ───────────────────────────────────────────────────
+  const toggleStickerPanel = useCallback((show?: boolean) => {
+    const shouldShow = show !== undefined ? show : !showStickers;
+    if (shouldShow) {
+      Keyboard.dismiss();
+    }
+    setShowStickers(shouldShow);
+    RNAnimated.spring(stickerPanelHeight, {
+      toValue: shouldShow ? 260 : 0,
+      useNativeDriver: false,
+      friction: 8,
+    }).start();
+  }, [showStickers, stickerPanelHeight]);
 
   // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
   const [pendingImage, setPendingImage] = useState<string | null>(null);
@@ -317,7 +373,8 @@ export default function ChatScreen() {
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = String(item.senderId) === String(currentUserId);
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
-    const isImage = item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content));
+    const isSticker = item.messageType === 'sticker' && item.fileUrl;
+    const isImage = !isSticker && (item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content)));
     const imgSrc = item.imageUrl || item.content;
 
     return (
@@ -337,7 +394,16 @@ export default function ChatScreen() {
           )}
 
           <View style={{ flex: 1, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-            {isImage ? (
+            {isSticker ? (
+              /* ────── Sticker message ────── */
+              <TouchableOpacity activeOpacity={0.9}>
+                <Image
+                  source={{ uri: item.fileUrl }}
+                  style={styles.stickerImage}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+            ) : isImage ? (
               <TouchableOpacity activeOpacity={0.9}>
                 <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
               </TouchableOpacity>
@@ -424,8 +490,15 @@ export default function ChatScreen() {
 
         {/* Input */}
         <View style={styles.inputArea}>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Ionicons name="happy-outline" size={26} color="#666" />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => toggleStickerPanel()}
+          >
+            <Ionicons
+              name={showStickers ? 'happy' : 'happy-outline'}
+              size={26}
+              color={showStickers ? ZaloColors.blue : '#666'}
+            />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
@@ -433,6 +506,7 @@ export default function ChatScreen() {
             placeholderTextColor="#888"
             value={text}
             onChangeText={handleTextChange}
+            onFocus={() => toggleStickerPanel(false)}
             multiline
             maxLength={1000}
           />
@@ -451,6 +525,39 @@ export default function ChatScreen() {
             </View>
           )}
         </View>
+
+        {/* ────── Sticker Picker Panel ────── */}
+        <RNAnimated.View style={[styles.stickerPanel, { height: stickerPanelHeight }]}>
+          {showStickers && (
+            <View style={styles.stickerPanelInner}>
+              <View style={styles.stickerPanelHeader}>
+                <Text style={styles.stickerPanelTitle}>Nhãn dán</Text>
+                <TouchableOpacity onPress={() => toggleStickerPanel(false)}>
+                  <Ionicons name="close" size={20} color="#888" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                contentContainerStyle={styles.stickerGrid}
+                showsVerticalScrollIndicator={false}
+              >
+                {STICKERS.map((sticker, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.stickerItem}
+                    onPress={() => sendSticker(sticker)}
+                    activeOpacity={0.7}
+                  >
+                    <Image
+                      source={{ uri: sticker }}
+                      style={styles.stickerThumb}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </RNAnimated.View>
       </KeyboardAvoidingView>
 
       {/* Modal preview ảnh trước khi gửi */}
@@ -545,6 +652,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
+  // ─── Sticker trong tin nhắn ───
+  stickerImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 2,
+  },
+
   inputArea: {
     flexDirection: 'row', alignItems: 'flex-end',
     backgroundColor: '#fff', paddingHorizontal: 8, paddingVertical: 8,
@@ -558,6 +672,48 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 8, justifyContent: 'center', alignItems: 'center' },
   sendBtn: { padding: 8, justifyContent: 'center', alignItems: 'center', marginRight: 4 },
+
+  // ─── Sticker Picker Panel ───
+  stickerPanel: {
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  stickerPanelInner: {
+    flex: 1,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  stickerPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  stickerPanelTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+  },
+  stickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  stickerItem: {
+    width: (SCREEN_WIDTH - 16) / 4,
+    aspectRatio: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+  },
+  stickerThumb: {
+    width: 60,
+    height: 60,
+  },
 
   // Modal preview ảnh
   previewOverlay: {
