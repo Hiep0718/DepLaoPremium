@@ -15,6 +15,7 @@ import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
+import ForwardModal from '@/components/ForwardModal';
 
 // ─── Trạng thái tin nhắn ──────────────────────────────────────────────────────
 // pending  → đang gửi (chưa đến server)
@@ -31,6 +32,7 @@ interface Message {
   imageUrl?: string;   // ← thêm field ảnh
   messageType?: string; // text | sticker | image | file | ...
   fileUrl?: string;     // URL cho sticker hoặc file đính kèm
+  isRevoked?: boolean;  // tin nhắn đã bị thu hồi
   createdAt?: string;
   status: MessageStatus;
 }
@@ -81,6 +83,7 @@ export default function ChatScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const stickerPanelHeight = useRef(new RNAnimated.Value(0)).current;
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   // _id của tin nhắn MỚI NHẤT mà đối phương đã xem
@@ -113,6 +116,7 @@ export default function ChatScreen() {
           content: m.content,
           messageType: m.messageType || 'text',
           fileUrl: m.fileUrl,
+          isRevoked: m.isRevoked || false,
           createdAt: m.createdAt || m.timestamp,
           // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
           status: (m.status as MessageStatus) || 'sent',
@@ -161,6 +165,26 @@ export default function ChatScreen() {
           };
           return updated;
         }
+
+        // Không tìm thấy pending (ví dụ: chuyển tiếp tin nhắn đến cùng cuộc trò chuyện)
+        // → thêm tin nhắn mới nếu chưa tồn tại
+        if (data.messageId) {
+          const alreadyExists = prev.some(m => String(m._id) === String(data.messageId));
+          if (!alreadyExists) {
+            const newMsg: Message = {
+              _id: data.messageId,
+              senderId: String(data.senderId || currentUserId),
+              recipientId: String(data.recipientId || ''),
+              content: data.text || '',
+              messageType: data.messageType || 'text',
+              fileUrl: data.fileUrl,
+              createdAt: data.timestamp || new Date().toISOString(),
+              status: 'sent',
+            };
+            return [newMsg, ...prev];
+          }
+        }
+
         return prev;
       });
     };
@@ -211,16 +235,29 @@ export default function ChatScreen() {
       }
     };
 
+    // Tin nhắn bị THU HỒI
+    const handleMessageRevoked = (data: any) => {
+      if (data.messageId) {
+        setMessages(prev =>
+          prev.map(m =>
+            String(m._id) === String(data.messageId) ? { ...m, isRevoked: true } : m
+          )
+        );
+      }
+    };
+
     socket.on('message_sent', handleMessageSent);
     socket.on('message_received', handleMessageReceived);
     socket.on('message_seen', handleMessageSeen);
     socket.on('user_typing', handleUserTyping);
+    socket.on('message_revoked', handleMessageRevoked);
 
     return () => {
       socket.off('message_sent', handleMessageSent);
       socket.off('message_received', handleMessageReceived);
       socket.off('message_seen', handleMessageSeen);
       socket.off('user_typing', handleUserTyping);
+      socket.off('message_revoked', handleMessageRevoked);
     };
   }, [socket, id, currentUserId]);
 
@@ -316,6 +353,59 @@ export default function ChatScreen() {
     }).start();
   }, [showStickers, stickerPanelHeight]);
 
+  // ─── Thu hồi tin nhắn ──────────────────────────────────────────────────────
+  const handleRevoke = useCallback((msg: Message) => {
+    if (!socket || !currentUserId) return;
+    Alert.alert(
+      'Thu hồi tin nhắn',
+      'Tin nhắn sẽ bị thu hồi với tất cả mọi người trong cuộc trò chuyện.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Thu hồi',
+          style: 'destructive',
+          onPress: () => {
+            socket.emit('revoke_message', {
+              messageId: msg._id,
+              conversationId: id,
+              userId: currentUserId,
+            });
+            // Optimistic update
+            setMessages(prev =>
+              prev.map(m =>
+                String(m._id) === String(msg._id) ? { ...m, isRevoked: true } : m
+              )
+            );
+          },
+        },
+      ]
+    );
+  }, [socket, currentUserId, id]);
+
+  // ─── Long press menu cho tin nhắn ──────────────────────────────────────────
+  const handleMessageLongPress = useCallback((msg: Message) => {
+    if (msg.isRevoked) return; // Không cho thao tác trên tin đã thu hồi
+    const isMine = String(msg.senderId) === String(currentUserId);
+
+    const buttons: any[] = [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Chuyển tiếp',
+        onPress: () => setForwardingMessage(msg),
+      },
+    ];
+
+    if (isMine) {
+      buttons.push({
+        text: 'Thu hồi',
+        style: 'destructive',
+        onPress: () => handleRevoke(msg),
+      });
+    }
+
+    Alert.alert('Tùy chọn tin nhắn', undefined, buttons);
+  }, [currentUserId, handleRevoke]);
+
   // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -373,8 +463,8 @@ export default function ChatScreen() {
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = String(item.senderId) === String(currentUserId);
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
-    const isSticker = item.messageType === 'sticker' && item.fileUrl;
-    const isImage = !isSticker && (item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content)));
+    const isSticker = !item.isRevoked && item.messageType === 'sticker' && item.fileUrl;
+    const isImage = !item.isRevoked && !isSticker && (item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content)));
     const imgSrc = item.imageUrl || item.content;
 
     return (
@@ -394,9 +484,18 @@ export default function ChatScreen() {
           )}
 
           <View style={{ flex: 1, alignItems: isMine ? 'flex-end' : 'flex-start' }}>
-            {isSticker ? (
+            {item.isRevoked ? (
+              /* ────── Tin nhắn đã bị thu hồi ────── */
+              <View style={styles.revokedBubble}>
+                <Ionicons name="ban-outline" size={14} color="#999" style={{ marginRight: 6 }} />
+                <Text style={styles.revokedText}>Tin nhắn đã bị thu hồi</Text>
+              </View>
+            ) : isSticker ? (
               /* ────── Sticker message ────── */
-              <TouchableOpacity activeOpacity={0.9}>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onLongPress={() => handleMessageLongPress(item)}
+              >
                 <Image
                   source={{ uri: item.fileUrl }}
                   style={styles.stickerImage}
@@ -404,17 +503,25 @@ export default function ChatScreen() {
                 />
               </TouchableOpacity>
             ) : isImage ? (
-              <TouchableOpacity activeOpacity={0.9}>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onLongPress={() => handleMessageLongPress(item)}
+              >
                 <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
               </TouchableOpacity>
             ) : (
-              <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
-                <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
-                  {item.content}
-                </Text>
-              </View>
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onLongPress={() => handleMessageLongPress(item)}
+              >
+                <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                  <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
+                    {item.content}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             )}
-            {isMine && (
+            {isMine && !item.isRevoked && (
               <View style={styles.statusRow}>
                 <MessageTick status={item.status} />
               </View>
@@ -423,7 +530,7 @@ export default function ChatScreen() {
         </View>
 
         {/* Avatar nhỏ hiện bên phải dưới tin đã được đối phương XEM */}
-        {showSeenAvatar && (
+        {showSeenAvatar && !item.isRevoked && (
           <View style={styles.seenAvatarRow}>
             {avatar ? (
               <Image source={{ uri: avatar as string }} style={styles.seenAvatar} />
@@ -588,6 +695,13 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Forward Modal */}
+      <ForwardModal
+        visible={!!forwardingMessage}
+        message={forwardingMessage}
+        onClose={() => setForwardingMessage(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -631,6 +745,24 @@ const styles = StyleSheet.create({
   msgContent: { fontSize: 15, lineHeight: 22 },
   myMsgContent: { color: '#000' },
   theirMsgContent: { color: '#000' },
+
+  // ─── Tin nhắn đã thu hồi ───
+  revokedBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#d0d0d0',
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  revokedText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: '#999',
+  },
 
   // Hàng tick trạng thái nằm dưới bubble
   statusRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, marginBottom: 4, paddingRight: 2 },
