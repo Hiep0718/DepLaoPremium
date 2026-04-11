@@ -45,6 +45,8 @@ const MessageList = () => {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [activeProfile, setActiveProfile] = useState<any>(null);
+  const [translatingId, setTranslatingId] = useState<string | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
 
   useEffect(() => {
@@ -90,6 +92,29 @@ const MessageList = () => {
       userId: user.id.toString(),
     });
     setOpenMenuId(null);
+  };
+
+  const handleTranslate = async (msg: any) => {
+    const textToTranslate = msg.content || msg.text;
+    const msgId = msg._id || msg.id;
+    if (!textToTranslate || !msgId) return;
+    
+    setTranslatingId(msgId);
+    setOpenMenuId(null);
+    try {
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=autodetect|vi`);
+      const data = await res.json();
+      if (data.responseData?.translatedText) {
+        setTranslatedMessages(prev => ({
+          ...prev,
+          [msgId]: data.responseData.translatedText
+        }));
+      }
+    } catch (err) {
+      console.error('Translation error:', err);
+    } finally {
+      setTranslatingId(null);
+    }
   };
 
   // Helper: format date separator
@@ -440,6 +465,14 @@ const MessageList = () => {
                       onClick={() => { setForwardingMessage(msg); setOpenMenuId(null); }}>
                       Chuyển tiếp
                     </button>
+                    {(!msg.messageType || msg.messageType === 'text') && (msg.content || msg.text) && (
+                      <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
+                        onClick={() => handleTranslate(msg)}
+                        disabled={translatingId === messageId}
+                      >
+                        {translatingId === messageId ? 'Đang dịch...' : 'Dịch sang Tiếng Việt'}
+                      </button>
+                    )}
                     {isMe && (
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-red-500"
                         onClick={() => handleRevoke(msg)}>
@@ -561,7 +594,14 @@ const MessageList = () => {
                                 : 'none',
                             }}>
 
-                            <span className="pr-12">{msg.content || msg.text}</span>
+                            <div className="pr-12">
+                              <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.content || msg.text}</div>
+                              {translatedMessages[messageId] && (
+                                <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>
+                                  {translatedMessages[messageId]}
+                                </div>
+                              )}
+                            </div>
                             {settings.showMessageTime && (
                               <span className="absolute bottom-1.5 right-2.5 text-[10px] flex items-center gap-0.5 select-none whitespace-nowrap opacity-70"
                                 style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
