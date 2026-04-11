@@ -16,6 +16,9 @@ import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
 import ForwardModal from '@/components/ForwardModal';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
+import { Audio } from 'expo-av';
 
 // ─── Trạng thái tin nhắn ──────────────────────────────────────────────────────
 // pending  → đang gửi (chưa đến server)
@@ -35,6 +38,12 @@ interface Message {
   isRevoked?: boolean;  // tin nhắn đã bị thu hồi
   createdAt?: string;
   status: MessageStatus;
+  replyTo?: {
+    messageId: string;
+    content: string;
+    senderId: string;
+    messageType: string;
+  };
 }
 
 // ─── Component hiện tick trạng thái giống Zalo ────────────────────────────────
@@ -83,12 +92,242 @@ export default function ChatScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
+  const [showMoreActions, setShowMoreActions] = useState(false);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const stickerPanelHeight = useRef(new RNAnimated.Value(0)).current;
+  const moreActionsPanelHeight = useRef(new RNAnimated.Value(0)).current;
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   // _id của tin nhắn MỚI NHẤT mà đối phương đã xem
   const [lastSeenMessageId, setLastSeenMessageId] = useState<string | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [translatingId, setTranslatingId] = useState<string | null>(null);
+  const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
+  const inputRef = useRef<TextInput>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // ─── Voice Recording States ───
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ─── Audio Playback States ───
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [audioProgress, setAudioProgress] = useState<Record<string, { position: number; duration: number }>>({});
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // ─── Tải ảnh và lưu vào thư viện ────────────────────────────────────────
+  const handleDownloadImage = useCallback(async (url: string) => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Quyền truy cập', 'Cần cấp quyền truy cập Thư viện ảnh để lưu ảnh.');
+        return;
+      }
+      const filename = url.split('/').pop() || `image_${Date.now()}.jpg`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      const { uri } = await FileSystem.downloadAsync(url, fileUri);
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Alert.alert('✅ Thành công', 'Đã lưu ảnh vào Thư viện ảnh.');
+    } catch (err) {
+      console.log('Download error:', err);
+      Alert.alert('Lỗi', 'Không thể tải ảnh về.');
+    }
+  }, []);
+
+  // ─── Keyboard listener: đóng panels khi bàn phím mở ────────────────────────
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        // Đóng sticker panel
+        setShowStickers(false);
+        RNAnimated.timing(stickerPanelHeight, { toValue: 0, duration: 150, useNativeDriver: false }).start();
+        // Đóng more actions panel
+        setShowMoreActions(false);
+        RNAnimated.timing(moreActionsPanelHeight, { toValue: 0, duration: 150, useNativeDriver: false }).start();
+      }
+    );
+    return () => showSub.remove();
+  }, [stickerPanelHeight, moreActionsPanelHeight]);
+
+  // ─── Voice Recording Functions ─────────────────────────────────────────────
+  const startRecording = useCallback(async () => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Quyền truy cập', 'Cần cấp quyền sử dụng Microphone.');
+        return;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+      recordingRef.current = recording;
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.log('Start recording error:', err);
+      Alert.alert('Lỗi', 'Không thể bắt đầu ghi âm.');
+    }
+  }, []);
+
+  const cancelRecording = useCallback(async () => {
+    try {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (recordingRef.current) {
+        await recordingRef.current.stopAndUnloadAsync();
+        recordingRef.current = null;
+      }
+    } catch {}
+    setIsRecording(false);
+    setRecordingTime(0);
+  }, []);
+
+  const stopAndSendRecording = useCallback(async () => {
+    if (!recordingRef.current || !socket || !currentUserId) return;
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingTime(0);
+
+    try {
+      await recordingRef.current.stopAndUnloadAsync();
+      const uri = recordingRef.current.getURI();
+      recordingRef.current = null;
+      if (!uri) return;
+
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+
+      // Upload to S3
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        name: `voice_${Date.now()}.m4a`,
+        type: 'audio/m4a',
+      } as any);
+
+      const res = await apiClient.post('/upload/chat', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+
+      const uploadData = res.data?.data;
+      if (uploadData?.url) {
+        const tempId = `pending-voice-${Date.now()}`;
+        const tempMsg: Message = {
+          _id: tempId,
+          senderId: currentUserId,
+          recipientId: recipientId as string,
+          content: '[Tin nhắn thoại]',
+          messageType: 'audio',
+          fileUrl: uploadData.url,
+          createdAt: new Date().toISOString(),
+          status: 'pending',
+        };
+        setMessages(prev => [tempMsg, ...prev]);
+        socket.emit('send_message', {
+          tempId,
+          conversationId: id,
+          senderId: currentUserId,
+          recipientId,
+          text: '[Tin nhắn thoại]',
+          messageType: 'audio',
+          fileUrl: uploadData.url,
+          fileName: uploadData.fileName,
+          fileSize: uploadData.fileSize,
+        });
+      } else {
+        Alert.alert('Lỗi', 'Không thể tải lên tin nhắn thoại.');
+      }
+    } catch (err) {
+      console.log('Voice message send error:', err);
+      Alert.alert('Lỗi', 'Không thể gửi tin nhắn thoại.');
+    }
+  }, [socket, currentUserId, id, recipientId]);
+
+  const formatAudioTime = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const formatRecordTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  // ─── Audio Playback ─────────────────────────────────────────────────────
+  const playAudio = useCallback(async (msgId: string, url: string) => {
+    try {
+      // Stop any currently playing audio
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+      if (playingAudioId === msgId) {
+        setPlayingAudioId(null);
+        return;
+      }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
+      const { sound } = await Audio.Sound.createAsync({ uri: url });
+      soundRef.current = sound;
+      setPlayingAudioId(msgId);
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded) {
+          setAudioProgress(prev => ({
+            ...prev,
+            [msgId]: {
+              position: status.positionMillis || 0,
+              duration: status.durationMillis || 1,
+            },
+          }));
+          if (status.didJustFinish) {
+            setPlayingAudioId(null);
+            soundRef.current = null;
+          }
+        }
+      });
+      await sound.playAsync();
+    } catch (err) {
+      console.log('Play audio error:', err);
+      setPlayingAudioId(null);
+    }
+  }, [playingAudioId]);
+
+  // ─── Preload audio durations ────────────────────────────────────────────────
+  useEffect(() => {
+    const loadDurations = async () => {
+      const audioMsgs = messages.filter(
+        m => m.messageType === 'audio' && m.fileUrl && !audioProgress[m._id]
+      );
+      for (const msg of audioMsgs) {
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: msg.fileUrl! },
+            { shouldPlay: false }
+          );
+          const status = await sound.getStatusAsync();
+          if (status.isLoaded && status.durationMillis) {
+            setAudioProgress(prev => ({
+              ...prev,
+              [msg._id]: { position: 0, duration: status.durationMillis || 0 },
+            }));
+          }
+          await sound.unloadAsync();
+        } catch {}
+      }
+    };
+    loadDurations();
+  }, [messages]);
 
   // ─── Resolve userId ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -120,6 +359,7 @@ export default function ChatScreen() {
           createdAt: m.createdAt || m.timestamp,
           // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
           status: (m.status as MessageStatus) || 'sent',
+          replyTo: m.replyTo,
         }));
 
         setMessages(mapped);
@@ -204,6 +444,7 @@ export default function ChatScreen() {
           fileUrl: data.fileUrl,
           createdAt: data.timestamp || new Date().toISOString(),
           status: 'received',
+          replyTo: data.replyTo,
         };
         // Đánh dấu đã xem ngay vì người dùng đang mở màn hình chat này
         socket.emit('mark_as_seen', {
@@ -282,6 +523,13 @@ export default function ChatScreen() {
     if (!trimmed || !socket || !currentUserId) return;
 
     const tempId = `pending-${Date.now()}`;
+    const replyData = replyingMessage ? {
+      messageId: replyingMessage._id,
+      content: replyingMessage.content,
+      senderId: replyingMessage.senderId,
+      messageType: replyingMessage.messageType || 'text',
+    } : undefined;
+
     const tempMsg: Message = {
       _id: tempId,
       senderId: currentUserId,
@@ -290,10 +538,12 @@ export default function ChatScreen() {
       messageType: 'text',
       createdAt: new Date().toISOString(),
       status: 'pending',
+      replyTo: replyData,
     };
 
     setMessages(prev => [tempMsg, ...prev]);
     setText('');
+    setReplyingMessage(null);
 
     socket.emit('send_message', {
       tempId,
@@ -302,18 +552,26 @@ export default function ChatScreen() {
       recipientId,
       text: trimmed,
       messageType: 'text',
+      replyTo: replyData,
     });
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     setIsTyping(false);
     socket.emit('typing', { conversationId: id, userId: currentUserId, isTyping: false });
-  }, [text, socket, currentUserId, id, recipientId]);
+  }, [text, socket, currentUserId, id, recipientId, replyingMessage]);
 
   // ─── Gửi Sticker ────────────────────────────────────────────────────────────
   const sendSticker = useCallback((stickerUrl: string) => {
     if (!socket || !currentUserId) return;
 
     const tempId = `pending-sticker-${Date.now()}`;
+    const replyData = replyingMessage ? {
+      messageId: replyingMessage._id,
+      content: replyingMessage.content,
+      senderId: replyingMessage.senderId,
+      messageType: replyingMessage.messageType || 'text',
+    } : undefined;
+
     const tempMsg: Message = {
       _id: tempId,
       senderId: currentUserId,
@@ -323,10 +581,12 @@ export default function ChatScreen() {
       fileUrl: stickerUrl,
       createdAt: new Date().toISOString(),
       status: 'pending',
+      replyTo: replyData,
     };
 
     setMessages(prev => [tempMsg, ...prev]);
     toggleStickerPanel(false);
+    setReplyingMessage(null);
 
     socket.emit('send_message', {
       tempId,
@@ -336,14 +596,18 @@ export default function ChatScreen() {
       text: '[Nhãn dán]',
       messageType: 'sticker',
       fileUrl: stickerUrl,
+      replyTo: replyData,
     });
-  }, [socket, currentUserId, id, recipientId]);
+  }, [socket, currentUserId, id, recipientId, replyingMessage]);
 
   // ─── Toggle Sticker Panel ───────────────────────────────────────────────────
   const toggleStickerPanel = useCallback((show?: boolean) => {
     const shouldShow = show !== undefined ? show : !showStickers;
     if (shouldShow) {
       Keyboard.dismiss();
+      // Đóng panel more actions nếu đang mở
+      setShowMoreActions(false);
+      RNAnimated.spring(moreActionsPanelHeight, { toValue: 0, useNativeDriver: false, friction: 8 }).start();
     }
     setShowStickers(shouldShow);
     RNAnimated.spring(stickerPanelHeight, {
@@ -351,7 +615,24 @@ export default function ChatScreen() {
       useNativeDriver: false,
       friction: 8,
     }).start();
-  }, [showStickers, stickerPanelHeight]);
+  }, [showStickers, stickerPanelHeight, moreActionsPanelHeight]);
+
+  // ─── Toggle More Actions Panel ──────────────────────────────────────────────
+  const toggleMoreActions = useCallback((show?: boolean) => {
+    const shouldShow = show !== undefined ? show : !showMoreActions;
+    if (shouldShow) {
+      Keyboard.dismiss();
+      // Đóng sticker panel nếu đang mở
+      setShowStickers(false);
+      RNAnimated.spring(stickerPanelHeight, { toValue: 0, useNativeDriver: false, friction: 8 }).start();
+    }
+    setShowMoreActions(shouldShow);
+    RNAnimated.spring(moreActionsPanelHeight, {
+      toValue: shouldShow ? 280 : 0,
+      useNativeDriver: false,
+      friction: 8,
+    }).start();
+  }, [showMoreActions, stickerPanelHeight, moreActionsPanelHeight]);
 
   // ─── Thu hồi tin nhắn ──────────────────────────────────────────────────────
   const handleRevoke = useCallback((msg: Message) => {
@@ -382,6 +663,29 @@ export default function ChatScreen() {
     );
   }, [socket, currentUserId, id]);
 
+  // ─── Dịch tin nhắn ──────────────────────────────────────────────────────────
+  const handleTranslate = useCallback(async (msg: Message) => {
+    const textToTranslate = msg.content;
+    const msgId = msg._id;
+    if (!textToTranslate || !msgId) return;
+
+    setTranslatingId(msgId);
+    try {
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=autodetect|vi`);
+      const data = await res.json();
+      if (data.responseData?.translatedText) {
+        setTranslatedMessages(prev => ({
+          ...prev,
+          [msgId]: data.responseData.translatedText
+        }));
+      }
+    } catch (err) {
+      console.log('Translation error:', err);
+    } finally {
+      setTranslatingId(null);
+    }
+  }, []);
+
   // ─── Long press menu cho tin nhắn ──────────────────────────────────────────
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.isRevoked) return; // Không cho thao tác trên tin đã thu hồi
@@ -390,10 +694,21 @@ export default function ChatScreen() {
     const buttons: any[] = [
       { text: 'Hủy', style: 'cancel' },
       {
+        text: 'Trả lời',
+        onPress: () => setReplyingMessage(msg),
+      },
+      {
         text: 'Chuyển tiếp',
         onPress: () => setForwardingMessage(msg),
       },
     ];
+
+    if (!msg.messageType || msg.messageType === 'text') {
+      buttons.push({
+        text: translatingId === msg._id ? 'Đang dịch...' : 'Dịch sang Tiếng Việt',
+        onPress: () => handleTranslate(msg),
+      });
+    }
 
     if (isMine) {
       buttons.push({
@@ -404,7 +719,7 @@ export default function ChatScreen() {
     }
 
     Alert.alert('Tùy chọn tin nhắn', undefined, buttons);
-  }, [currentUserId, handleRevoke]);
+  }, [currentUserId, handleRevoke, handleTranslate, translatingId]);
 
   // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
   const [pendingImage, setPendingImage] = useState<string | null>(null);
@@ -437,6 +752,13 @@ export default function ChatScreen() {
       const imageUrl: string = res.data?.data?.url;
       if (imageUrl) {
         const tempId = `pending-img-${Date.now()}`;
+        const replyData = replyingMessage ? {
+          messageId: replyingMessage._id,
+          content: replyingMessage.content,
+          senderId: replyingMessage.senderId,
+          messageType: replyingMessage.messageType || 'text',
+        } : undefined;
+
         const tempMsg: Message = {
           _id: tempId,
           senderId: currentUserId,
@@ -445,9 +767,20 @@ export default function ChatScreen() {
           imageUrl,
           createdAt: new Date().toISOString(),
           status: 'pending',
+          replyTo: replyData,
         };
         setMessages(prev => [tempMsg, ...prev]);
-        socket.emit('send_message', { conversationId: id, senderId: currentUserId, recipientId, tempId, text: imageUrl, type: 'image' });
+        setReplyingMessage(null);
+        socket.emit('send_message', {
+          conversationId: id,
+          senderId: currentUserId,
+          recipientId,
+          tempId,
+          text: '[Hình ảnh]',
+          messageType: 'image',
+          fileUrl: imageUrl,
+          replyTo: replyData,
+        });
       } else {
         Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
       }
@@ -464,8 +797,13 @@ export default function ChatScreen() {
     const isMine = String(item.senderId) === String(currentUserId);
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
     const isSticker = !item.isRevoked && item.messageType === 'sticker' && item.fileUrl;
-    const isImage = !item.isRevoked && !isSticker && (item.imageUrl || (item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content)));
-    const imgSrc = item.imageUrl || item.content;
+    const isAudio = !item.isRevoked && item.messageType === 'audio' && item.fileUrl;
+    const isImage = !item.isRevoked && !isSticker && !isAudio && (
+      item.messageType === 'image' ||
+      item.imageUrl ||
+      (item.content && item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content))
+    );
+    const imgSrc = item.imageUrl || item.fileUrl || item.content;
 
     return (
       <View>
@@ -490,36 +828,104 @@ export default function ChatScreen() {
                 <Ionicons name="ban-outline" size={14} color="#999" style={{ marginRight: 6 }} />
                 <Text style={styles.revokedText}>Tin nhắn đã bị thu hồi</Text>
               </View>
-            ) : isSticker ? (
-              /* ────── Sticker message ────── */
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onLongPress={() => handleMessageLongPress(item)}
-              >
-                <Image
-                  source={{ uri: item.fileUrl }}
-                  style={styles.stickerImage}
-                  resizeMode="contain"
-                />
-              </TouchableOpacity>
-            ) : isImage ? (
-              <TouchableOpacity
-                activeOpacity={0.9}
-                onLongPress={() => handleMessageLongPress(item)}
-              >
-                <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
-              </TouchableOpacity>
             ) : (
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onLongPress={() => handleMessageLongPress(item)}
-              >
-                <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
-                  <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
-                    {item.content}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              <>
+                {/* ────── Reply Block ────── */}
+                {item.replyTo && (
+                  <View style={styles.replyBubble}>
+                    <View style={styles.replyBubbleLine} />
+                    <View style={styles.replyBubbleTextWrap}>
+                      <Text style={styles.replyBubbleHeader}>
+                        {String(item.replyTo.senderId) === String(currentUserId) ? 'Bạn' : name}
+                      </Text>
+                      <Text style={styles.replyBubbleContent} numberOfLines={1}>
+                        {item.replyTo.messageType === 'sticker' ? '[Nhãn dán]' :
+                         item.replyTo.messageType === 'image' ? '[Hình ảnh]' :
+                         item.replyTo.content}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {isSticker ? (
+                  /* ────── Sticker message ────── */
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onLongPress={() => handleMessageLongPress(item)}
+                  >
+                    <Image
+                      source={{ uri: item.fileUrl }}
+                      style={styles.stickerImage}
+                      resizeMode="contain"
+                    />
+                  </TouchableOpacity>
+                ) : isAudio ? (
+                  /* ────── Audio/Voice Message ────── */
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => playAudio(item._id, item.fileUrl!)}
+                    onLongPress={() => handleMessageLongPress(item)}
+                  >
+                    <View style={[styles.audioBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                      <Ionicons
+                        name={playingAudioId === item._id ? 'pause' : 'play'}
+                        size={24}
+                        color="#333"
+                      />
+                      <Text style={styles.audioTimeText}>
+                        {formatAudioTime(audioProgress[item._id]?.position || 0)}
+                        {' / '}
+                        {formatAudioTime(audioProgress[item._id]?.duration || 0)}
+                      </Text>
+                      <View style={styles.audioProgressBarBg}>
+                        <View
+                          style={[
+                            styles.audioProgressBarFill,
+                            {
+                              width: audioProgress[item._id]
+                                ? `${Math.min(100, (audioProgress[item._id].position / Math.max(1, audioProgress[item._id].duration)) * 100)}%`
+                                : '0%',
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Ionicons name="volume-medium" size={20} color="#333" />
+                    </View>
+                  </TouchableOpacity>
+                ) : isImage ? (
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => setLightboxUrl(imgSrc)}
+                    onLongPress={() => handleMessageLongPress(item)}
+                  >
+                    <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onLongPress={() => handleMessageLongPress(item)}
+                  >
+                    <View style={[styles.msgBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                      <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
+                        {item.content}
+                      </Text>
+                      {translatedMessages[item._id] && (
+                        <View style={styles.translatedWrap}>
+                          <Text style={[styles.translatedText, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
+                            {translatedMessages[item._id]}
+                          </Text>
+                        </View>
+                      )}
+                      {translatingId === item._id && (
+                        <View style={styles.translatingWrap}>
+                          <ActivityIndicator size="small" color="#999" />
+                          <Text style={styles.translatingText}>Đang dịch...</Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
             {isMine && !item.isRevoked && (
               <View style={styles.statusRow}>
@@ -546,7 +952,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+    <SafeAreaView edges={['top']} style={styles.container}>
       <StatusBar style="light" backgroundColor={ZaloColors.blue} />
 
       {/* Header */}
@@ -578,7 +984,8 @@ export default function ChatScreen() {
       {/* Chat area */}
       <KeyboardAvoidingView
         style={styles.chatArea}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {isLoading ? (
           <View style={styles.centerWrap}>
@@ -595,7 +1002,51 @@ export default function ChatScreen() {
           />
         )}
 
+        {/* Reply Preview */}
+        {replyingMessage && (
+          <View style={styles.replyPreviewWrap}>
+            <View style={styles.replyPreviewBorder} />
+            <View style={styles.replyPreviewContentWrap}>
+              <Text style={styles.replyPreviewHeader}>
+                Đang trả lời {String(replyingMessage.senderId) === String(currentUserId) ? 'chính mình' : name}
+              </Text>
+              <Text style={styles.replyPreviewContent} numberOfLines={1}>
+                {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                 replyingMessage.messageType === 'image' ? '[Hình ảnh]' :
+                 (replyingMessage.content || '[Tệp đính kèm]')}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.replyPreviewClose} onPress={() => setReplyingMessage(null)}>
+              <Ionicons name="close-circle" size={24} color="#888" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Input */}
+        {isRecording ? (
+          /* ────── Voice Recording UI ────── */
+          <View style={styles.recordingBar}>
+            <TouchableOpacity style={styles.recordCancelBtn} onPress={cancelRecording}>
+              <Ionicons name="close" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <View style={styles.recordingCenter}>
+              <View style={styles.recordingDotOuter}>
+                <View style={styles.recordingDot} />
+              </View>
+              <Text style={styles.recordingTimer}>{formatRecordTime(recordingTime)}</Text>
+              <View style={styles.recordingWaveBars}>
+                {[8, 14, 20, 12, 18, 10, 16, 22, 14, 8, 18, 12, 20, 10, 16].map((h, i) => (
+                  <View key={i} style={[styles.recordingWaveBar, { height: h }]} />
+                ))}
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.recordSendBtn} onPress={stopAndSendRecording}>
+              <Ionicons name="send" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        ) : (
         <View style={styles.inputArea}>
           <TouchableOpacity
             style={styles.iconBtn}
@@ -608,12 +1059,12 @@ export default function ChatScreen() {
             />
           </TouchableOpacity>
           <TextInput
+            ref={inputRef}
             style={styles.input}
             placeholder="Tin nhắn"
             placeholderTextColor="#888"
             value={text}
             onChangeText={handleTextChange}
-            onFocus={() => toggleStickerPanel(false)}
             multiline
             maxLength={1000}
           />
@@ -623,7 +1074,17 @@ export default function ChatScreen() {
             </TouchableOpacity>
           ) : (
             <View style={{ flexDirection: 'row' }}>
-              <TouchableOpacity style={styles.iconBtn}>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => toggleMoreActions()}
+              >
+                <Ionicons
+                  name={showMoreActions ? 'ellipsis-horizontal' : 'ellipsis-horizontal'}
+                  size={24}
+                  color={showMoreActions ? ZaloColors.blue : '#666'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={startRecording}>
                 <Ionicons name="mic-outline" size={26} color="#666" />
               </TouchableOpacity>
               <TouchableOpacity style={styles.iconBtn} onPress={handlePickImage}>
@@ -632,6 +1093,7 @@ export default function ChatScreen() {
             </View>
           )}
         </View>
+        )}
 
         {/* ────── Sticker Picker Panel ────── */}
         <RNAnimated.View style={[styles.stickerPanel, { height: stickerPanelHeight }]}>
@@ -661,6 +1123,99 @@ export default function ChatScreen() {
                     />
                   </TouchableOpacity>
                 ))}
+              </ScrollView>
+            </View>
+          )}
+        </RNAnimated.View>
+
+        {/* ────── More Actions Panel ────── */}
+        <RNAnimated.View style={[styles.moreActionsPanel, { height: moreActionsPanelHeight }]}>
+          {showMoreActions && (
+            <View style={styles.moreActionsPanelInner}>
+              <ScrollView
+                contentContainerStyle={styles.moreActionsGrid}
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Row 1 */}
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#FF4757' }]}>
+                    <Ionicons name="location" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Vị trí</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); /* TODO: document picker */ }}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#3742fa' }]}>
+                    <Ionicons name="document-text" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Tài liệu</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#FF6348' }]}>
+                    <Ionicons name="alarm" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Nhắc hẹn</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#1E90FF' }]}>
+                    <Ionicons name="flash" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Tin nhắn nhanh</Text>
+                </TouchableOpacity>
+
+                {/* Row 2 */}
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#2ED573' }]}>
+                    <Ionicons name="cash" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Chuyển khoản</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#3742fa' }]}>
+                    <Ionicons name="person-circle" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Danh thiếp</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); handlePickImage(); }}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#1E90FF' }]}>
+                    <Ionicons name="folder-open" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>My Documents</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#A55EEA' }]}>
+                    <Ionicons name="card" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Gửi số tài khoản</Text>
+                </TouchableOpacity>
+
+                {/* Row 3 */}
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#FECA57' }]}>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff' }}>GIF</Text>
+                  </View>
+                  <Text style={styles.moreActionLabel}>GIF</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#FF6B81' }]}>
+                    <Ionicons name="musical-notes" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Thu âm</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.moreActionItem}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#FECA57' }]}>
+                    <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>Aa</Text>
+                  </View>
+                  <Text style={styles.moreActionLabel}>Kiểu chữ</Text>
+                </TouchableOpacity>
+
               </ScrollView>
             </View>
           )}
@@ -702,6 +1257,36 @@ export default function ChatScreen() {
         message={forwardingMessage}
         onClose={() => setForwardingMessage(null)}
       />
+
+      {/* ────── Image Lightbox ────── */}
+      <Modal visible={!!lightboxUrl} transparent animationType="fade">
+        <View style={styles.lightboxOverlay}>
+          {/* Close Button */}
+          <TouchableOpacity
+            style={styles.lightboxCloseBtn}
+            onPress={() => setLightboxUrl(null)}
+          >
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Download Button */}
+          <TouchableOpacity
+            style={styles.lightboxDownloadBtn}
+            onPress={() => { if (lightboxUrl) handleDownloadImage(lightboxUrl); }}
+          >
+            <Ionicons name="download-outline" size={26} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Image */}
+          {lightboxUrl && (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -745,6 +1330,195 @@ const styles = StyleSheet.create({
   msgContent: { fontSize: 15, lineHeight: 22 },
   myMsgContent: { color: '#000' },
   theirMsgContent: { color: '#000' },
+
+  // ─── Audio/Voice Message Bubble ───
+  audioBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: SCREEN_WIDTH * 0.75,
+    minWidth: SCREEN_WIDTH * 0.55,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
+    gap: 8,
+  },
+  audioTimeText: {
+    fontSize: 13,
+    color: '#333',
+    fontVariant: ['tabular-nums'],
+    minWidth: 70,
+  },
+  audioProgressBarBg: {
+    flex: 1,
+    height: 4,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  audioProgressBarFill: {
+    height: '100%',
+    backgroundColor: '#333',
+    borderRadius: 2,
+  },
+
+  // ─── Recording Bar ───
+  recordingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#FFD6D6',
+  },
+  recordingCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  recordingDotOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,71,87,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF4757',
+  },
+  recordingTimer: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FF4757',
+    fontVariant: ['tabular-nums'],
+    minWidth: 50,
+  },
+  recordingWaveBars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  recordingWaveBar: {
+    width: 3,
+    backgroundColor: '#FF6B81',
+    borderRadius: 2,
+  },
+  recordCancelBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FF4757',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordSendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: ZaloColors.blue,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ─── Reply Text Bubble ───
+  replyBubble: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 8,
+    padding: 6,
+    marginBottom: 4,
+    maxWidth: SCREEN_WIDTH * 0.75,
+  },
+  replyBubbleLine: {
+    width: 3,
+    backgroundColor: ZaloColors.blue,
+    borderRadius: 2,
+    marginRight: 6,
+  },
+  replyBubbleTextWrap: {
+    flex: 1,
+  },
+  replyBubbleHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 2,
+  },
+  replyBubbleContent: {
+    fontSize: 13,
+    color: '#555',
+  },
+
+  // ─── Quoting Input Preview ───
+  replyPreviewWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+  },
+  replyPreviewBorder: {
+    width: 3,
+    backgroundColor: ZaloColors.blue,
+    borderRadius: 2,
+    height: '100%',
+    marginRight: 8,
+  },
+  replyPreviewContentWrap: {
+    flex: 1,
+  },
+  replyPreviewHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 2,
+  },
+  replyPreviewContent: {
+    fontSize: 13,
+    color: '#555',
+  },
+  replyPreviewClose: {
+    padding: 4,
+  },
+
+  // ─── Phần dịch tin nhắn ───
+  translatedWrap: {
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderStyle: 'dashed',
+  },
+  translatedText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    lineHeight: 20,
+    opacity: 0.9,
+  },
+  translatingWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderStyle: 'dashed',
+  },
+  translatingText: {
+    fontSize: 13,
+    color: '#999',
+    marginLeft: 6,
+    fontStyle: 'italic',
+  },
 
   // ─── Tin nhắn đã thu hồi ───
   revokedBubble: {
@@ -847,6 +1621,44 @@ const styles = StyleSheet.create({
     height: 60,
   },
 
+  // ─── More Actions Panel ───
+  moreActionsPanel: {
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  moreActionsPanelInner: {
+    flex: 1,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingTop: 12,
+  },
+  moreActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 8,
+    paddingBottom: 16,
+  },
+  moreActionItem: {
+    width: (SCREEN_WIDTH - 16) / 4,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  moreActionIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  moreActionLabel: {
+    fontSize: 11,
+    color: '#444',
+    textAlign: 'center',
+    lineHeight: 15,
+    maxWidth: 76,
+  },
+
   // Modal preview ảnh
   previewOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
@@ -862,4 +1674,34 @@ const styles = StyleSheet.create({
   },
   previewSendBtn: { backgroundColor: ZaloColors.blue },
   previewBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+
+  // ─── Image Lightbox ───
+  lightboxOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lightboxCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    padding: 10,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  lightboxDownloadBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 10,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  lightboxImage: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH,
+  },
 });
