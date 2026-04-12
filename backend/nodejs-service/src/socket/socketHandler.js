@@ -79,7 +79,7 @@ const setupSocketEvents = (io) => {
         const message = new Message({
           conversationId,
           senderId,
-          receiverId: recipientId,
+          receiverId: recipientId || null,
           content: messageContent,
           messageType: messageType || 'text',
           fileUrl: fileUrl || null,
@@ -123,7 +123,18 @@ const setupSocketEvents = (io) => {
           status: 'sent',
         });
 
-        io.to(`user_${recipientId}`).emit('message_received', {
+        const conversation = await Conversation.findOne({ conversationId });
+        
+        let recipientIds = [];
+        if (conversation && conversation.participants) {
+           recipientIds = conversation.participants
+               .map(p => p.userId.toString())
+               .filter(id => id !== senderId.toString());
+        } else if (recipientId) {
+           recipientIds = [recipientId];
+        }
+
+        const receivePayload = {
           messageId: message._id,
           conversationId,
           senderId,
@@ -137,9 +148,13 @@ const setupSocketEvents = (io) => {
           isRevoked: message.isRevoked,
           timestamp: message.createdAt,
           status: 'received',
+        };
+
+        recipientIds.forEach(id => {
+          io.to(`user_${id}`).emit('message_received', receivePayload);
         });
 
-        console.log(`[Socket] Message sent from ${senderId} to ${recipientId} (type: ${message.messageType})`);
+        console.log(`[Socket] Message sent from ${senderId} to recipients: ${recipientIds.join(', ')} (type: ${message.messageType})`);
       } catch (error) {
         console.error('[Socket] Error sending message:', error);
         socket.emit('error', { message: 'Failed to send message' });
@@ -175,9 +190,7 @@ const setupSocketEvents = (io) => {
       try {
         const { messageId, conversationId, userId } = data;
 
-        if (!mongoose.Types.ObjectId.isValid(messageId)) {
-          return;
-        }
+        if (!mongoose.Types.ObjectId.isValid(messageId)) return;
 
         const message = await Message.findById(messageId);
         if (!message || message.senderId !== userId) return;
@@ -185,18 +198,94 @@ const setupSocketEvents = (io) => {
         message.isRevoked = true;
         await message.save();
 
-        io.to(`conv_${conversationId}`).emit('message_revoked', {
-          messageId,
-          conversationId,
-        });
+        io.to(`conv_${conversationId}`).emit('message_revoked', { messageId, conversationId });
 
-        // Also emit to users directly if they aren't in conv_ room
-        io.to(`user_${message.senderId}`).emit('message_revoked', { messageId, conversationId });
-        io.to(`user_${message.receiverId}`).emit('message_revoked', { messageId, conversationId });
+        // Broadcast to all participants explicitly
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation && conversation.participants) {
+          conversation.participants.forEach(p => {
+             io.to(`user_${p.userId}`).emit('message_revoked', { messageId, conversationId });
+          });
+        }
 
         console.log(`[Socket] Message ${messageId} revoked by ${userId}`);
       } catch (error) {
         console.error('[Socket] Error revoking message:', error);
+      }
+    });
+
+    // Delete message (For me only)
+    socket.on('delete_message_for_me', async (data) => {
+      try {
+        const { messageId, userId } = data;
+        if (!mongoose.Types.ObjectId.isValid(messageId)) return;
+
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        if (!message.deletedBy) message.deletedBy = [];
+        if (!message.deletedBy.includes(userId)) {
+          message.deletedBy.push(userId);
+          await message.save();
+        }
+        
+        io.to(`user_${userId}`).emit('message_deleted', { messageId });
+        console.log(`[Socket] Message ${messageId} deleted for user ${userId}`);
+      } catch (error) {
+        console.error('[Socket] Error deleting message:', error);
+      }
+    });
+
+    // Pin message
+    socket.on('pin_message', async (data) => {
+      try {
+        const { messageId, conversationId, userId } = data;
+        if (!mongoose.Types.ObjectId.isValid(messageId)) return;
+
+        const message = await Message.findById(messageId);
+        const conversation = await Conversation.findOne({ conversationId });
+        
+        if (!message || !conversation) return;
+
+        conversation.pinnedMessage = {
+          messageId: message._id.toString(),
+          content: message.content,
+          senderId: message.senderId,
+          messageType: message.messageType,
+          timestamp: new Date()
+        };
+        await conversation.save();
+
+        if (conversation.participants) {
+          conversation.participants.forEach(p => {
+             io.to(`user_${p.userId}`).emit('message_pinned', { conversationId, pinnedMessage: conversation.pinnedMessage });
+          });
+        }
+        console.log(`[Socket] Message ${messageId} pinned in conv ${conversationId}`);
+      } catch (error) {
+        console.error('[Socket] Error pinning message:', error);
+      }
+    });
+
+    // Unpin message
+    socket.on('unpin_message', async (data) => {
+      try {
+        const { conversationId, userId } = data;
+        const conversation = await Conversation.findOne({ conversationId });
+        
+        if (!conversation) return;
+
+        conversation.pinnedMessage = null; // Remove pin
+        await conversation.save();
+
+        if (conversation.participants) {
+          conversation.participants.forEach(p => {
+             io.to(`user_${p.userId}`).emit('message_unpinned', { conversationId });
+          });
+        }
+        console.log(`[Socket] Message unpinned in conv ${conversationId}`);
+      } catch (error) {
+        console.error('[Socket] Error unpinning message:', error);
       }
     });
 

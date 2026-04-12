@@ -29,6 +29,14 @@ const conversationSchema = new mongoose.Schema(
       content: String,
       senderId: String,
       timestamp: Date,
+      messageType: String,
+    },
+    pinnedMessage: {
+      messageId: String,
+      content: String,
+      senderId: String,
+      messageType: String,
+      timestamp: Date,
     },
     unreadCount: {
       type: Map,

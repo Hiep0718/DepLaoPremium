@@ -8,6 +8,7 @@ import apiClient from "@/constants/api"
 import { chatApiClient } from "@/constants/chatApi"
 import { useSocket } from "@/contexts/SocketContext"
 import { ZaloColors } from "@/constants/zalo"
+import CreateGroupModal from "./CreateGroupModal"
 
 const MENU_ITEMS = [
     { id: "1", icon: "person-add-outline", label: "Thêm bạn", color: "#666" },
@@ -30,6 +31,7 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
     const [searchResults, setSearchResults] = useState<any[]>([])
     const [isSearching, setIsSearching] = useState(false)
     const [showResults, setShowResults] = useState(false)
+    const [showCreateGroupModal, setShowCreateGroupModal] = useState(false)
     
     // States for Friend Requests
     const [loadingRequests, setLoadingRequests] = useState<Set<string>>(new Set())
@@ -242,7 +244,12 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                 paddingHorizontal: 16,
                 alignItems: "center",
             }}
-            onPress={() => setShowMenu(false)}
+            onPress={() => {
+                setShowMenu(false)
+                if (item.id === "2") {
+                    setShowCreateGroupModal(true)
+                }
+            }}
         >
             <Ionicons name={item.icon as any} size={22} color={item.color} style={{ width: 32 }} />
             <Text style={{ fontSize: 16, color: "#333", marginLeft: 4 }}>{item.label}</Text>
@@ -407,6 +414,11 @@ export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
                     </View>
                 </TouchableOpacity>
             </Modal>
+
+            <CreateGroupModal 
+                visible={showCreateGroupModal} 
+                onClose={() => setShowCreateGroupModal(false)} 
+            />
         </>
     )
 }

@@ -125,7 +125,7 @@ export default function MessagesScreen() {
   };
 
   const renderItem = ({ item }: { item: Conversation }) => {
-    const name = item.isGroup ? item.groupName : item.otherUser?.fullName;
+    const displayName = item.isGroup ? (item.groupName || 'Nhóm') : (item.otherUser?.fullName || 'Người dùng');
     const isUnread = false; // Có thể mở rộng
 
     return (
@@ -136,12 +136,17 @@ export default function MessagesScreen() {
             pathname: '/chat/[id]', 
             params: { 
                 id: item.conversationId, 
-                name: name,
-                recipientId: item.otherUser?.id
+                name: displayName,
+                recipientId: item.isGroup ? "" : (item.otherUser?.id || ""),
+                avatar: item.isGroup ? "" : (item.otherUser?.avatarUrl || ""),
             } 
         })}
       >
-        {item.otherUser?.avatarUrl ? (
+        {item.isGroup ? (
+          <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#e1bee7' }]}>
+            <Ionicons name="people" size={24} color="#8e24aa" />
+          </View>
+        ) : item.otherUser?.avatarUrl ? (
           <Image source={{ uri: item.otherUser.avatarUrl }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -150,7 +155,7 @@ export default function MessagesScreen() {
         )}
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
-            <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{name}</Text>
+            <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{displayName}</Text>
             <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
           </View>
           <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>

@@ -13,7 +13,7 @@ const messageSchema = new mongoose.Schema(
     },
     receiverId: {
       type: String,
-      required: true,
+      default: null,
     },
     content: {
       type: String,
@@ -21,7 +21,7 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker', 'contact', 'system'],
+      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker', 'contact', 'system', 'location', 'reminder'],
       default: 'text',
     },
     fileUrl: {
@@ -58,6 +58,11 @@ const messageSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    deletedBy: [
+      {
+        type: String,
+      }
+    ],
     replyTo: {
       messageId: String,
       content: String,

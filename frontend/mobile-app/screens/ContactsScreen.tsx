@@ -16,6 +16,7 @@ import { useCallback, useEffect } from "react"
 import apiClient from "@/constants/api"
 import { useSocket } from "@/contexts/SocketContext"
 import { ZaloColors } from "@/constants/zalo"
+import CreateGroupModal from "@/components/CreateGroupModal"
 
 type Tab = "friends" | "groups" | "oa"
 
@@ -180,50 +181,101 @@ function Friends() {
 /* ------------------ GROUPS ------------------ */
 
 function Groups() {
-  const groups = [
-    {
-      name: "CÔNG NGHỆ MỚI",
-      msg: "Dự kiến tuần sau mình kết thúc môn...",
-      time: "1 giờ",
-    },
-    {
-      name: "Bạn tao đéo tới 💀💀",
-      msg: "Tội vậy trời",
-      time: "6 giờ",
-    },
-    {
-      name: "Big Data ❌❌❌",
-      msg: "Hiền đã đổi ảnh đại diện nhóm",
-      time: "9 giờ",
-    },
-  ]
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const { currentUserId, socket } = useSocket();
+  const router = useRouter();
+  const [groups, setGroups] = useState<any[]>([]);
+
+  const fetchGroups = async () => {
+    if (!currentUserId) return;
+    try {
+      const { chatApiClient } = await import('@/constants/chatApi');
+      const res = await chatApiClient.get(`/conversations/${currentUserId}`);
+      const allConvs = res.data?.data || [];
+      const groupConvs = allConvs.filter((c: any) => c.isGroup);
+      setGroups(groupConvs);
+    } catch (err) {
+      console.log('Error fetching groups', err);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchGroups();
+    }, [currentUserId])
+  );
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleUpdate = () => fetchGroups();
+    socket.on('receive_message', handleUpdate);
+    socket.on('message_sent', handleUpdate);
+    return () => {
+      socket.off('receive_message', handleUpdate);
+      socket.off('message_sent', handleUpdate);
+    };
+  }, [socket]);
 
   return (
     <View>
-      <View style={styles.createGroup}>
+      <TouchableOpacity style={styles.createGroup} onPress={() => setShowCreateGroupModal(true)} activeOpacity={0.7}>
         <View style={styles.createIcon}>
           <Ionicons name="people-outline" size={26} color={ZaloColors.blue} />
         </View>
         <Text style={{ fontSize: 16 }}>Tạo nhóm mới</Text>
-      </View>
+      </TouchableOpacity>
 
       <View style={styles.groupHeader}>
-        <Text style={{ fontWeight: "600" }}>Nhóm đang tham gia (106)</Text>
+        <Text style={{ fontWeight: "600" }}>Nhóm đang tham gia ({groups.length})</Text>
         <Text style={{ color: "#888" }}>⇅ Sắp xếp</Text>
       </View>
 
-      {groups.map((g, i) => (
-        <View key={i} style={styles.groupRow}>
-          <View style={styles.avatar}>
-            <Ionicons name="people" size={24} color="#fff" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontWeight: "600" }}>{g.name}</Text>
-            <Text style={{ color: "#666" }}>{g.msg}</Text>
-          </View>
-          <Text style={{ color: "#999" }}>{g.time}</Text>
+      {groups.length === 0 ? (
+        <View style={{ padding: 40, alignItems: 'center' }}>
+          <Text style={{ color: '#888' }}>Bạn chưa tham gia nhóm nào</Text>
         </View>
-      ))}
+      ) : (
+        groups.map((g, i) => (
+          <TouchableOpacity 
+            key={g.conversationId || i} 
+            style={styles.groupRow}
+            onPress={() => {
+              router.push({
+                pathname: "/chat/[id]",
+                params: {
+                  id: g.conversationId,
+                  name: g.groupName || 'Nhóm',
+                  recipientId: "",
+                  avatar: ""
+                }
+              });
+            }}
+          >
+            <View style={[styles.avatar, { backgroundColor: '#e1bee7' }]}>
+              <Ionicons name="people" size={24} color="#8e24aa" />
+            </View>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={{ fontWeight: "600", fontSize: 16 }} numberOfLines={1}>{g.groupName || 'Nhóm'}</Text>
+              <Text style={{ color: "#666", marginTop: 2 }} numberOfLines={1}>
+                {g.lastMessage?.content || 'Chưa có tin nhắn'}
+              </Text>
+            </View>
+            <Text style={{ color: "#999", fontSize: 12 }}>
+              {g.lastMessage?.timestamp 
+                ? new Date(g.lastMessage.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                : ''}
+            </Text>
+          </TouchableOpacity>
+        ))
+      )}
+
+      <CreateGroupModal 
+        visible={showCreateGroupModal} 
+        onClose={() => {
+          setShowCreateGroupModal(false);
+          fetchGroups(); // refresh groups after modal closes
+        }} 
+      />
     </View>
   )
 }

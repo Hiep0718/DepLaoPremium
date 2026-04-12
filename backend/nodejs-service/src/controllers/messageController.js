@@ -69,12 +69,17 @@ export const getMessages = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     let query = { conversationId };
+    let pinnedMessage = null;
 
     if (userId) {
       const conversation = await Conversation.findOne({ conversationId });
-      if (conversation && conversation.deletedAt && conversation.deletedAt.get(userId)) {
-        query.createdAt = { $gt: conversation.deletedAt.get(userId) };
+      if (conversation) {
+        if (conversation.deletedAt && conversation.deletedAt.get(userId)) {
+          query.createdAt = { $gt: conversation.deletedAt.get(userId) };
+        }
+        pinnedMessage = conversation.pinnedMessage;
       }
+      query.deletedBy = { $ne: userId };
     }
 
     const messages = await Message.find(query)
@@ -87,6 +92,7 @@ export const getMessages = async (req, res) => {
     res.status(200).json({
       success: true,
       data: messages.reverse(), // Return in chronological order
+      pinnedMessage,
       pagination: {
         total,
         page: parseInt(page),

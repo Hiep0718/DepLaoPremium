@@ -2,15 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Dimensions, Alert, Modal,
-  ScrollView, Animated as RNAnimated, Keyboard
+  ScrollView, Animated as RNAnimated, Keyboard, Linking
 } from 'react-native';
 import { STICKERS } from '@/constants/stickers';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Location from 'expo-location';
 import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
@@ -35,6 +37,8 @@ interface Message {
   imageUrl?: string;   // ← thêm field ảnh
   messageType?: string; // text | sticker | image | file | ...
   fileUrl?: string;     // URL cho sticker hoặc file đính kèm
+  fileName?: string;    // tên file gốc
+  fileSize?: number;    // kích thước file (bytes)
   isRevoked?: boolean;  // tin nhắn đã bị thu hồi
   createdAt?: string;
   status: MessageStatus;
@@ -106,6 +110,19 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
+  // ─── Group member count ───
+  const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
+  
+  // ─── Pinned Message State ───
+  const [pinnedMessage, setPinnedMessage] = useState<any>(null);
+
+  // ─── Reminder States ───
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderText, setReminderText] = useState('');
+  const [reminderDate, setReminderDate] = useState(new Date(Date.now() + 3600000)); // default +1h
+
+  const insets = useSafeAreaInsets();
+
   // ─── Voice Recording States ───
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -148,7 +165,9 @@ export default function ChatScreen() {
         RNAnimated.timing(moreActionsPanelHeight, { toValue: 0, duration: 150, useNativeDriver: false }).start();
       }
     );
-    return () => showSub.remove();
+    return () => {
+      showSub.remove();
+    };
   }, [stickerPanelHeight, moreActionsPanelHeight]);
 
   // ─── Voice Recording Functions ─────────────────────────────────────────────
@@ -339,14 +358,41 @@ export default function ChatScreen() {
     resolveUserId();
   }, [socketUserId]);
 
-  const isOnline = onlineUsers.includes(recipientId as string);
+  const isGroup = (id as string)?.startsWith('group_');
+  const isOnline = !isGroup && recipientId ? onlineUsers.includes(recipientId as string) : false;
+
+  // ─── Fetch group member count ───
+  useEffect(() => {
+    if (!isGroup || !id) return;
+    const fetchGroupInfo = async () => {
+      try {
+        const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=1`);
+        // The conversation info isn't returned directly from messages endpoint,
+        // so we fetch from conversations list and find ours
+        const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
+        const allConvs = convRes.data?.data || [];
+        const thisConv = allConvs.find((c: any) => c.conversationId === id);
+        if (thisConv?.participants) {
+          setGroupMemberCount(thisConv.participants.length);
+        }
+      } catch (err) {
+        console.log('Error fetching group info:', err);
+      }
+    };
+    if (currentUserId) fetchGroupInfo();
+  }, [isGroup, id, currentUserId]);
 
   // ─── Tải lịch sử ──────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchHistory = async () => {
+      if (!currentUserId) return;
       try {
-        const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50`);
+        const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
         const history: any[] = res.data?.data || [];
+        
+        if (res.data?.pinnedMessage) {
+          setPinnedMessage(res.data.pinnedMessage);
+        }
 
         const mapped: Message[] = history.reverse().map((m: any) => ({
           _id: m._id,
@@ -355,6 +401,8 @@ export default function ChatScreen() {
           content: m.content,
           messageType: m.messageType || 'text',
           fileUrl: m.fileUrl,
+          fileName: m.fileName,
+          fileSize: m.fileSize,
           isRevoked: m.isRevoked || false,
           createdAt: m.createdAt || m.timestamp,
           // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
@@ -382,7 +430,7 @@ export default function ChatScreen() {
       }
     };
     fetchHistory();
-  }, [id]);
+  }, [id, currentUserId]);
 
   // ─── Socket listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -442,6 +490,8 @@ export default function ChatScreen() {
           content: data.text,
           messageType: data.messageType || 'text',
           fileUrl: data.fileUrl,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
           createdAt: data.timestamp || new Date().toISOString(),
           status: 'received',
           replyTo: data.replyTo,
@@ -487,11 +537,35 @@ export default function ChatScreen() {
       }
     };
 
+    // Tin nhắn bị XÓA Ở PHÍA TÔI
+    const handleMessageDeleted = (data: any) => {
+      if (data.messageId) {
+        setMessages(prev => prev.filter(m => String(m._id) !== String(data.messageId)));
+      }
+    };
+
+    // Tin nhắn được GHIM
+    const handleMessagePinned = (data: any) => {
+      if (data.conversationId === id && data.pinnedMessage) {
+        setPinnedMessage(data.pinnedMessage);
+      }
+    };
+
+    // BỎ GHIM tin nhắn
+    const handleMessageUnpinned = (data: any) => {
+      if (data.conversationId === id) {
+        setPinnedMessage(null);
+      }
+    };
+
     socket.on('message_sent', handleMessageSent);
     socket.on('message_received', handleMessageReceived);
     socket.on('message_seen', handleMessageSeen);
     socket.on('user_typing', handleUserTyping);
     socket.on('message_revoked', handleMessageRevoked);
+    socket.on('message_deleted', handleMessageDeleted);
+    socket.on('message_pinned', handleMessagePinned);
+    socket.on('message_unpinned', handleMessageUnpinned);
 
     return () => {
       socket.off('message_sent', handleMessageSent);
@@ -499,6 +573,9 @@ export default function ChatScreen() {
       socket.off('message_seen', handleMessageSeen);
       socket.off('user_typing', handleUserTyping);
       socket.off('message_revoked', handleMessageRevoked);
+      socket.off('message_deleted', handleMessageDeleted);
+      socket.off('message_pinned', handleMessagePinned);
+      socket.off('message_unpinned', handleMessageUnpinned);
     };
   }, [socket, id, currentUserId]);
 
@@ -686,10 +763,43 @@ export default function ChatScreen() {
     }
   }, []);
 
+  // ─── Xóa & Ghim tin nhắn ──────────────────────────────────────────────────────────
+  const handleDeleteMessage = useCallback((msg: Message) => {
+    Alert.alert(
+      'Xóa tin nhắn',
+      'Tin nhắn này sẽ bị xóa ở phía bạn. Những người khác vẫn có thể xem được.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        { 
+          text: 'Xóa phía tôi', 
+          style: 'destructive',
+          onPress: () => {
+            if (socket && currentUserId) {
+              socket.emit('delete_message_for_me', { messageId: msg._id, userId: currentUserId });
+              setMessages(prev => prev.filter(m => String(m._id) !== String(msg._id)));
+            }
+          }
+        }
+      ]
+    );
+  }, [socket, currentUserId]);
+
+  const handleTogglePinMessage = useCallback((msg: Message) => {
+    if (!socket || !currentUserId) return;
+    const isCurrentlyPinned = pinnedMessage?.messageId === msg._id;
+    
+    if (isCurrentlyPinned) {
+      socket.emit('unpin_message', { conversationId: id, userId: currentUserId });
+    } else {
+      socket.emit('pin_message', { messageId: msg._id, conversationId: id, userId: currentUserId });
+    }
+  }, [socket, currentUserId, id, pinnedMessage]);
+
   // ─── Long press menu cho tin nhắn ──────────────────────────────────────────
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.isRevoked) return; // Không cho thao tác trên tin đã thu hồi
     const isMine = String(msg.senderId) === String(currentUserId);
+    const isCurrentlyPinned = pinnedMessage?.messageId === msg._id;
 
     const buttons: any[] = [
       { text: 'Hủy', style: 'cancel' },
@@ -701,6 +811,10 @@ export default function ChatScreen() {
         text: 'Chuyển tiếp',
         onPress: () => setForwardingMessage(msg),
       },
+      {
+        text: isCurrentlyPinned ? 'Bỏ ghim' : 'Ghim tin nhắn',
+        onPress: () => handleTogglePinMessage(msg),
+      },
     ];
 
     if (!msg.messageType || msg.messageType === 'text') {
@@ -709,6 +823,12 @@ export default function ChatScreen() {
         onPress: () => handleTranslate(msg),
       });
     }
+
+    buttons.push({
+      text: 'Xóa phía tôi',
+      style: 'destructive',
+      onPress: () => handleDeleteMessage(msg),
+    });
 
     if (isMine) {
       buttons.push({
@@ -719,7 +839,7 @@ export default function ChatScreen() {
     }
 
     Alert.alert('Tùy chọn tin nhắn', undefined, buttons);
-  }, [currentUserId, handleRevoke, handleTranslate, translatingId]);
+  }, [currentUserId, handleRevoke, handleTranslate, translatingId, handleDeleteMessage, handleTogglePinMessage, pinnedMessage]);
 
   // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
   const [pendingImage, setPendingImage] = useState<string | null>(null);
@@ -792,13 +912,258 @@ export default function ChatScreen() {
     }
   };
 
+  // ─── Chọn & gửi tài liệu ──────────────────────────────────────────
+  const [uploadingFile, setUploadingFile] = useState(false);
+
+  const handlePickDocument = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDir: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      if (!socket || !currentUserId) return;
+
+      setUploadingFile(true);
+      try {
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          name: asset.name || `file_${Date.now()}`,
+          type: asset.mimeType || 'application/octet-stream',
+        } as any);
+
+        const res = await apiClient.post('/upload/chat', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 60000,
+        });
+
+        const uploadData = res.data?.data;
+        if (uploadData?.url) {
+          const tempId = `pending-file-${Date.now()}`;
+          const fileName = uploadData.fileName || asset.name || 'File';
+          const fileSize = uploadData.fileSize || asset.size || 0;
+          const msgType = uploadData.messageType || 'file';
+
+          const tempMsg: Message = {
+            _id: tempId,
+            senderId: currentUserId,
+            recipientId: recipientId as string,
+            content: `[Tệp] ${fileName}`,
+            messageType: msgType,
+            fileUrl: uploadData.url,
+            fileName,
+            fileSize,
+            createdAt: new Date().toISOString(),
+            status: 'pending',
+          };
+          setMessages(prev => [tempMsg, ...prev]);
+
+          socket.emit('send_message', {
+            tempId,
+            conversationId: id,
+            senderId: currentUserId,
+            recipientId,
+            text: `[Tệp] ${fileName}`,
+            messageType: msgType,
+            fileUrl: uploadData.url,
+            fileName,
+            fileSize,
+          });
+        } else {
+          Alert.alert('Lỗi', 'Không thể tải lên tệp.');
+        }
+      } catch (err) {
+        console.log('File upload error:', err);
+        Alert.alert('Lỗi', 'Không thể gửi tệp. Vui lòng thử lại.');
+      } finally {
+        setUploadingFile(false);
+      }
+    } catch (err) {
+      console.log('Document picker error:', err);
+    }
+  }, [socket, currentUserId, id, recipientId]);
+
+  // ─── Tải file xuống ──────────────────────────────────────────────────
+  const handleDownloadFile = useCallback(async (url: string, fileName?: string) => {
+    try {
+      const name = fileName || url.split('/').pop() || `file_${Date.now()}`;
+      const fileUri = FileSystem.documentDirectory + name;
+      const { uri } = await FileSystem.downloadAsync(url, fileUri);
+      Alert.alert('✅ Thành công', `Đã tải "${name}".`, [
+        { text: 'OK' },
+        { text: 'Mở', onPress: () => Linking.openURL(uri).catch(() => {}) },
+      ]);
+    } catch (err) {
+      console.log('File download error:', err);
+      Alert.alert('Lỗi', 'Không thể tải file về.');
+    }
+  }, []);
+
+  // ─── Helper: format file size ──────────────────────────────────────
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  // ─── Helper: get file extension ──────────────────────────────────────
+  const getFileExtension = (url?: string): string => {
+    if (!url) return '';
+    try {
+      const parts = url.split('.');
+      const ext = parts.pop()?.split('?')[0]?.toUpperCase() || '';
+      return ext.length <= 5 ? ext : '';
+    } catch { return ''; }
+  };
+
+  // ─── Gửi vị trí ──────────────────────────────────────────────────────────
+  const handleSendLocation = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Quyền truy cập', 'Vui lòng cấp quyền truy cập vị trí để sử dụng tính năng này.');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const { latitude, longitude } = loc.coords;
+
+      // Reverse geocode to get address
+      let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      try {
+        const [geo] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (geo) {
+          const parts = [geo.name, geo.street, geo.district, geo.city, geo.region].filter(Boolean);
+          if (parts.length > 0) address = parts.join(', ');
+        }
+      } catch { /* keep coordinate fallback */ }
+
+      if (!socket || !currentUserId) return;
+
+      const tempId = `pending-loc-${Date.now()}`;
+      const content = JSON.stringify({ latitude, longitude, address });
+
+      const tempMsg: Message = {
+        _id: tempId,
+        senderId: currentUserId,
+        recipientId: recipientId as string,
+        content,
+        messageType: 'location',
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+      };
+      setMessages(prev => [tempMsg, ...prev]);
+
+      socket.emit('send_message', {
+        tempId,
+        conversationId: id,
+        senderId: currentUserId,
+        recipientId,
+        text: content,
+        messageType: 'location',
+      });
+    } catch (err) {
+      console.log('Location error:', err);
+      Alert.alert('Lỗi', 'Không thể lấy vị trí hiện tại.');
+    }
+  }, [socket, currentUserId, id, recipientId]);
+
+  // ─── Helper: parse location from content ──────────────────────────────
+  const parseLocation = (content?: string): { latitude: number; longitude: number; address: string } | null => {
+    if (!content) return null;
+    try {
+      const data = JSON.parse(content);
+      if (data.latitude && data.longitude) return data;
+    } catch { /* not JSON */ }
+    // Fallback: try "lat, lng" format
+    const match = content.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+    if (match) return { latitude: parseFloat(match[1]), longitude: parseFloat(match[2]), address: content };
+    return null;
+  };
+
+  const openLocationInMaps = (lat: number, lng: number) => {
+    const url = Platform.select({
+      ios: `maps:0,0?q=${lat},${lng}`,
+      android: `geo:${lat},${lng}?q=${lat},${lng}`,
+    }) || `https://www.google.com/maps?q=${lat},${lng}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
+    });
+  };
+
+  // ─── Gửi nhắc hẹn ──────────────────────────────────────────────────────
+  const handleSendReminder = useCallback(() => {
+    if (!socket || !currentUserId) return;
+    if (!reminderText.trim()) {
+      Alert.alert('Thông báo', 'Vui lòng nhập nội dung nhắc hẹn.');
+      return;
+    }
+
+    const tempId = `pending-reminder-${Date.now()}`;
+    const content = JSON.stringify({
+      text: reminderText.trim(),
+      reminderTime: reminderDate.toISOString(),
+    });
+
+    const tempMsg: Message = {
+      _id: tempId,
+      senderId: currentUserId,
+      recipientId: recipientId as string,
+      content,
+      messageType: 'reminder',
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    };
+    setMessages(prev => [tempMsg, ...prev]);
+
+    socket.emit('send_message', {
+      tempId,
+      conversationId: id,
+      senderId: currentUserId,
+      recipientId,
+      text: content,
+      messageType: 'reminder',
+    });
+
+    setShowReminderModal(false);
+    setReminderText('');
+    setReminderDate(new Date(Date.now() + 3600000));
+  }, [socket, currentUserId, id, recipientId, reminderText, reminderDate]);
+
+  // ─── Helper: parse reminder from content ──────────────────────────────
+  const parseReminder = (content?: string): { text: string; reminderTime: string } | null => {
+    if (!content) return null;
+    try {
+      const data = JSON.parse(content);
+      if (data.text && data.reminderTime) return data;
+    } catch { /* not JSON */ }
+    return null;
+  };
+
+  // ─── Helper: format reminder date ──────────────────────────────────────
+  const formatReminderTime = (isoString: string): string => {
+    const d = new Date(isoString);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())} - ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  };
+
   // ─── Render mỗi tin nhắn ──────────────────────────────────────────
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = String(item.senderId) === String(currentUserId);
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
     const isSticker = !item.isRevoked && item.messageType === 'sticker' && item.fileUrl;
     const isAudio = !item.isRevoked && item.messageType === 'audio' && item.fileUrl;
-    const isImage = !item.isRevoked && !isSticker && !isAudio && (
+    const isFile = !item.isRevoked && item.messageType === 'file' && item.fileUrl;
+    const isLocation = !item.isRevoked && item.messageType === 'location';
+    const isReminder = !item.isRevoked && item.messageType === 'reminder';
+    const isImage = !item.isRevoked && !isSticker && !isAudio && !isFile && !isLocation && !isReminder && (
       item.messageType === 'image' ||
       item.imageUrl ||
       (item.content && item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content))
@@ -900,6 +1265,109 @@ export default function ChatScreen() {
                   >
                     <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
                   </TouchableOpacity>
+                ) : isFile ? (
+                  /* ────── File/Document Message ────── */
+                  (() => {
+                    // Extract display name from multiple sources
+                    const displayName = item.fileName
+                      || (item.content?.startsWith('[Tệp]') ? item.content.replace('[Tệp] ', '').replace('[Tệp]', '') : null)
+                      || (item.fileUrl ? decodeURIComponent(item.fileUrl.split('/').pop()?.split('?')[0] || '') : null)
+                      || 'Tệp đính kèm';
+                    const ext = getFileExtension(item.fileUrl);
+                    const sizeText = item.fileSize ? formatFileSize(item.fileSize) : '';
+                    const metaText = [ext, sizeText].filter(Boolean).join(' • ');
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => handleDownloadFile(item.fileUrl!, item.fileName)}
+                        onLongPress={() => handleMessageLongPress(item)}
+                      >
+                        <View style={[styles.fileBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                          <View style={styles.fileIconWrap}>
+                            <Ionicons name="document-text" size={24} color={ZaloColors.blue} />
+                          </View>
+                          <View style={styles.fileInfoWrap}>
+                            <Text style={styles.fileName} numberOfLines={2}>
+                              {displayName}
+                            </Text>
+                            {metaText ? (
+                              <Text style={styles.fileMeta}>{metaText}</Text>
+                            ) : null}
+                          </View>
+                          <Ionicons name="download-outline" size={22} color={ZaloColors.blue} />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })()
+                ) : isLocation ? (
+                  /* ────── Location Message ────── */
+                  (() => {
+                    const locData = parseLocation(item.content);
+                    if (!locData) return null;
+                    const mapImg = `https://maps.googleapis.com/maps/api/staticmap?center=${locData.latitude},${locData.longitude}&zoom=15&size=300x200&markers=color:red|${locData.latitude},${locData.longitude}&key=`;
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => openLocationInMaps(locData.latitude, locData.longitude)}
+                        onLongPress={() => handleMessageLongPress(item)}
+                      >
+                        <View style={[styles.locationBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                          <View style={styles.locationMapPreview}>
+                            <Ionicons name="map" size={40} color={ZaloColors.blue} />
+                          </View>
+                          <View style={styles.locationInfoWrap}>
+                            <View style={styles.locationHeader}>
+                              <Ionicons name="location-sharp" size={16} color="#FF4757" />
+                              <Text style={styles.locationTitle}>Vị trí của tôi</Text>
+                            </View>
+                            <Text style={styles.locationAddress} numberOfLines={2}>
+                              {locData.address}
+                            </Text>
+                            <Text style={styles.locationCoords}>
+                              {locData.latitude.toFixed(6)}, {locData.longitude.toFixed(6)}
+                            </Text>
+                            <View style={styles.locationOpenBtn}>
+                              <Ionicons name="navigate" size={14} color={ZaloColors.blue} />
+                              <Text style={styles.locationOpenText}>Mở bản đồ</Text>
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })()
+                ) : isReminder ? (
+                  /* ────── Reminder Message ────── */
+                  (() => {
+                    const remData = parseReminder(item.content);
+                    if (!remData) return null;
+                    const isPast = new Date(remData.reminderTime) < new Date();
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onLongPress={() => handleMessageLongPress(item)}
+                      >
+                        <View style={[styles.reminderBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                          <View style={[styles.reminderIconWrap, isPast && { backgroundColor: 'rgba(153,153,153,0.15)' }]}>
+                            <Ionicons name={isPast ? 'checkmark-circle' : 'alarm'} size={24} color={isPast ? '#999' : '#FF6348'} />
+                          </View>
+                          <View style={styles.reminderInfoWrap}>
+                            <View style={styles.reminderHeader}>
+                              <Text style={styles.reminderLabel}>{isPast ? 'Đã nhắc hẹn' : '⏰ Nhắc hẹn'}</Text>
+                            </View>
+                            <Text style={styles.reminderText} numberOfLines={3}>
+                              {remData.text}
+                            </Text>
+                            <View style={styles.reminderTimeRow}>
+                              <Ionicons name="time-outline" size={13} color="#888" />
+                              <Text style={styles.reminderTimeText}>
+                                {formatReminderTime(remData.reminderTime)}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })()
                 ) : (
                   <TouchableOpacity
                     activeOpacity={0.8}
@@ -964,6 +1432,8 @@ export default function ChatScreen() {
           <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
           {isOtherTyping ? (
             <Text style={styles.headerStatus}>Đang gõ...</Text>
+          ) : isGroup && groupMemberCount > 0 ? (
+            <Text style={styles.headerStatus}>{groupMemberCount} thành viên</Text>
           ) : isOnline ? (
             <Text style={styles.headerStatus}>Vừa mới truy cập</Text>
           ) : null}
@@ -981,10 +1451,35 @@ export default function ChatScreen() {
         </View>
       </View>
 
+      {/* Pinned Message Banner */}
+      {pinnedMessage && (
+        <View style={styles.pinnedBanner}>
+          <Ionicons name="pricetag" size={16} color={ZaloColors.blue} style={{ marginRight: 8 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pinnedBannerTitle}>Tin nhắn đã ghim</Text>
+            <Text style={styles.pinnedBannerContent} numberOfLines={1}>
+              {pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+               pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
+               pinnedMessage.content}
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.unpinBtn}
+            onPress={() => {
+              if (socket && currentUserId) {
+                socket.emit('unpin_message', { conversationId: id, userId: currentUserId });
+              }
+            }}
+          >
+            <Text style={styles.unpinBtnText}>Bỏ ghim</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Chat area */}
       <KeyboardAvoidingView
         style={styles.chatArea}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {isLoading ? (
@@ -1137,21 +1632,21 @@ export default function ChatScreen() {
                 showsVerticalScrollIndicator={false}
               >
                 {/* Row 1 */}
-                <TouchableOpacity style={styles.moreActionItem}>
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); handleSendLocation(); }}>
                   <View style={[styles.moreActionIcon, { backgroundColor: '#FF4757' }]}>
                     <Ionicons name="location" size={26} color="#fff" />
                   </View>
                   <Text style={styles.moreActionLabel}>Vị trí</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); /* TODO: document picker */ }}>
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); handlePickDocument(); }}>
                   <View style={[styles.moreActionIcon, { backgroundColor: '#3742fa' }]}>
                     <Ionicons name="document-text" size={26} color="#fff" />
                   </View>
                   <Text style={styles.moreActionLabel}>Tài liệu</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.moreActionItem}>
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); setShowReminderModal(true); }}>
                   <View style={[styles.moreActionIcon, { backgroundColor: '#FF6348' }]}>
                     <Ionicons name="alarm" size={26} color="#fff" />
                   </View>
@@ -1222,6 +1717,8 @@ export default function ChatScreen() {
         </RNAnimated.View>
       </KeyboardAvoidingView>
 
+      <View style={{ height: insets.bottom, backgroundColor: isRecording ? '#FFF0F0' : '#fff' }} />
+
       {/* Modal preview ảnh trước khi gửi */}
       <Modal visible={!!pendingImage} transparent animationType="fade">
         <View style={styles.previewOverlay}>
@@ -1285,6 +1782,67 @@ export default function ChatScreen() {
               resizeMode="contain"
             />
           )}
+        </View>
+      </Modal>
+
+      {/* ────── Reminder Modal ────── */}
+      <Modal visible={showReminderModal} transparent animationType="slide">
+        <View style={styles.reminderModalOverlay}>
+          <View style={styles.reminderModalBox}>
+            <View style={styles.reminderModalHeader}>
+              <Text style={styles.reminderModalTitle}>⏰ Tạo nhắc hẹn</Text>
+              <TouchableOpacity onPress={() => setShowReminderModal(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.reminderModalLabel}>Nội dung nhắc hẹn</Text>
+            <TextInput
+              style={styles.reminderModalInput}
+              placeholder="Nhập nội dung nhắc hẹn..."
+              placeholderTextColor="#999"
+              value={reminderText}
+              onChangeText={setReminderText}
+              multiline
+              maxLength={200}
+            />
+
+            <Text style={styles.reminderModalLabel}>Thời gian</Text>
+            <View style={styles.reminderTimePickerRow}>
+              {[
+                { label: '30 phút', mins: 30 },
+                { label: '1 giờ', mins: 60 },
+                { label: '3 giờ', mins: 180 },
+                { label: 'Ngày mai', mins: 1440 },
+              ].map((opt) => {
+                const optDate = new Date(Date.now() + opt.mins * 60000);
+                const isSelected = Math.abs(reminderDate.getTime() - optDate.getTime()) < 60000;
+                return (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[styles.reminderTimeChip, isSelected && styles.reminderTimeChipActive]}
+                    onPress={() => setReminderDate(new Date(Date.now() + opt.mins * 60000))}
+                  >
+                    <Text style={[styles.reminderTimeChipText, isSelected && styles.reminderTimeChipTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.reminderPreviewTimeRow}>
+              <Ionicons name="calendar-outline" size={16} color="#FF6348" />
+              <Text style={styles.reminderPreviewTimeText}>
+                {formatReminderTime(reminderDate.toISOString())}
+              </Text>
+            </View>
+
+            <TouchableOpacity style={styles.reminderSendBtn} onPress={handleSendReminder}>
+              <Ionicons name="send" size={18} color="#fff" />
+              <Text style={styles.reminderSendBtnText}>Gửi nhắc hẹn</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -1361,7 +1919,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
 
-  // ─── Recording Bar ───
   recordingBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1558,6 +2115,244 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
+  // ─── File/Document Bubble ───
+  fileBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: SCREEN_WIDTH * 0.75,
+    minWidth: SCREEN_WIDTH * 0.55,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 16,
+    gap: 10,
+  },
+  fileIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,104,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fileInfoWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    lineHeight: 19,
+  },
+  fileMeta: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 3,
+  },
+
+  // ─── Location Bubble ───
+  locationBubble: {
+    maxWidth: SCREEN_WIDTH * 0.75,
+    minWidth: SCREEN_WIDTH * 0.6,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  locationMapPreview: {
+    width: '100%',
+    height: 100,
+    backgroundColor: '#e8f4fd',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  locationInfoWrap: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  locationTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+  },
+  locationAddress: {
+    fontSize: 13,
+    color: '#444',
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  locationCoords: {
+    fontSize: 11,
+    color: '#999',
+    marginBottom: 6,
+  },
+  locationOpenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  locationOpenText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: ZaloColors.blue,
+  },
+
+  // ─── Reminder Bubble ───
+  reminderBubble: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    maxWidth: SCREEN_WIDTH * 0.75,
+    minWidth: SCREEN_WIDTH * 0.6,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 16,
+    gap: 10,
+  },
+  reminderIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,99,72,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reminderInfoWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reminderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  reminderLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FF6348',
+  },
+  reminderText: {
+    fontSize: 14,
+    color: '#222',
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  reminderTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reminderTimeText: {
+    fontSize: 12,
+    color: '#888',
+  },
+
+  // ─── Reminder Modal ───
+  reminderModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  reminderModalBox: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 36,
+  },
+  reminderModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  reminderModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#222',
+  },
+  reminderModalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#444',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  reminderModalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#222',
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+    backgroundColor: '#fafafa',
+  },
+  reminderTimePickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  reminderTimeChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  reminderTimeChipActive: {
+    backgroundColor: 'rgba(255,99,72,0.1)',
+    borderColor: '#FF6348',
+  },
+  reminderTimeChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+  },
+  reminderTimeChipTextActive: {
+    color: '#FF6348',
+    fontWeight: '600',
+  },
+  reminderPreviewTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFF5F2',
+    borderRadius: 10,
+  },
+  reminderPreviewTimeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FF6348',
+  },
+  reminderSendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FF6348',
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  reminderSendBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
   // ─── Sticker trong tin nhắn ───
   stickerImage: {
     width: 120,
@@ -1703,5 +2498,44 @@ const styles = StyleSheet.create({
   lightboxImage: {
     width: SCREEN_WIDTH,
     height: SCREEN_WIDTH,
+  },
+
+  // ─── Pinned Message Banner ───
+  pinnedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 10,
+  },
+  pinnedBannerTitle: {
+    fontSize: 12,
+    color: ZaloColors.blue,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  pinnedBannerContent: {
+    fontSize: 14,
+    color: '#333',
+  },
+  unpinBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 16,
+    marginLeft: 8,
+  },
+  unpinBtnText: {
+    fontSize: 12,
+    color: '#555',
+    fontWeight: '500',
   },
 });
