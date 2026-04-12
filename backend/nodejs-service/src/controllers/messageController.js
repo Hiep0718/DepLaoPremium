@@ -157,7 +157,7 @@ export const getConversations = async (req, res) => {
 
 export const createConversation = async (req, res) => {
   try {
-    const { conversationId, participants, isGroup = false, groupName = null } = req.body;
+    const { conversationId, participants, isGroup = false, groupName = null, creatorId = null } = req.body;
 
     if (!conversationId || !participants || participants.length === 0) {
       return res.status(400).json({
@@ -176,9 +176,16 @@ export const createConversation = async (req, res) => {
       });
     }
 
+    // Gán role cho từng participant
+    const creator = creatorId || participants[0];
+    const participantDocs = participants.map((userId) => ({
+      userId,
+      role: isGroup ? (userId === creator ? 'leader' : 'member') : 'member',
+    }));
+
     const conversation = new Conversation({
       conversationId,
-      participants: participants.map((userId) => ({ userId })),
+      participants: participantDocs,
       isGroup,
       groupName: isGroup ? groupName : null,
     });
@@ -344,6 +351,216 @@ export const deleteConversationHistory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete conversation history',
+      error: error.message,
+    });
+  }
+};
+
+// API cập nhật role thành viên nhóm
+export const updateMemberRole = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, targetUserId, newRole } = req.body;
+
+    if (!conversationId || !requesterId || !targetUserId || !newRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: requesterId, targetUserId, newRole',
+      });
+    }
+
+    if (!['leader', 'deputy', 'member'].includes(newRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be: leader, deputy, or member',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Conversation not found',
+      });
+    }
+
+    if (!conversation.isGroup) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change roles in a non-group conversation',
+      });
+    }
+
+    // Tìm requester trong nhóm
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || requester.role !== 'leader') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the group leader can change member roles',
+      });
+    }
+
+    // Tìm target trong nhóm
+    const target = conversation.participants.find(p => p.userId === targetUserId);
+    if (!target) {
+      return res.status(404).json({
+        success: false,
+        message: 'Target user not found in this group',
+      });
+    }
+
+    // Nếu trao quyền leader → requester tự thành member
+    if (newRole === 'leader') {
+      requester.role = 'member';
+      target.role = 'leader';
+    } else {
+      // Set deputy hoặc member
+      target.role = newRole;
+    }
+
+    await conversation.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Role updated: ${targetUserId} is now ${newRole}`,
+      data: conversation,
+    });
+  } catch (error) {
+    console.error('Update member role error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update member role',
+      error: error.message,
+    });
+  }
+};
+
+// API xóa thành viên khỏi nhóm
+export const removeMemberFromGroup = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, targetUserId } = req.body;
+
+    if (!conversationId || !requesterId || !targetUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: requesterId, targetUserId',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group conversation not found',
+      });
+    }
+
+    // Tìm requester
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester) {
+       return res.status(403).json({ success: false, message: 'Requester not in group' });
+    }
+
+    // Tìm target
+    const target = conversation.participants.find(p => p.userId === targetUserId);
+    if (!target) {
+       return res.status(404).json({ success: false, message: 'Target user not found in group' });
+    }
+
+    // Cho phép tự rời nhóm, hoặc kiểm tra quyền nếu xoá người khác
+    if (requesterId === targetUserId) {
+      if (requester.role === 'leader' && conversation.participants.length > 1) {
+        return res.status(400).json({ success: false, message: 'Vui lòng trao quyền trưởng nhóm cho người khác trước khi rời nhóm' });
+      }
+    } else {
+      if (requester.role === 'member') {
+        return res.status(403).json({ success: false, message: 'Members cannot remove others' });
+      }
+
+      if (requester.role === 'deputy' && target.role !== 'member') {
+        return res.status(403).json({ success: false, message: 'Deputies can only remove members' });
+      }
+    }
+
+    // Xoá
+    conversation.participants = conversation.participants.filter(p => p.userId !== targetUserId);
+    await conversation.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Member removed successfully',
+      data: conversation,
+    });
+  } catch (error) {
+    console.error('Remove member error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove member',
+      error: error.message,
+    });
+  }
+};
+
+// API thêm thành viên mới vào nhóm
+export const addMembersToGroup = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, targetUserIds } = req.body;
+
+    if (!conversationId || !requesterId || !targetUserIds || !Array.isArray(targetUserIds)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: requesterId, targetUserIds (array)',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group conversation not found',
+      });
+    }
+
+    // Tìm requester
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester) {
+       return res.status(403).json({ success: false, message: 'Requester not in group' });
+    }
+
+    // Mọi thành viên đều có thể thêm người mới vào nhóm
+    const currentMemberIds = new Set(conversation.participants.map(p => p.userId));
+    let addedCount = 0;
+
+    for (const userId of targetUserIds) {
+      if (!currentMemberIds.has(String(userId))) {
+        conversation.participants.push({
+          userId: String(userId),
+          role: 'member'
+        });
+        currentMemberIds.add(String(userId));
+        addedCount++;
+      }
+    }
+
+    if (addedCount > 0) {
+      await conversation.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Added ${addedCount} members successfully`,
+      data: conversation,
+    });
+  } catch (error) {
+    console.error('Add members error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add members',
       error: error.message,
     });
   }

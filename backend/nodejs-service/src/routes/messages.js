@@ -8,6 +8,9 @@ import {
   searchMessages,
   markConversationAsRead,
   deleteConversationHistory,
+  updateMemberRole,
+  removeMemberFromGroup,
+  addMembersToGroup,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -26,6 +29,9 @@ router.put('/status/:messageId', updateMessageStatus);
 router.post('/conversation', createConversation);
 router.get('/conversations/:userId', getConversations);
 router.put('/conversations/:conversationId/read', markConversationAsRead);
+router.put('/conversations/:conversationId/role', updateMemberRole);
+router.post('/conversations/:conversationId/members', addMembersToGroup);
+router.delete('/conversations/:conversationId/members', removeMemberFromGroup);
 router.delete('/conversations/:conversationId/history', deleteConversationHistory);
 
 export default router;

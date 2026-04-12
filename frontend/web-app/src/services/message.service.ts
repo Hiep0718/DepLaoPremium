@@ -28,9 +28,7 @@ export const getConversationHistory = async (conversationId: string, userId: str
   return messagingApi.get(`/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`);
 };
 
-export const createConversation = async (participants: string[], isGroup = false) => {
-  // Generate a deterministic or random conversation UUID
-  // Or simply let backend use it, but since backend requires it we construct one.
+export const createConversation = async (participants: string[], isGroup = false, groupName?: string, creatorId?: string) => {
   const conversationId = isGroup 
     ? `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
     : `1on1_${participants.sort().join('_')}`;
@@ -39,6 +37,8 @@ export const createConversation = async (participants: string[], isGroup = false
     conversationId,
     participants,
     isGroup,
+    ...(groupName ? { groupName } : {}),
+    ...(creatorId ? { creatorId } : {}),
   });
 };
 
@@ -49,5 +49,42 @@ export const markConversationAsRead = async (conversationId: string, userId: str
 export const deleteConversationHistory = async (conversationId: string, userId: string) => {
   return messagingApi.delete(`/conversations/${conversationId}/history`, {
     data: { userId }
+  });
+};
+
+export const updateMemberRole = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserId: string,
+  newRole: 'leader' | 'deputy' | 'member'
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/role`, {
+    requesterId,
+    targetUserId,
+    newRole,
+  });
+};
+
+export const removeMemberFromGroup = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserId: string
+) => {
+  return messagingApi.delete(`/conversations/${conversationId}/members`, {
+    data: {
+      requesterId,
+      targetUserId,
+    },
+  });
+};
+
+export const addMembersToGroup = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/members`, {
+    requesterId,
+    targetUserIds,
   });
 };

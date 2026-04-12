@@ -11,6 +11,11 @@ const conversationSchema = new mongoose.Schema(
     participants: [
       {
         userId: String,
+        role: {
+          type: String,
+          enum: ['leader', 'deputy', 'member'],
+          default: 'member',
+        },
         joinedAt: {
           type: Date,
           default: Date.now,
