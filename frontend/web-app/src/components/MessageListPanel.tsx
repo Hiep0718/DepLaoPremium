@@ -6,6 +6,7 @@ import { useChatStore, type Conversation } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/axios';
 import SearchUserModal from './SearchUserModal';
+import CreateGroupModal from './CreateGroupModal';
 
 const userNameCache: Record<string, { fullName: string; avatarUrl?: string }> = {};
 
@@ -18,6 +19,7 @@ const MessageListPanel = () => {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [searchText, setSearchText] = useState('');
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
 
   // Build userId→name map
   useEffect(() => {
@@ -68,7 +70,7 @@ const MessageListPanel = () => {
   }, [user, setConversations]);
 
   const getOtherParticipant = (conv: Conversation) => {
-    if (conv.isGroup) return { name: 'Nhóm', avatar: undefined };
+    if (conv.isGroup) return { name: conv.groupName || 'Nhóm chưa đặt tên', avatar: undefined };
     for (const p of conv.participants) {
       const pid = String((p as any).userId || (p as any).id || p);
       if (pid !== String(user?.id)) {
@@ -106,8 +108,12 @@ const MessageListPanel = () => {
   const filteredConversations = conversations.filter(conv => {
     if (filter === 'unread' && (!conv.unreadCount || conv.unreadCount === 0)) return false;
     if (searchText) {
+      const lowerSearch = searchText.toLowerCase();
+      if (conv.isGroup && conv.groupName) {
+        return conv.groupName.toLowerCase().includes(lowerSearch);
+      }
       const { name } = getOtherParticipant(conv);
-      return name.toLowerCase().includes(searchText.toLowerCase());
+      return name.toLowerCase().includes(lowerSearch);
     }
     return true;
   });
@@ -140,6 +146,7 @@ const MessageListPanel = () => {
           <UserPlus size={20} />
         </button>
         <button
+          onClick={() => setIsCreateGroupModalOpen(true)}
           className="p-2 rounded-lg transition-colors"
           style={{ color: 'var(--text-secondary)' }}
           onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
@@ -292,6 +299,31 @@ const MessageListPanel = () => {
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
         onUserAdded={() => contactService.getContacts(0, 50).then(res => setContacts(res.content)).catch(console.error)}
+      />
+
+      <CreateGroupModal
+        isOpen={isCreateGroupModalOpen}
+        onClose={() => setIsCreateGroupModalOpen(false)}
+        onGroupCreated={(newConvId) => {
+          if (user?.id) {
+            getConversationsList(user.id.toString())
+              .then(res => {
+                const list = res.data?.data || res.data;
+                if (Array.isArray(list)) {
+                  setConversations(list);
+                  // Tự động active nhóm vừa tạo
+                  if (newConvId) {
+                    const found = list.find((c: any) => c.conversationId === newConvId);
+                    if (found) {
+                      setActiveConversation(found);
+                      useChatStore.getState().setActiveContactInfo({ name: found.groupName || 'Nhóm' });
+                    }
+                  }
+                }
+              })
+              .catch(console.error);
+          }
+        }}
       />
     </div>
   );

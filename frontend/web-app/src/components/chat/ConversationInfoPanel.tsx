@@ -1,12 +1,121 @@
-import { useState, useMemo } from 'react';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { useAuthStore } from '../../stores/authStore';
+import api from '../../services/axios';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup } from '../../services/message.service';
+import AddMemberModal from './AddMemberModal';
 
 const ConversationInfoPanel = () => {
-  const { activeConversation, activeContactInfo, toggleInfoPanel, messages } = useChatStore();
+  const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations } = useChatStore();
+  const { user } = useAuthStore();
   const [expandedMedia, setExpandedMedia] = useState(true);
   const [expandedFiles, setExpandedFiles] = useState(true);
   const [expandedLinks, setExpandedLinks] = useState(true);
+  const [expandedMembers, setExpandedMembers] = useState(false);
+  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+  const [menuOpenUid, setMenuOpenUid] = useState<string | null>(null);
+  const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Đóng menu khi click ngoài
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpenUid(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Xác định user hiện tại có phải leader không
+  const myRole = useMemo(() => {
+    if (!activeConversation?.isGroup || !user?.id) return 'member';
+    const me = activeConversation.participants?.find(
+      (p: any) => String(p.userId || p.id || p) === String(user.id)
+    );
+    return (me as any)?.role || 'member';
+  }, [activeConversation, user?.id]);
+
+  const handleRoleChange = async (targetUserId: string, newRole: 'leader' | 'deputy' | 'member') => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+
+    const roleLabels: Record<string, string> = { leader: 'Trưởng nhóm', deputy: 'Phó nhóm', member: 'Thành viên' };
+    const confirmMsg = newRole === 'leader'
+      ? `Bạn có chắc muốn trao quyền Trưởng nhóm? Bạn sẽ trở thành Thành viên.`
+      : `Đổi vai trò thành ${roleLabels[newRole]}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      await updateMemberRole(
+        activeConversation.conversationId,
+        String(user.id),
+        targetUserId,
+        newRole
+      );
+
+      // Reload conversation data từ backend
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể thay đổi vai trò');
+    } finally {
+      setMenuOpenUid(null);
+    }
+  };
+
+  const handleRemoveMember = async (targetUserId: string) => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    if (!window.confirm('Bạn có chắc chắn muốn xóa thành viên này khỏi nhóm?')) return;
+
+    try {
+      await removeMemberFromGroup(
+        activeConversation.conversationId,
+        String(user.id),
+        targetUserId
+      );
+
+      // Reload conversation data từ backend
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể xóa thành viên');
+    } finally {
+      setMenuOpenUid(null);
+    }
+  };
+
+  // Fetch thông tin các thành viên nhóm
+  useEffect(() => {
+    if (!activeConversation?.isGroup || !activeConversation.participants?.length) return;
+    const fetchMembers = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+      for (const p of activeConversation.participants) {
+        const uid = String((p as any).userId || (p as any).id || p);
+        if (!uid) continue;
+        try {
+          const res = await api.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName, avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+      setMemberMap(map);
+    };
+    fetchMembers();
+  }, [activeConversation?.conversationId, activeConversation?.isGroup, activeConversation?.participants?.length]);
 
   const mediaMessages = useMemo(() => {
     return messages.filter(m => !m.isRevoked && (m.messageType === 'image' || m.messageType === 'video') && m.fileUrl);
@@ -29,6 +138,47 @@ const ConversationInfoPanel = () => {
        return { ...m, extractedLinks: links };
     });
   }, [messages]);
+
+  const handleAddMembersConfirm = async (userIds: string[]) => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    try {
+      await addMembersToGroup(activeConversation.conversationId, String(user.id), userIds);
+      
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể thêm thành viên. Vui lòng thử lại.');
+    }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    if (!window.confirm("Bạn có chắc chắn muốn rời khỏi nhóm này không?")) return;
+
+    try {
+      await removeMemberFromGroup(
+        activeConversation.conversationId, 
+        String(user.id), 
+        String(user.id)
+      );
+
+      // Cập nhật sau khi rời nhóm
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        setActiveConversation(null); // Đóng nhóm hiện tại
+        toggleInfoPanel(); // Đóng panel
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Lỗi khi rời nhóm.');
+    }
+  };
 
   if (!activeConversation) return null;
 
@@ -87,12 +237,17 @@ const ConversationInfoPanel = () => {
         {/* Quick Actions */}
         <div className="flex justify-center gap-6 py-4 px-4"
           style={{ borderBottom: '6px solid var(--border-light)' }}>
-          {[
+          {(activeConversation.isGroup ? [
+            { icon: Bell, label: 'Tắt thông\nbáo' },
+            { icon: Pin, label: 'Ghim hội\nthoại' },
+            { icon: UserPlus, label: 'Thêm thành\nviên', action: () => setIsAddMemberOpen(true) },
+            { icon: Settings, label: 'Quản lý\nnhóm' },
+          ] : [
             { icon: Bell, label: 'Tắt thông\nbáo' },
             { icon: Pin, label: 'Ghim hội\nthoại' },
             { icon: UserPlus, label: 'Tạo nhóm\ntrò chuyện' },
-          ].map(({ icon: Icon, label }, i) => (
-            <button key={i} className="flex flex-col items-center gap-1.5 group cursor-pointer">
+          ]).map(({ icon: Icon, label, action }, i) => (
+            <button key={i} className="flex flex-col items-center gap-1.5 group cursor-pointer" onClick={action}>
               <div className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
                 style={{ background: 'var(--bg-hover)' }}>
                 <Icon size={18} style={{ color: 'var(--text-secondary)' }} />
@@ -103,20 +258,183 @@ const ConversationInfoPanel = () => {
           ))}
         </div>
 
-        {/* Info Items */}
+        {/* Info Items / Thành viên nhóm */}
         <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-            <Clock size={18} style={{ color: 'var(--text-secondary)' }} />
-            <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Danh sách nhắc hẹn</span>
-          </button>
-          <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-            <Users size={18} style={{ color: 'var(--text-secondary)' }} />
-            <span className="text-sm" style={{ color: 'var(--text-primary)' }}>1 nhóm chung</span>
-          </button>
+          {activeConversation.isGroup ? (
+            <>
+              <button
+                className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                onClick={() => setExpandedMembers(!expandedMembers)}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <div className="flex items-center gap-3">
+                  <Users size={18} style={{ color: 'var(--text-secondary)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Thành viên nhóm ({activeConversation.participants?.length || 0})
+                  </span>
+                </div>
+                <ChevronDown size={16} style={{
+                  color: 'var(--text-secondary)',
+                  transform: expandedMembers ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s'
+                }} />
+              </button>
+              {expandedMembers && (
+                <div className="px-2 pb-2" ref={menuRef}>
+                  {[...(activeConversation.participants || [])]
+                    .sort((a: any, b: any) => {
+                      const order: Record<string, number> = { leader: 0, deputy: 1, member: 2 };
+                      return (order[a.role] ?? 2) - (order[b.role] ?? 2);
+                    })
+                    .map((p: any, idx: number) => {
+                    const uid = String(p.userId || p.id || p);
+                    const info = memberMap[uid];
+                    const isMe = uid === String(user?.id);
+                    const name = isMe ? 'Bạn' : (info?.fullName || `Thành viên ${idx + 1}`);
+                    const avatar = info?.avatarUrl;
+                    const role = p.role || 'member';
+
+                    const roleBadge: Record<string, { label: string; bg: string; color: string }> = {
+                      leader: { label: 'Trưởng nhóm', bg: 'rgba(0,104,255,0.1)', color: '#0068FF' },
+                      deputy: { label: 'Phó nhóm', bg: 'rgba(16,185,129,0.1)', color: '#10b981' },
+                    };
+
+                    // Xây dựng menu items cho quyền quản lý
+                    const menuItems: { label: string; icon: any; action: () => void; color?: string }[] = [];
+                    
+                    if (myRole === 'leader' && !isMe) {
+                      menuItems.push({
+                        label: 'Chuyển quyền trưởng nhóm',
+                        icon: Crown,
+                        action: () => handleRoleChange(uid, 'leader'),
+                        color: '#f59e0b',
+                      });
+                      if (role !== 'deputy') {
+                        menuItems.push({
+                          label: 'Bổ nhiệm phó nhóm',
+                          icon: UserCheck,
+                          action: () => handleRoleChange(uid, 'deputy'),
+                          color: '#10b981',
+                        });
+                      }
+                      if (role === 'deputy') {
+                        menuItems.push({
+                          label: 'Gỡ phó nhóm',
+                          icon: UserMinus,
+                          action: () => handleRoleChange(uid, 'member'),
+                          color: '#ef4444',
+                        });
+                      }
+                    }
+
+                    // Quyền xóa thành viên: leader xóa auth, deputy xóa member
+                    if (!isMe && (myRole === 'leader' || (myRole === 'deputy' && role === 'member'))) {
+                      menuItems.push({
+                        label: 'Xóa khỏi nhóm', // <--- MỚI THÊM
+                        icon: Trash2,
+                        action: () => handleRemoveMember(uid),
+                        color: '#ef4444',
+                      });
+                    }
+
+                    return (
+                      <div
+                        key={uid}
+                        className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors relative"
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        {/* Avatar */}
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                          style={{ background: avatar ? 'transparent' : (isMe ? '#10b981' : '#0068FF') }}
+                        >
+                          {avatar ? (
+                            <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                          ) : (
+                            name.charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        {/* Name + role */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                            {name}
+                          </p>
+                          {roleBadge[role] && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+                              style={{ background: roleBadge[role].bg, color: roleBadge[role].color }}>
+                              {roleBadge[role].label}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 3-dot menu */}
+                        {menuItems.length > 0 && (
+                          <div className="relative">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMenuOpenUid(menuOpenUid === uid ? null : uid);
+                              }}
+                              className="p-1 rounded-md transition-colors"
+                              style={{ color: 'var(--text-secondary)' }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-search, #e5e7eb)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <MoreHorizontal size={16} />
+                            </button>
+
+                            {menuOpenUid === uid && (
+                              <div
+                                className="absolute right-0 top-8 z-50 min-w-[200px] py-1.5 rounded-xl shadow-lg border"
+                                style={{
+                                  background: 'var(--bg-panel, #fff)',
+                                  borderColor: 'var(--border-primary, #e5e7eb)',
+                                  boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                                }}
+                              >
+                                {menuItems.map((item, mIdx) => (
+                                  <button
+                                    key={mIdx}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      item.action();
+                                    }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left"
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover, #f3f4f6)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                  >
+                                    <item.icon size={15} style={{ color: item.color || 'var(--text-secondary)' }} />
+                                    <span style={{ color: 'var(--text-primary, #111)' }}>{item.label}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <Clock size={18} style={{ color: 'var(--text-secondary)' }} />
+                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Danh sách nhắc hẹn</span>
+              </button>
+              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                <Users size={18} style={{ color: 'var(--text-secondary)' }} />
+                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>1 nhóm chung</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Ảnh/Video Section */}
@@ -315,6 +633,15 @@ const ConversationInfoPanel = () => {
               <AlertTriangle size={18} style={{ color: 'var(--text-secondary)' }} />
               <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Báo xấu</span>
             </button>
+            {activeConversation.isGroup && (
+              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onClick={handleLeaveGroup}>
+                <LogOut size={18} style={{ color: '#ef4444' }} />
+                <span className="text-sm" style={{ color: '#ef4444' }}>Rời nhóm</span>
+              </button>
+            )}
             <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
@@ -333,6 +660,13 @@ const ConversationInfoPanel = () => {
           </div>
         </div>
       </div>
+
+      <AddMemberModal
+        isOpen={isAddMemberOpen}
+        onClose={() => setIsAddMemberOpen(false)}
+        onConfirm={handleAddMembersConfirm}
+        existingMemberIds={activeConversation?.participants?.map((p: any) => String(p.userId || p.id)) || []}
+      />
     </div>
   );
 };
