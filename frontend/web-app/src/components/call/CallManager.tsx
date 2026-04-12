@@ -12,9 +12,10 @@ const ICE_SERVERS = {
 };
 
 const RINGTONE_URL = '/ringtone.mp3';
+const WAITING_TONE_URL = '/waiting-tone.wav';
 
 const CallManager = () => {
-  const { 
+  const {
     callState, callerInfo, isVideo, isMinimized,
     setIncomingCall, acceptCall, endCall, setMinimized
   } = useCallStore();
@@ -63,11 +64,11 @@ const CallManager = () => {
     socket.on('webrtc_offer', async (data) => {
       if (!pcRef.current) await startPeerConnection();
       await pcRef.current?.setRemoteDescription(new RTCSessionDescription(data.offer));
-      
+
       while (candidateQueue.current.length > 0) {
         pcRef.current?.addIceCandidate(new RTCIceCandidate(candidateQueue.current.shift()!)).catch(console.error);
       }
-      
+
       const answer = await pcRef.current?.createAnswer();
       await pcRef.current?.setLocalDescription(answer);
       socket.emit('webrtc_answer', { peerId: data.peerId, answer });
@@ -76,7 +77,7 @@ const CallManager = () => {
     socket.on('webrtc_answer', async (data) => {
       if (pcRef.current && pcRef.current.signalingState !== 'stable') {
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
-        
+
         while (candidateQueue.current.length > 0) {
           pcRef.current?.addIceCandidate(new RTCIceCandidate(candidateQueue.current.shift()!)).catch(console.error);
         }
@@ -165,7 +166,7 @@ const CallManager = () => {
       });
       return;
     }
-    
+
     isStartingRef.current = true;
     try {
       let stream = localStream;
@@ -176,31 +177,31 @@ const CallManager = () => {
 
       pcRef.current = new RTCPeerConnection(ICE_SERVERS);
 
-    stream.getTracks().forEach((track) => {
-      pcRef.current?.addTrack(track, stream!);
-    });
-
-    pcRef.current.ontrack = (event) => {
-      console.log('WebRTC ontrack received:', event.track.kind);
-      setRemoteStream(prev => {
-        if (event.streams && event.streams[0]) {
-          console.log('Using event.streams[0] length:', event.streams[0].getTracks().length);
-          return new MediaStream(event.streams[0].getTracks());
-        }
-        const fallback = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
-        fallback.addTrack(event.track);
-        console.log('Using fallback stream tracks:', fallback.getTracks().length);
-        return fallback;
+      stream.getTracks().forEach((track) => {
+        pcRef.current?.addTrack(track, stream!);
       });
-    };
 
-    pcRef.current.onicecandidate = (event) => {
-      const currentPeerId = useCallStore.getState().peerId;
-      if (event.candidate && currentPeerId) {
-        socket.emit('webrtc_ice_candidate', { peerId: currentPeerId, candidate: event.candidate });
-      }
-    };
-    
+      pcRef.current.ontrack = (event) => {
+        console.log('WebRTC ontrack received:', event.track.kind);
+        setRemoteStream(prev => {
+          if (event.streams && event.streams[0]) {
+            console.log('Using event.streams[0] length:', event.streams[0].getTracks().length);
+            return new MediaStream(event.streams[0].getTracks());
+          }
+          const fallback = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
+          fallback.addTrack(event.track);
+          console.log('Using fallback stream tracks:', fallback.getTracks().length);
+          return fallback;
+        });
+      };
+
+      pcRef.current.onicecandidate = (event) => {
+        const currentPeerId = useCallStore.getState().peerId;
+        if (event.candidate && currentPeerId) {
+          socket.emit('webrtc_ice_candidate', { peerId: currentPeerId, candidate: event.candidate });
+        }
+      };
+
     } finally {
       isStartingRef.current = false;
     }
@@ -308,7 +309,7 @@ const CallManager = () => {
   if (callState === 'idle') return null;
 
   const displayName = callerInfo?.fullName || 'Người dùng';
-  
+
   // 1. Incoming Call Prompt
   if (callState === 'ringing') {
     return createPortal(
@@ -320,7 +321,7 @@ const CallManager = () => {
           </div>
           <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-1">{displayName}</h3>
           <p className="text-sm text-[var(--text-secondary)] mb-8">Đang gọi {isVideo ? 'video' : 'thoại'} tới bạn...</p>
-          
+
           <div className="flex w-full justify-around">
             <button onClick={handleRejectCall} className="w-14 h-14 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center text-white transition-colors">
               <PhoneOff size={24} />
@@ -337,14 +338,13 @@ const CallManager = () => {
 
   // 2. Active Call & Calling (Waiting for accept)
   const isWaiting = callState === 'calling';
-  
+
   const content = (
-    <div className={`fixed z-[999999] bg-[#1a1a1a] flex flex-col overflow-hidden text-white transition-all duration-300 shadow-2xl ${
-      isMinimized 
-        ? 'w-64 h-80 bottom-4 right-4 rounded-xl' 
+    <div className={`fixed z-[999999] bg-[#1a1a1a] flex flex-col overflow-hidden text-white transition-all duration-300 shadow-2xl ${isMinimized
+        ? 'w-64 h-80 bottom-4 right-4 rounded-xl'
         : 'inset-0 w-full h-full'
-    }`}>
-      
+      }`}>
+
       {/* Header controls */}
       <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center z-10 bg-gradient-to-b from-black/60 to-transparent">
         <div className="flex flex-col">
@@ -369,56 +369,66 @@ const CallManager = () => {
         {isVideo ? (
           <>
             {/* Remote Video (Main) */}
-            <video 
-              ref={remoteVideoRef} 
-              autoPlay 
-              playsInline 
-              className="w-full h-full object-cover" 
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
               style={{ display: remoteStream ? 'block' : 'none' }}
             />
-            
-            {/* Local Video (PiP) */}
-            <div className={`absolute ${isMinimized ? 'bottom-2 right-2 w-16 h-24' : 'bottom-6 right-6 w-32 h-48'} bg-black/50 rounded-lg overflow-hidden border-2 border-white/20 shadow-lg z-10`}>
-              <video 
-                ref={localVideoRef} 
-                autoPlay 
-                playsInline 
-                muted 
-                className="w-full h-full object-cover transform scale-x-[-1]" 
-              />
-            </div>
+
+
+            {/* Local Video (PiP) - Đã sửa vị trí lên góc trên & tối ưu Callback Ref */}
+            {localStream && (
+              <div className={`absolute ${isMinimized ? 'bottom-2 right-2 w-16 h-24' : 'top-20 right-6 w-32 h-48'} bg-black/80 rounded-xl overflow-hidden border-2 border-white/50 shadow-2xl z-[99]`}>
+                <video
+                  // Sử dụng Callback Ref: Đảm bảo 100% video nhận được stream ngay khi render
+                  ref={(node) => {
+                    localVideoRef.current = node;
+                    if (node && localStream && node.srcObject !== localStream) {
+                      node.srcObject = localStream;
+                      node.play().catch(e => console.warn('Lỗi play local video:', e));
+                    }
+                  }}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover transform scale-x-[-1]"
+                />
+              </div>
+            )}
 
             {/* Waiting Placeholder */}
             {(!remoteStream && !isWaiting) && (
               <div className="text-white/50 animate-pulse">Đang kết nối...</div>
             )}
-             {isWaiting && (
-               <div className="flex flex-col items-center">
-                 <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-4xl mb-4 font-bold relative">
-                    {callerInfo?.avatarUrl ? <img src={callerInfo.avatarUrl} className="w-full h-full object-cover rounded-full" alt="avatar" /> : displayName.charAt(0).toUpperCase()}
-                    <div className="absolute inset-0 rounded-full border-4 border-white/30 animate-ping"></div>
-                 </div>
-                 <p className="text-lg">Đang đổ chuông...</p>
-                 <audio src={RINGTONE_URL} loop autoPlay playsInline />
-               </div>
+            {isWaiting && (
+              <div className="flex flex-col items-center">
+                <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-4xl mb-4 font-bold relative">
+                  {callerInfo?.avatarUrl ? <img src={callerInfo.avatarUrl} className="w-full h-full object-cover rounded-full" alt="avatar" /> : displayName.charAt(0).toUpperCase()}
+                  <div className="absolute inset-0 rounded-full border-4 border-white/30 animate-ping"></div>
+                </div>
+                <p className="text-lg">Đang đổ chuông...</p>
+                <audio src={WAITING_TONE_URL} loop autoPlay playsInline />
+              </div>
             )}
           </>
         ) : (
           /* Audio Call Avatar */
           <div className="flex flex-col items-center">
-             <div className={`${isMinimized ? 'w-20 h-20' : 'w-32 h-32'} bg-blue-600 rounded-full flex items-center justify-center text-5xl mb-6 font-bold shadow-2xl relative`}>
-                {callerInfo?.avatarUrl ? <img src={callerInfo.avatarUrl} className="w-full h-full object-cover rounded-full" alt="avatar" /> : displayName.charAt(0).toUpperCase()}
-                {!isWaiting && remoteStream && (
-                  <div className="absolute inset-0 rounded-full border-4 border-green-500/50 animate-pulse"></div>
-                )}
-             </div>
-             {isWaiting && (
-               <>
-                 <p className="text-lg opacity-80 animate-pulse">Đang đổ chuông...</p>
-                 <audio src={RINGTONE_URL} loop autoPlay playsInline />
-               </>
-             )}
-             <audio ref={remoteAudioRef} autoPlay />
+            <div className={`${isMinimized ? 'w-20 h-20' : 'w-32 h-32'} bg-blue-600 rounded-full flex items-center justify-center text-5xl mb-6 font-bold shadow-2xl relative`}>
+              {callerInfo?.avatarUrl ? <img src={callerInfo.avatarUrl} className="w-full h-full object-cover rounded-full" alt="avatar" /> : displayName.charAt(0).toUpperCase()}
+              {!isWaiting && remoteStream && (
+                <div className="absolute inset-0 rounded-full border-4 border-green-500/50 animate-pulse"></div>
+              )}
+            </div>
+            {isWaiting && (
+              <>
+                <p className="text-lg opacity-80 animate-pulse">Đang đổ chuông...</p>
+                <audio src={WAITING_TONE_URL} loop autoPlay playsInline />
+              </>
+            )}
+            <audio ref={remoteAudioRef} autoPlay />
           </div>
         )}
       </div>
