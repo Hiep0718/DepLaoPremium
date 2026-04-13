@@ -64,7 +64,7 @@ export function ContactsScreen() {
 
 function Friends() {
   const router = useRouter()
-  const { socket } = useSocket()
+  const { socket, currentUserId } = useSocket()
   const [contacts, setContacts] = useState<any[]>([])
   const [pendingCount, setPendingCount] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)

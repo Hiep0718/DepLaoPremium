@@ -25,7 +25,7 @@ interface ZaloHeaderProps {
 
 export function ZaloHeader({ activeTab }: ZaloHeaderProps) {
     const router = useRouter()
-    const { currentUserId } = useSocket()
+    const { currentUserId, socket } = useSocket()
     const [searchText, setSearchText] = useState("")
     const [showMenu, setShowMenu] = useState(false)
     const [searchResults, setSearchResults] = useState<any[]>([])

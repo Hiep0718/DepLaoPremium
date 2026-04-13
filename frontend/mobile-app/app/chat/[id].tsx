@@ -943,7 +943,6 @@ export default function ChatScreen() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
-        copyToCacheDir: true,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) return;
@@ -1584,7 +1583,19 @@ export default function ChatScreen() {
           <TouchableOpacity style={styles.headerBtn}>
             <Ionicons name="videocam-outline" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn}>
+          <TouchableOpacity 
+            style={styles.headerBtn} 
+            onPress={() => router.push({
+              pathname: '/chat/options', 
+              params: {
+                id,
+                name: name as string,
+                avatar: avatar as string,
+                recipientId: recipientId as string,
+                isGroup: isGroup ? 'true' : 'false'
+              }
+            })}
+          >
             <Ionicons name="menu" size={26} color="#fff" />
           </TouchableOpacity>
         </View>

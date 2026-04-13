@@ -125,7 +125,7 @@ export default function CreateGroupModal({ visible, onClose }: CreateGroupModalP
       });
 
       // Gửi 1 tin nhắn mặc định để tạo lastMessage cho conversation, giúp nó hiện ở tab Tin nhắn
-      socket.emit('send_message', {
+      socket?.emit('send_message', {
         tempId: Date.now().toString(),
         conversationId: convId,
         senderId: currentUserId?.toString(),

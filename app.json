@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "a8c45304-263e-40cc-b7e0-1f76aba1036e"
+      }
+    },
+    "android": {
+      "package": "com.hieuhoccode2004.deplaopremium"
+    }
+  }
+}
