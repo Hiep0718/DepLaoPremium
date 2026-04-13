@@ -259,7 +259,7 @@ const MessageInput = () => {
           senderId: user.id.toString(),
           text: previewText,
           messageType: localType,
-          fileUrl: localType === 'image' ? URL.createObjectURL(file) : undefined,
+          fileUrl: URL.createObjectURL(file),
           fileName: file.name,
           fileSize: file.size,
           createdAt: new Date().toISOString(),
