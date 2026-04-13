@@ -20,7 +20,7 @@ import apiClient from '@/constants/api';
 import ForwardModal from '@/components/ForwardModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import { Audio } from 'expo-av';
+import { Audio, Video, ResizeMode } from 'expo-av';
 
 // ─── Trạng thái tin nhắn ──────────────────────────────────────────────────────
 // pending  → đang gửi (chưa đến server)
@@ -109,6 +109,7 @@ export default function ChatScreen() {
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const inputRef = useRef<TextInput>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
 
   // ─── Group member count ───
   const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
@@ -798,52 +799,12 @@ export default function ChatScreen() {
   // ─── Long press menu cho tin nhắn ──────────────────────────────────────────
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.isRevoked) return; // Không cho thao tác trên tin đã thu hồi
-    const isMine = String(msg.senderId) === String(currentUserId);
-    const isCurrentlyPinned = pinnedMessage?.messageId === msg._id;
+    setActionSheetMessage(msg);
+  }, []);
 
-    const buttons: any[] = [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Trả lời',
-        onPress: () => setReplyingMessage(msg),
-      },
-      {
-        text: 'Chuyển tiếp',
-        onPress: () => setForwardingMessage(msg),
-      },
-      {
-        text: isCurrentlyPinned ? 'Bỏ ghim' : 'Ghim tin nhắn',
-        onPress: () => handleTogglePinMessage(msg),
-      },
-    ];
-
-    if (!msg.messageType || msg.messageType === 'text') {
-      buttons.push({
-        text: translatingId === msg._id ? 'Đang dịch...' : 'Dịch sang Tiếng Việt',
-        onPress: () => handleTranslate(msg),
-      });
-    }
-
-    buttons.push({
-      text: 'Xóa phía tôi',
-      style: 'destructive',
-      onPress: () => handleDeleteMessage(msg),
-    });
-
-    if (isMine) {
-      buttons.push({
-        text: 'Thu hồi',
-        style: 'destructive',
-        onPress: () => handleRevoke(msg),
-      });
-    }
-
-    Alert.alert('Tùy chọn tin nhắn', undefined, buttons);
-  }, [currentUserId, handleRevoke, handleTranslate, translatingId, handleDeleteMessage, handleTogglePinMessage, pinnedMessage]);
-
-  // ─── Chọn & gửi ảnh ─────────────────────────────────────────────────
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  // ─── Chọn & gửi ảnh/video ─────────────────────────────────────────────────
+  const [pendingMedia, setPendingMedia] = useState<{ uri: string; type: 'image' | 'video' } | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   const handlePickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -852,26 +813,47 @@ export default function ChatScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.8,
+      videoMaxDuration: 300,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     });
     if (!result.canceled && result.assets?.[0]) {
-      setPendingImage(result.assets[0].uri);
+      const asset = result.assets[0];
+      const mediaType = asset.type === 'video' ? 'video' : 'image';
+      setPendingMedia({ uri: asset.uri, type: mediaType });
     }
   };
 
-  const handleSendImage = async () => {
-    if (!pendingImage || !socket || !currentUserId) return;
-    setUploadingImage(true);
+  const handleSendMedia = async () => {
+    if (!pendingMedia || !socket || !currentUserId) return;
+    setUploadingMedia(true);
     try {
       const formData = new FormData();
-      formData.append('file', { uri: pendingImage, name: `chat-${Date.now()}.jpg`, type: 'image/jpeg' } as any);
-      const res = await apiClient.post('/upload/avatar', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      const isVideo = pendingMedia.type === 'video';
+      const ext = isVideo ? 'mp4' : 'jpg';
+      const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+      formData.append('file', {
+        uri: pendingMedia.uri,
+        name: `chat-${Date.now()}.${ext}`,
+        type: mimeType,
+      } as any);
+
+      // Lấy token và base URL giống apiClient nhưng KHÔNG giới hạn timeout
+      const token = await AsyncStorage.getItem('accessToken');
+      const res = await apiClient.post('/upload/chat', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        timeout: 0, // Không giới hạn timeout (giống web app)
       });
-      const imageUrl: string = res.data?.data?.url;
-      if (imageUrl) {
-        const tempId = `pending-img-${Date.now()}`;
+
+      const uploadData = res.data?.data;
+      if (uploadData?.url) {
+        const tempId = `pending-media-${Date.now()}`;
+        const msgType = uploadData.messageType || pendingMedia.type;
+        const contentLabel = isVideo ? '[Video]' : '[Hình ảnh]';
         const replyData = replyingMessage ? {
           messageId: replyingMessage._id,
           content: replyingMessage.content,
@@ -883,8 +865,12 @@ export default function ChatScreen() {
           _id: tempId,
           senderId: currentUserId,
           recipientId: recipientId as string,
-          content: '[Hình ảnh]',
-          imageUrl,
+          content: contentLabel,
+          messageType: msgType,
+          fileUrl: uploadData.url,
+          fileName: uploadData.fileName,
+          fileSize: uploadData.fileSize,
+          imageUrl: !isVideo ? uploadData.url : undefined,
           createdAt: new Date().toISOString(),
           status: 'pending',
           replyTo: replyData,
@@ -896,19 +882,22 @@ export default function ChatScreen() {
           senderId: currentUserId,
           recipientId,
           tempId,
-          text: '[Hình ảnh]',
-          messageType: 'image',
-          fileUrl: imageUrl,
+          text: contentLabel,
+          messageType: msgType,
+          fileUrl: uploadData.url,
+          fileName: uploadData.fileName,
+          fileSize: uploadData.fileSize,
           replyTo: replyData,
         });
       } else {
-        Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
+        Alert.alert('Lỗi', 'Không thể tải lên. Hệ thống chưa cấu hình kho lưu trữ (AWS S3).');
       }
-    } catch {
-      Alert.alert('⚠️ Chưa có nơi lưu trữ ảnh', 'Hệ thống chưa được cấu hình kho lưu trữ ảnh (AWS S3).');
+    } catch (err: any) {
+      console.log('Media upload error:', err?.message || err);
+      Alert.alert('Lỗi', 'Không thể gửi. Vui lòng thử lại.');
     } finally {
-      setUploadingImage(false);
-      setPendingImage(null);
+      setUploadingMedia(false);
+      setPendingMedia(null);
     }
   };
 
@@ -1160,10 +1149,11 @@ export default function ChatScreen() {
     const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
     const isSticker = !item.isRevoked && item.messageType === 'sticker' && item.fileUrl;
     const isAudio = !item.isRevoked && item.messageType === 'audio' && item.fileUrl;
+    const isVideo = !item.isRevoked && item.messageType === 'video' && item.fileUrl;
     const isFile = !item.isRevoked && item.messageType === 'file' && item.fileUrl;
     const isLocation = !item.isRevoked && item.messageType === 'location';
     const isReminder = !item.isRevoked && item.messageType === 'reminder';
-    const isImage = !item.isRevoked && !isSticker && !isAudio && !isFile && !isLocation && !isReminder && (
+    const isImage = !item.isRevoked && !isSticker && !isAudio && !isVideo && !isFile && !isLocation && !isReminder && (
       item.messageType === 'image' ||
       item.imageUrl ||
       (item.content && item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content))
@@ -1265,6 +1255,19 @@ export default function ChatScreen() {
                   >
                     <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" />
                   </TouchableOpacity>
+                ) : isVideo ? (
+                  /* ────── Video Message ────── */
+                  <View style={styles.videoBubble}>
+                    <Video
+                      source={{ uri: item.fileUrl! }}
+                      useNativeControls
+                      shouldPlay={false}
+                      isMuted={false}
+                      resizeMode={ResizeMode.CONTAIN}
+                      style={styles.msgVideo}
+                      onError={(e) => console.log('Video error:', e)}
+                    />
+                  </View>
                 ) : isFile ? (
                   /* ────── File/Document Message ────── */
                   (() => {
@@ -1452,7 +1455,7 @@ export default function ChatScreen() {
       </View>
 
       {/* Pinned Message Banner */}
-      {pinnedMessage && (
+      {pinnedMessage && pinnedMessage.messageId && (pinnedMessage.content || pinnedMessage.messageType) && (
         <View style={styles.pinnedBanner}>
           <Ionicons name="pricetag" size={16} color={ZaloColors.blue} style={{ marginRight: 8 }} />
           <View style={{ flex: 1 }}>
@@ -1719,24 +1722,31 @@ export default function ChatScreen() {
 
       <View style={{ height: insets.bottom, backgroundColor: isRecording ? '#FFF0F0' : '#fff' }} />
 
-      {/* Modal preview ảnh trước khi gửi */}
-      <Modal visible={!!pendingImage} transparent animationType="fade">
+      {/* Modal preview ảnh/video trước khi gửi */}
+      <Modal visible={!!pendingMedia} transparent animationType="fade">
         <View style={styles.previewOverlay}>
           <View style={styles.previewBox}>
-            {pendingImage && (
-              <Image source={{ uri: pendingImage }} style={styles.previewImage} resizeMode="contain" />
-            )}
+            {pendingMedia && pendingMedia.type === 'video' ? (
+              <Video
+                source={{ uri: pendingMedia.uri }}
+                useNativeControls
+                resizeMode={ResizeMode.CONTAIN}
+                style={styles.previewVideo}
+              />
+            ) : pendingMedia ? (
+              <Image source={{ uri: pendingMedia.uri }} style={styles.previewImage} resizeMode="contain" />
+            ) : null}
             <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingImage(null)}>
+              <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingMedia(null)}>
                 <Ionicons name="close" size={22} color="#fff" />
                 <Text style={styles.previewBtnText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.previewBtn, styles.previewSendBtn, uploadingImage && { opacity: 0.6 }]}
-                onPress={handleSendImage}
-                disabled={uploadingImage}
+                style={[styles.previewBtn, styles.previewSendBtn, uploadingMedia && { opacity: 0.6 }]}
+                onPress={handleSendMedia}
+                disabled={uploadingMedia}
               >
-                {uploadingImage ? (
+                {uploadingMedia ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <Ionicons name="send" size={20} color="#fff" />
@@ -1844,6 +1854,118 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* ────── Custom Action Sheet Modal ────── */}
+      <Modal
+        visible={!!actionSheetMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionSheetMessage(null)}
+      >
+        <TouchableOpacity
+          style={styles.actionSheetOverlay}
+          activeOpacity={1}
+          onPress={() => setActionSheetMessage(null)}
+        >
+          <View style={styles.actionSheetContainer}>
+            <View style={styles.actionSheetHandle} />
+            <Text style={styles.actionSheetTitle}>Tùy chọn tin nhắn</Text>
+
+            {/* Trả lời */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={() => {
+                if (actionSheetMessage) setReplyingMessage(actionSheetMessage);
+                setActionSheetMessage(null);
+              }}
+            >
+              <Ionicons name="arrow-undo-outline" size={22} color="#333" />
+              <Text style={styles.actionSheetItemText}>Trả lời</Text>
+            </TouchableOpacity>
+
+            {/* Chuyển tiếp */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={() => {
+                if (actionSheetMessage) setForwardingMessage(actionSheetMessage);
+                setActionSheetMessage(null);
+              }}
+            >
+              <Ionicons name="share-outline" size={22} color="#333" />
+              <Text style={styles.actionSheetItemText}>Chuyển tiếp</Text>
+            </TouchableOpacity>
+
+            {/* Ghim / Bỏ ghim */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={() => {
+                if (actionSheetMessage) handleTogglePinMessage(actionSheetMessage);
+                setActionSheetMessage(null);
+              }}
+            >
+              <Ionicons name={pinnedMessage?.messageId === actionSheetMessage?._id ? 'pin-outline' : 'pin'} size={22} color="#333" />
+              <Text style={styles.actionSheetItemText}>
+                {pinnedMessage?.messageId === actionSheetMessage?._id ? 'Bỏ ghim' : 'Ghim tin nhắn'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Dịch (chỉ với tin nhắn text) */}
+            {actionSheetMessage && (!actionSheetMessage.messageType || actionSheetMessage.messageType === 'text') && (
+              <TouchableOpacity
+                style={styles.actionSheetItem}
+                onPress={() => {
+                  if (actionSheetMessage) handleTranslate(actionSheetMessage);
+                  setActionSheetMessage(null);
+                }}
+              >
+                <Ionicons name="language-outline" size={22} color="#333" />
+                <Text style={styles.actionSheetItemText}>
+                  {translatingId === actionSheetMessage?._id ? 'Đang dịch...' : 'Dịch sang Tiếng Việt'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Separator */}
+            <View style={styles.actionSheetSeparator} />
+
+            {/* Thu hồi (chỉ với tin nhắn của mình) */}
+            {actionSheetMessage && String(actionSheetMessage.senderId) === String(currentUserId) && (
+              <TouchableOpacity
+                style={styles.actionSheetItem}
+                onPress={() => {
+                  const msg = actionSheetMessage;
+                  setActionSheetMessage(null);
+                  if (msg) handleRevoke(msg);
+                }}
+              >
+                <Ionicons name="refresh-outline" size={22} color="#FF4757" />
+                <Text style={[styles.actionSheetItemText, { color: '#FF4757' }]}>Thu hồi</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Xóa phía tôi */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={() => {
+                const msg = actionSheetMessage;
+                setActionSheetMessage(null);
+                if (msg) handleDeleteMessage(msg);
+              }}
+            >
+              <Ionicons name="trash-outline" size={22} color="#FF4757" />
+              <Text style={[styles.actionSheetItemText, { color: '#FF4757' }]}>Xóa phía tôi</Text>
+            </TouchableOpacity>
+
+            {/* Hủy */}
+            <TouchableOpacity
+              style={styles.actionSheetCancelBtn}
+              onPress={() => setActionSheetMessage(null)}
+            >
+              <Text style={styles.actionSheetCancelText}>Hủy</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -2113,6 +2235,18 @@ const styles = StyleSheet.create({
     height: SCREEN_WIDTH * 0.5,
     borderRadius: 12,
     marginBottom: 2,
+  },
+
+  // ─── Video Message Bubble ───
+  videoBubble: {
+    width: SCREEN_WIDTH * 0.75,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  msgVideo: {
+    width: SCREEN_WIDTH * 0.75,
+    height: SCREEN_WIDTH * 0.75 * 9 / 16,
   },
 
   // ─── File/Document Bubble ───
@@ -2461,6 +2595,7 @@ const styles = StyleSheet.create({
   },
   previewBox: { width: '90%', alignItems: 'center' },
   previewImage: { width: '100%', height: 320, borderRadius: 12, marginBottom: 24 },
+  previewVideo: { width: '100%', height: 320, borderRadius: 12, marginBottom: 24 },
   previewActions: { flexDirection: 'row', gap: 16 },
   previewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -2537,5 +2672,64 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#555',
     fontWeight: '500',
+  },
+
+  // ─── Action Sheet Modal ───
+  actionSheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  actionSheetContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 34,
+    paddingTop: 8,
+  },
+  actionSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ddd',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  actionSheetTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  actionSheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 14,
+  },
+  actionSheetItemText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  actionSheetSeparator: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+    marginHorizontal: 20,
+    marginVertical: 4,
+  },
+  actionSheetCancelBtn: {
+    marginTop: 8,
+    marginHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+  },
+  actionSheetCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
   },
 });
