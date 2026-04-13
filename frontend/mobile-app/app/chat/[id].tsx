@@ -18,6 +18,7 @@ import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
 import ForwardModal from '@/components/ForwardModal';
+import ContactSelectionModal from '@/components/ContactSelectionModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import { Audio, Video, ResizeMode } from 'expo-av';
@@ -110,6 +111,7 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
+  const [showContactModal, setShowContactModal] = useState(false);
 
   // ─── Group member count ───
   const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
@@ -802,9 +804,10 @@ export default function ChatScreen() {
     setActionSheetMessage(msg);
   }, []);
 
-  // ─── Chọn & gửi ảnh/video ─────────────────────────────────────────────────
-  const [pendingMedia, setPendingMedia] = useState<{ uri: string; type: 'image' | 'video' } | null>(null);
+  // ─── Chọn & gửi ảnh/video (hỗ trợ chọn nhiều) ──────────────────────────────
+  const [pendingMedia, setPendingMedia] = useState<{ uri: string; type: 'image' | 'video' }[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0); // track progress khi gửi nhiều ảnh
 
   const handlePickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -814,91 +817,123 @@ export default function ChatScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsMultipleSelection: true,
+      selectionLimit: 20,
       quality: 0.8,
       videoMaxDuration: 300,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      orderedSelection: true,
     });
-    if (!result.canceled && result.assets?.[0]) {
-      const asset = result.assets[0];
-      const mediaType = asset.type === 'video' ? 'video' : 'image';
-      setPendingMedia({ uri: asset.uri, type: mediaType });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const items = result.assets.map(asset => ({
+        uri: asset.uri,
+        type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+      }));
+      setPendingMedia(items);
     }
   };
 
+  const handleRemovePendingMedia = (index: number) => {
+    setPendingMedia(prev => {
+      const next = prev.filter((_, i) => i !== index);
+      return next;
+    });
+  };
+
   const handleSendMedia = async () => {
-    if (!pendingMedia || !socket || !currentUserId) return;
+    if (pendingMedia.length === 0 || !socket || !currentUserId) return;
     setUploadingMedia(true);
-    try {
-      const formData = new FormData();
-      const isVideo = pendingMedia.type === 'video';
-      const ext = isVideo ? 'mp4' : 'jpg';
-      const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
-      formData.append('file', {
-        uri: pendingMedia.uri,
-        name: `chat-${Date.now()}.${ext}`,
-        type: mimeType,
-      } as any);
+    setUploadProgress(0);
 
-      // Lấy token và base URL giống apiClient nhưng KHÔNG giới hạn timeout
-      const token = await AsyncStorage.getItem('accessToken');
-      const res = await apiClient.post('/upload/chat', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        timeout: 0, // Không giới hạn timeout (giống web app)
-      });
+    const totalItems = pendingMedia.length;
+    let successCount = 0;
+    let failCount = 0;
 
-      const uploadData = res.data?.data;
-      if (uploadData?.url) {
-        const tempId = `pending-media-${Date.now()}`;
-        const msgType = uploadData.messageType || pendingMedia.type;
-        const contentLabel = isVideo ? '[Video]' : '[Hình ảnh]';
-        const replyData = replyingMessage ? {
-          messageId: replyingMessage._id,
-          content: replyingMessage.content,
-          senderId: replyingMessage.senderId,
-          messageType: replyingMessage.messageType || 'text',
-        } : undefined;
+    // Chỉ gán replyTo cho ảnh đầu tiên
+    const replyData = replyingMessage ? {
+      messageId: replyingMessage._id,
+      content: replyingMessage.content,
+      senderId: replyingMessage.senderId,
+      messageType: replyingMessage.messageType || 'text',
+    } : undefined;
 
-        const tempMsg: Message = {
-          _id: tempId,
-          senderId: currentUserId,
-          recipientId: recipientId as string,
-          content: contentLabel,
-          messageType: msgType,
-          fileUrl: uploadData.url,
-          fileName: uploadData.fileName,
-          fileSize: uploadData.fileSize,
-          imageUrl: !isVideo ? uploadData.url : undefined,
-          createdAt: new Date().toISOString(),
-          status: 'pending',
-          replyTo: replyData,
-        };
-        setMessages(prev => [tempMsg, ...prev]);
-        setReplyingMessage(null);
-        socket.emit('send_message', {
-          conversationId: id,
-          senderId: currentUserId,
-          recipientId,
-          tempId,
-          text: contentLabel,
-          messageType: msgType,
-          fileUrl: uploadData.url,
-          fileName: uploadData.fileName,
-          fileSize: uploadData.fileSize,
-          replyTo: replyData,
+    const token = await AsyncStorage.getItem('accessToken');
+
+    for (let i = 0; i < totalItems; i++) {
+      const media = pendingMedia[i];
+      try {
+        const formData = new FormData();
+        const isVideo = media.type === 'video';
+        const ext = isVideo ? 'mp4' : 'jpg';
+        const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+        formData.append('file', {
+          uri: media.uri,
+          name: `chat-${Date.now()}-${i}.${ext}`,
+          type: mimeType,
+        } as any);
+
+        const res = await apiClient.post('/upload/chat', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          timeout: 0,
         });
-      } else {
-        Alert.alert('Lỗi', 'Không thể tải lên. Hệ thống chưa cấu hình kho lưu trữ (AWS S3).');
+
+        const uploadData = res.data?.data;
+        if (uploadData?.url) {
+          const tempId = `pending-media-${Date.now()}-${i}`;
+          const msgType = uploadData.messageType || media.type;
+          const contentLabel = isVideo ? '[Video]' : '[Hình ảnh]';
+
+          const tempMsg: Message = {
+            _id: tempId,
+            senderId: currentUserId,
+            recipientId: recipientId as string,
+            content: contentLabel,
+            messageType: msgType,
+            fileUrl: uploadData.url,
+            fileName: uploadData.fileName,
+            fileSize: uploadData.fileSize,
+            imageUrl: !isVideo ? uploadData.url : undefined,
+            createdAt: new Date().toISOString(),
+            status: 'pending',
+            replyTo: i === 0 ? replyData : undefined,
+          };
+          setMessages(prev => [tempMsg, ...prev]);
+          socket.emit('send_message', {
+            conversationId: id,
+            senderId: currentUserId,
+            recipientId,
+            tempId,
+            text: contentLabel,
+            messageType: msgType,
+            fileUrl: uploadData.url,
+            fileName: uploadData.fileName,
+            fileSize: uploadData.fileSize,
+            replyTo: i === 0 ? replyData : undefined,
+          });
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (err: any) {
+        console.log(`Media upload error [${i + 1}/${totalItems}]:`, err?.message || err);
+        failCount++;
       }
-    } catch (err: any) {
-      console.log('Media upload error:', err?.message || err);
-      Alert.alert('Lỗi', 'Không thể gửi. Vui lòng thử lại.');
-    } finally {
-      setUploadingMedia(false);
-      setPendingMedia(null);
+      setUploadProgress(i + 1);
     }
+
+    if (failCount > 0 && successCount > 0) {
+      Alert.alert('Thông báo', `Đã gửi ${successCount}/${totalItems} ảnh. ${failCount} ảnh gửi thất bại.`);
+    } else if (failCount > 0 && successCount === 0) {
+      Alert.alert('Lỗi', 'Không thể gửi ảnh. Vui lòng thử lại.');
+    }
+
+    setReplyingMessage(null);
+    setUploadingMedia(false);
+    setUploadProgress(0);
+    setPendingMedia([]);
   };
 
   // ─── Chọn & gửi tài liệu ──────────────────────────────────────────
@@ -1064,6 +1099,35 @@ export default function ChatScreen() {
     }
   }, [socket, currentUserId, id, recipientId]);
 
+  // ─── Gửi danh thiếp (Contact Card) ──────────────────────────────────────────
+  const handleSendContact = useCallback((contactInfo: any) => {
+    if (!socket || !currentUserId) return;
+
+    const tempId = `pending-contact-${Date.now()}`;
+    const content = JSON.stringify(contactInfo);
+
+    const tempMsg: Message = {
+      _id: tempId,
+      senderId: currentUserId,
+      recipientId: recipientId as string,
+      content,
+      messageType: 'contact',
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+    };
+    setMessages(prev => [tempMsg, ...prev]);
+
+    socket.emit('send_message', {
+      tempId,
+      conversationId: id,
+      senderId: currentUserId,
+      recipientId,
+      text: '[Danh thiếp]',
+      content,
+      messageType: 'contact',
+    });
+  }, [socket, currentUserId, id, recipientId]);
+
   // ─── Helper: parse location from content ──────────────────────────────
   const parseLocation = (content?: string): { latitude: number; longitude: number; address: string } | null => {
     if (!content) return null;
@@ -1153,7 +1217,8 @@ export default function ChatScreen() {
     const isFile = !item.isRevoked && item.messageType === 'file' && item.fileUrl;
     const isLocation = !item.isRevoked && item.messageType === 'location';
     const isReminder = !item.isRevoked && item.messageType === 'reminder';
-    const isImage = !item.isRevoked && !isSticker && !isAudio && !isVideo && !isFile && !isLocation && !isReminder && (
+    const isContact = !item.isRevoked && item.messageType === 'contact';
+    const isImage = !item.isRevoked && !isSticker && !isAudio && !isVideo && !isFile && !isLocation && !isReminder && !isContact && (
       item.messageType === 'image' ||
       item.imageUrl ||
       (item.content && item.content.startsWith('http') && /\.(jpg|jpeg|png|gif|webp)/i.test(item.content))
@@ -1366,6 +1431,77 @@ export default function ChatScreen() {
                                 {formatReminderTime(remData.reminderTime)}
                               </Text>
                             </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })()
+                ) : isContact ? (
+                  /* ────── Contact Card Message ────── */
+                  (() => {
+                    let parsedContact: any = null;
+                    try {
+                      parsedContact = typeof item.content === 'string' ? JSON.parse(item.content) : item.content;
+                    } catch { parsedContact = {}; }
+
+                    const { fullName, nickname, avatarUrl, phone, contactUserId, id: contactId } = parsedContact || {};
+                    const displayName = nickname || fullName || 'Người dùng';
+                    const contactAvatar = avatarUrl;
+
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onLongPress={() => handleMessageLongPress(item)}
+                      >
+                        <View style={[styles.contactBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                          {/* Contact Info Row */}
+                          <View style={styles.contactInfoRow}>
+                            {contactAvatar ? (
+                              <Image source={{ uri: contactAvatar }} style={styles.contactCardAvatar} />
+                            ) : (
+                              <View style={styles.contactCardAvatarDefault}>
+                                <Text style={styles.contactCardAvatarText}>
+                                  {displayName.charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            <View style={styles.contactCardTextWrap}>
+                              <Text style={styles.contactCardName} numberOfLines={1}>{displayName}</Text>
+                              <Text style={styles.contactCardPhone} numberOfLines={1}>
+                                {phone || 'Không có SĐT'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Action Buttons */}
+                          <View style={styles.contactCardActions}>
+                            <TouchableOpacity
+                              style={styles.contactCardBtn}
+                              onPress={async () => {
+                                if (phone) {
+                                  try {
+                                    await apiClient.post('/contacts/requests', { phone });
+                                    Alert.alert('Thành công', 'Đã gửi lời mời kết bạn');
+                                  } catch (err: any) {
+                                    Alert.alert('Thông báo', err?.response?.data?.message || 'Không thể gửi kết bạn');
+                                  }
+                                }
+                              }}
+                            >
+                              <Ionicons name="person-add-outline" size={14} color="#0068FF" />
+                              <Text style={styles.contactCardBtnText}>Kết bạn</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.contactCardBtn}
+                              onPress={() => {
+                                if (phone) {
+                                  Linking.openURL(`tel:${phone}`).catch(() => {});
+                                }
+                              }}
+                            >
+                              <Ionicons name="call-outline" size={14} color="#0068FF" />
+                              <Text style={styles.contactCardBtnText}>Gọi điện</Text>
+                            </TouchableOpacity>
                           </View>
                         </View>
                       </TouchableOpacity>
@@ -1671,7 +1807,7 @@ export default function ChatScreen() {
                   <Text style={styles.moreActionLabel}>Chuyển khoản</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.moreActionItem}>
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); setShowContactModal(true); }}>
                   <View style={[styles.moreActionIcon, { backgroundColor: '#3742fa' }]}>
                     <Ionicons name="person-circle" size={26} color="#fff" />
                   </View>
@@ -1722,22 +1858,81 @@ export default function ChatScreen() {
 
       <View style={{ height: insets.bottom, backgroundColor: isRecording ? '#FFF0F0' : '#fff' }} />
 
-      {/* Modal preview ảnh/video trước khi gửi */}
-      <Modal visible={!!pendingMedia} transparent animationType="fade">
+      {/* Modal preview ảnh/video trước khi gửi (hỗ trợ nhiều ảnh) */}
+      <Modal visible={pendingMedia.length > 0} transparent animationType="fade">
         <View style={styles.previewOverlay}>
           <View style={styles.previewBox}>
-            {pendingMedia && pendingMedia.type === 'video' ? (
-              <Video
-                source={{ uri: pendingMedia.uri }}
-                useNativeControls
-                resizeMode={ResizeMode.CONTAIN}
-                style={styles.previewVideo}
-              />
-            ) : pendingMedia ? (
-              <Image source={{ uri: pendingMedia.uri }} style={styles.previewImage} resizeMode="contain" />
-            ) : null}
+            {/* Header đếm số ảnh */}
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewHeaderText}>
+                {pendingMedia.length === 1
+                  ? (pendingMedia[0].type === 'video' ? 'Xem trước video' : 'Xem trước ảnh')
+                  : `Đã chọn ${pendingMedia.length} ảnh/video`}
+              </Text>
+            </View>
+
+            {pendingMedia.length === 1 ? (
+              /* ── Xem trước 1 ảnh/video: hiển thị lớn ── */
+              pendingMedia[0].type === 'video' ? (
+                <Video
+                  source={{ uri: pendingMedia[0].uri }}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                  style={styles.previewVideo}
+                />
+              ) : (
+                <Image source={{ uri: pendingMedia[0].uri }} style={styles.previewImage} resizeMode="contain" />
+              )
+            ) : (
+              /* ── Xem trước nhiều ảnh: grid có scroll ── */
+              <ScrollView
+                style={styles.previewGrid}
+                contentContainerStyle={styles.previewGridContent}
+                showsVerticalScrollIndicator={true}
+              >
+                <View style={styles.previewGridRow}>
+                  {pendingMedia.map((media, index) => (
+                    <View key={`preview-${index}`} style={styles.previewGridItem}>
+                      {media.type === 'video' ? (
+                        <View style={styles.previewGridThumb}>
+                          <Video
+                            source={{ uri: media.uri }}
+                            resizeMode={ResizeMode.COVER}
+                            style={styles.previewGridThumbImg}
+                          />
+                          <View style={styles.previewVideoOverlay}>
+                            <Ionicons name="play-circle" size={28} color="#fff" />
+                          </View>
+                        </View>
+                      ) : (
+                        <Image source={{ uri: media.uri }} style={styles.previewGridThumbImg} />
+                      )}
+                      <TouchableOpacity
+                        style={styles.previewGridRemoveBtn}
+                        onPress={() => handleRemovePendingMedia(index)}
+                      >
+                        <Ionicons name="close-circle" size={22} color="#ff4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {/* Upload progress */}
+            {uploadingMedia && pendingMedia.length > 1 && (
+              <View style={styles.uploadProgressWrap}>
+                <View style={styles.uploadProgressBar}>
+                  <View style={[styles.uploadProgressFill, { width: `${(uploadProgress / pendingMedia.length) * 100}%` }]} />
+                </View>
+                <Text style={styles.uploadProgressText}>
+                  Đang gửi {uploadProgress}/{pendingMedia.length}...
+                </Text>
+              </View>
+            )}
+
             <View style={styles.previewActions}>
-              <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingMedia(null)}>
+              <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingMedia([])} disabled={uploadingMedia}>
                 <Ionicons name="close" size={22} color="#fff" />
                 <Text style={styles.previewBtnText}>Hủy</Text>
               </TouchableOpacity>
@@ -1751,7 +1946,9 @@ export default function ChatScreen() {
                 ) : (
                   <Ionicons name="send" size={20} color="#fff" />
                 )}
-                <Text style={styles.previewBtnText}>Gửi</Text>
+                <Text style={styles.previewBtnText}>
+                  {pendingMedia.length > 1 ? `Gửi (${pendingMedia.length})` : 'Gửi'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1763,6 +1960,13 @@ export default function ChatScreen() {
         visible={!!forwardingMessage}
         message={forwardingMessage}
         onClose={() => setForwardingMessage(null)}
+      />
+
+      {/* Contact Selection Modal */}
+      <ContactSelectionModal
+        visible={showContactModal}
+        onClose={() => setShowContactModal(false)}
+        onSelect={handleSendContact}
       />
 
       {/* ────── Image Lightbox ────── */}
@@ -2385,6 +2589,75 @@ const styles = StyleSheet.create({
     color: '#888',
   },
 
+  // ─── Contact Card Bubble ───
+  contactBubble: {
+    maxWidth: SCREEN_WIDTH * 0.75,
+    minWidth: SCREEN_WIDTH * 0.6,
+    borderRadius: 16,
+    overflow: 'hidden',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  contactInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  contactCardAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  contactCardAvatarDefault: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#0068FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contactCardAvatarText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  contactCardTextWrap: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  contactCardName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 2,
+  },
+  contactCardPhone: {
+    fontSize: 13,
+    color: '#666',
+  },
+  contactCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.08)',
+    paddingTop: 10,
+  },
+  contactCardBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,104,255,0.08)',
+  },
+  contactCardBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0068FF',
+  },
+
   // ─── Reminder Modal ───
   reminderModalOverlay: {
     flex: 1,
@@ -2593,9 +2866,37 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center', alignItems: 'center',
   },
-  previewBox: { width: '90%', alignItems: 'center' },
+  previewBox: { width: '90%', maxHeight: '80%', alignItems: 'center' },
+  previewHeader: { marginBottom: 12 },
+  previewHeaderText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   previewImage: { width: '100%', height: 320, borderRadius: 12, marginBottom: 24 },
   previewVideo: { width: '100%', height: 320, borderRadius: 12, marginBottom: 24 },
+  previewGrid: { maxHeight: 380, width: '100%', marginBottom: 16 },
+  previewGridContent: { paddingHorizontal: 4 },
+  previewGridRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 8 },
+  previewGridItem: { position: 'relative' },
+  previewGridThumb: { position: 'relative' },
+  previewGridThumbImg: {
+    width: (Dimensions.get('window').width * 0.9 - 40) / 3,
+    height: (Dimensions.get('window').width * 0.9 - 40) / 3,
+    borderRadius: 10,
+  },
+  previewVideoOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 10,
+  },
+  previewGridRemoveBtn: {
+    position: 'absolute', top: -6, right: -6,
+    backgroundColor: '#fff', borderRadius: 12, zIndex: 10,
+  },
+  uploadProgressWrap: { width: '100%', alignItems: 'center', marginBottom: 12 },
+  uploadProgressBar: {
+    width: '80%', height: 4, backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2, overflow: 'hidden', marginBottom: 6,
+  },
+  uploadProgressFill: { height: '100%', backgroundColor: ZaloColors.blue, borderRadius: 2 },
+  uploadProgressText: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
   previewActions: { flexDirection: 'row', gap: 16 },
   previewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
