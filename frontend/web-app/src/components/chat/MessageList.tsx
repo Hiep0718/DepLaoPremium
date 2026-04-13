@@ -165,18 +165,18 @@ const MessageList = () => {
   const contactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
 
   // Render image message
-  const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+  const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date, isInGrid: boolean = false) => {
     const isUploading = (msg as any)._uploading;
     const isFailed = (msg as any)._uploadFailed;
 
     return (
-      <div className="relative group/media rounded-xl overflow-hidden cursor-pointer max-w-[280px]"
+      <div className={`relative group/media overflow-hidden cursor-pointer ${isInGrid ? 'w-full h-full rounded-md' : 'rounded-xl max-w-[280px]'}`}
         onClick={() => !isUploading && msg.fileUrl && setLightboxUrl(msg.fileUrl)}
       >
         <img
           src={msg.fileUrl}
           alt="Hình ảnh"
-          className={`w-full max-h-[300px] object-cover rounded-xl transition-all ${isUploading ? 'opacity-50 blur-[1px]' : 'hover:brightness-95'}`}
+          className={`w-full object-cover transition-all ${isUploading ? 'opacity-50 blur-[1px]' : 'hover:brightness-95'} ${isInGrid ? 'h-full absolute inset-0' : 'max-h-[300px]'}`}
           loading="lazy"
           onError={(e) => {
             (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgZmlsbD0iI2UwZTBlMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjE0IiBmaWxsPSIjOTk5Ij5MxJdpIHThuqNpIMOjbmg8L3RleHQ+PC9zdmc+';
@@ -209,6 +209,7 @@ const MessageList = () => {
   // Render video message
   const renderVideoMessage = (msg: any, isMe: boolean, msgTime: Date) => {
     const isUploading = (msg as any)._uploading;
+    const isFailed = (msg as any)._uploadFailed;
 
     return (
       <div className="relative group/media rounded-xl overflow-hidden max-w-[320px]">
@@ -221,9 +222,14 @@ const MessageList = () => {
             src={msg.fileUrl}
             controls
             preload="metadata"
-            className="w-full max-h-[300px] rounded-xl"
+            className={`w-full max-h-[300px] rounded-xl ${isFailed ? 'opacity-50' : ''}`}
             style={{ background: '#000' }}
           />
+        )}
+        {isFailed && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-xl z-20 pointer-events-none">
+            <AlertCircle size={28} className="text-red-400" />
+          </div>
         )}
         {/* Time overlay */}
         <span className="absolute bottom-1.5 right-2 px-1.5 py-0.5 rounded-full text-[10px] flex items-center gap-0.5 select-none whitespace-nowrap bg-black/40 text-white backdrop-blur-sm z-10">
@@ -278,21 +284,23 @@ const MessageList = () => {
   // Render file message
   const renderFileMessage = (msg: any, isMe: boolean, msgTime: Date) => {
     const isUploading = (msg as any)._uploading;
+    const isFailed = (msg as any)._uploadFailed;
     const fileName = (msg as any).fileName || msg.content || msg.text || 'File';
     const fileSize = (msg as any).fileSize;
     const ext = msg.fileUrl ? getFileExtension(msg.fileUrl) : '';
 
     return (
       <div
-        className="flex items-center gap-3 px-3 py-2.5 rounded-2xl max-w-[320px] transition-shadow hover:shadow-md cursor-pointer"
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl max-w-[320px] transition-shadow hover:shadow-md cursor-pointer ${isFailed ? 'opacity-70 bg-red-50' : ''}`}
         style={{
-          background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)',
+          background: isFailed ? 'var(--bg-panel)' : isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)',
           borderRadius: bubbleR.normal,
           borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
           borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+          border: isFailed ? '1px solid red' : undefined
         }}
         onClick={() => {
-          if (!isUploading && msg.fileUrl) {
+          if (!isUploading && !isFailed && msg.fileUrl) {
             window.open(msg.fileUrl, '_blank');
           }
         }}
@@ -444,10 +452,44 @@ const MessageList = () => {
 
             // Show date separator if different day
             const showDateSeparator = idx === 0 || (prevTime && !isSameDay(msgTime, prevTime));
+
+            // Check if this is an image inside a cluster
+            const isImage = msg.messageType === 'image' && !msg.isRevoked && !msg.replyTo;
+            let clusterMessages = [msg];
+
+            if (isImage) {
+               const isPrevImage = prevMsg && prevMsg.messageType === 'image' && !prevMsg.isRevoked && !prevMsg.replyTo;
+               const isSameSenderAsPrev = prevMsg && prevMsg.senderId === msg.senderId;
+               const isCloseToPrev = prevTime && Math.abs(msgTime.getTime() - prevTime.getTime()) < 60000;
+               if (isPrevImage && isSameSenderAsPrev && isCloseToPrev && !showDateSeparator) {
+                  return null; // Skip rendering, already rendered in previous cluster
+               }
+               
+               let fwdIdx = idx + 1;
+               while(fwdIdx < messages.length) {
+                  const fwdMsg = messages[fwdIdx];
+                  const fwdTime = fwdMsg.createdAt ? new Date(fwdMsg.createdAt) : (fwdMsg.timestamp ? new Date(fwdMsg.timestamp) : new Date());
+                  const lastClMsg = clusterMessages[clusterMessages.length - 1];
+                  const lastClTime = lastClMsg.createdAt ? new Date(lastClMsg.createdAt) : (lastClMsg.timestamp ? new Date(lastClMsg.timestamp) : new Date());
+                  
+                  const fwdClose = Math.abs(fwdTime.getTime() - lastClTime.getTime()) < 60000;
+                  const fwdDiffDay = !isSameDay(fwdTime, lastClTime);
+                  const fwdSameSender = fwdMsg.senderId === msg.senderId;
+                  const fwdIsImage = fwdMsg.messageType === 'image' && !fwdMsg.isRevoked && !fwdMsg.replyTo;
+                  
+                  if (fwdIsImage && fwdSameSender && fwdClose && !fwdDiffDay) {
+                     clusterMessages.push(fwdMsg);
+                     fwdIdx++;
+                  } else {
+                     break;
+                  }
+               }
+            }
+
             const messageId = msg._id || msg.id;
 
             const actionMenu = !msg.isRevoked && (
-              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity mx-2 relative">
+              <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity mx-2 relative ${clusterMessages.length > 1 ? 'self-end' : ''}`}>
                 <button 
                   onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === messageId ? null : messageId); }}
                   className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
@@ -560,7 +602,22 @@ const MessageList = () => {
 
                         /* Image */
                         ) : msg.messageType === 'image' && msg.fileUrl ? (
-                          renderImageMessage(msg, isMe, msgTime)
+                            clusterMessages.length > 1 ? (
+                              <div className={`grid gap-1 max-w-[280px] w-[280px] ${clusterMessages.length >= 2 ? 'grid-cols-2' : ''}`}
+                                   style={{ 
+                                      gridTemplateRows: clusterMessages.length === 3 ? 'repeat(2, 140px)' : 'auto', 
+                                      gridAutoRows: '140px'
+                                   }}>
+                                {clusterMessages.map((cMsg, cIdx) => {
+                                  const cTime = cMsg.createdAt ? new Date(cMsg.createdAt) : (cMsg.timestamp ? new Date(cMsg.timestamp) : new Date());
+                                  return (
+                                    <div key={cMsg._id || cMsg.id || cIdx} className={`relative group/cmsg w-full h-full ${cIdx === 2 && clusterMessages.length === 3 ? 'col-span-2' : ''}`}>
+                                      {renderImageMessage(cMsg, isMe, cTime, true)}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            ) : renderImageMessage(msg, isMe, msgTime, false)
 
                         /* Video */
                         ) : msg.messageType === 'video' && msg.fileUrl ? (
