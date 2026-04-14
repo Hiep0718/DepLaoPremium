@@ -47,15 +47,34 @@ const MessageList = () => {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string; }>>({});
+  const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
+  const [unreadCountToShow, setUnreadCountToShow] = useState<number>(0);
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
+
+  useEffect(() => {
+    // Reset when switching conversations
+    setFirstUnreadMessageId(null);
+    setUnreadCountToShow(0);
+  }, [activeConversation?.conversationId]);
 
   useEffect(() => {
     if (!activeConversation || !user?.id) return;
     const fetchHistory = async () => {
       try {
         const res = await getConversationHistory(activeConversation.conversationId, user.id.toString());
-        if (res.data && Array.isArray(res.data.data)) setMessages(res.data.data);
-        else if (res.data && Array.isArray(res.data)) setMessages(res.data);
+        const history = res.data?.data || res.data || [];
+        if (Array.isArray(history)) {
+          setMessages(history);
+          
+          // Identify the first unread message anchor
+          const unreadCount = activeConversation.unreadCount || 0;
+          if (unreadCount > 0 && history.length > 0) {
+            const index = Math.max(0, history.length - unreadCount);
+            setFirstUnreadMessageId(history[index]?._id || history[index]?.id || null);
+            setUnreadCountToShow(unreadCount);
+          }
+        }
       } catch (err) {
         console.error('Error fetching messages', err);
       }
@@ -66,6 +85,56 @@ const MessageList = () => {
       setMessages([]);
     }
   }, [activeConversation, user, setMessages]);
+
+  useEffect(() => {
+    if (!activeConversation?.isGroup) return;
+    const fetchMembers = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+      const { default: api } = await import('../../services/axios');
+      
+      // Collect IDs from current participants
+      const allIds = new Set<string>();
+      for (const p of (activeConversation.participants || [])) {
+        const uid = String(p.userId || p.contactUserId || p.id || p);
+        if (uid && uid !== user?.id?.toString()) allIds.add(uid);
+      }
+      
+      // Also collect IDs from system messages (removed/left members, added members)
+      for (const msg of messages) {
+        if (msg.messageType !== 'system') continue;
+        const content = msg.content || msg.text || '';
+        if (content.startsWith('member_left:')) {
+          allIds.add(content.split(':')[1]);
+        } else if (content.startsWith('member_removed:')) {
+          const parts = content.split(':');
+          if (parts[1]) allIds.add(parts[1]);
+          if (parts[2]) allIds.add(parts[2]);
+        } else if (content.startsWith('added_members:')) {
+          content.split(':')[1].split(',').forEach((id: string) => allIds.add(id));
+        }
+        // Also add senderId
+        if (msg.senderId && msg.senderId !== user?.id?.toString()) {
+          allIds.add(msg.senderId);
+        }
+      }
+      
+      // Remove own ID
+      allIds.delete(user?.id?.toString() || '');
+      
+      // Fetch all unique IDs
+      for (const uid of allIds) {
+        if (!uid) continue;
+        try {
+          const res = await api.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName || res.data.data.nickname, avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+      setMemberMap(map);
+    };
+    fetchMembers();
+  }, [activeConversation?.conversationId, activeConversation?.isGroup, activeConversation?.participants?.length, messages.length, user?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -159,10 +228,10 @@ const MessageList = () => {
     );
   }
 
-  // Get contact info for received messages
-  const contact = activeConversation.participants?.[0];
-  const contactAvatar = activeContactInfo?.avatarUrl || contact?.avatarUrl;
-  const contactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
+  // Get contact info for received messages (default for private chats)
+  const contact = activeConversation.participants?.find((p: any) => p.userId !== user?.id?.toString() && p.id !== user?.id?.toString()) || activeConversation.participants?.[0];
+  const defaultContactAvatar = activeContactInfo?.avatarUrl || contact?.avatarUrl;
+  const defaultContactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
 
   // Render image message
   const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date, isInGrid: boolean = false) => {
@@ -488,6 +557,27 @@ const MessageList = () => {
 
             const messageId = msg._id || msg.id;
 
+            let msgSenderAvatar = defaultContactAvatar;
+            let msgSenderName = defaultContactName;
+
+            if (activeConversation.isGroup && !isMe) {
+              const sender = activeConversation.participants?.find((p: any) => {
+                const pid = p.userId || p.contactUserId || p.id;
+                return pid?.toString() === msg.senderId;
+              });
+              const fetchedInfo = memberMap[msg.senderId];
+              if (fetchedInfo) {
+                msgSenderAvatar = fetchedInfo.avatarUrl;
+                msgSenderName = fetchedInfo.fullName || 'Thành viên';
+              } else if (sender) {
+                msgSenderAvatar = sender.avatarUrl;
+                msgSenderName = sender.nickname || sender.fullName || sender.name || 'Thành viên';
+              } else {
+                msgSenderName = 'Thành viên';
+                msgSenderAvatar = undefined;
+              }
+            }
+
             const actionMenu = !msg.isRevoked && (
               <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity mx-2 relative ${clusterMessages.length > 1 ? 'self-end' : ''}`}>
                 <button 
@@ -538,17 +628,83 @@ const MessageList = () => {
                   </div>
                 )}
 
-                {/* Message Bubble container */}
-                <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-0.5 group relative`}>
+                {/* Unread Messages Divider */}
+                {firstUnreadMessageId && messageId === firstUnreadMessageId && (
+                  <div className="flex justify-center my-4">
+                    <div className="text-[12px] py-1 px-4 rounded-full font-medium select-none bg-[rgba(255,59,48,0.1)] text-[#FF3B30] border border-[rgba(255,59,48,0.2)]">
+                      {unreadCountToShow} tin nhắn chưa đọc
+                    </div>
+                  </div>
+                )}
+
+                {/* System Message */}
+                {msg.messageType === 'system' ? (
+                  <div className="flex justify-center my-3">
+                    <div className="text-[12px] py-1 px-4 rounded-full font-medium select-none bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+                      {(() => {
+                        const content = msg.content || msg.text || '';
+                        const actor = isMe ? 'Bạn' : msgSenderName;
+                        if (content === 'Nhóm đã được tạo') {
+                          if (activeConversation.groupName) {
+                            return `${actor} đã tạo nhóm "${activeConversation.groupName}"`;
+                          } else {
+                            return `${actor} đã tạo một nhóm mới`;
+                          }
+                        } else if (content === 'Đã thêm thành viên mới vào nhóm') {
+                          return `${actor} đã thêm thành viên mới vào nhóm`;
+                        } else if (content.startsWith('added_members:')) {
+                          const addedIds = content.split(':')[1].split(',');
+                          const names = addedIds.map((id: string) => id === user?.id?.toString() ? 'Bạn' : (memberMap[id]?.fullName || 'Thành viên')).join(', ');
+                          return `${actor} đã thêm ${names} vào nhóm`;
+                        } else if (content.startsWith('member_left:')) {
+                          const leftId = content.split(':')[1];
+                          const leftName = leftId === user?.id?.toString() ? 'Bạn' : (memberMap[leftId]?.fullName || 'Thành viên');
+                          return `${leftName} đã rời khỏi nhóm`;
+                        } else if (content.startsWith('member_removed:')) {
+                          const parts = content.split(':');
+                          const removerId = parts[1];
+                          const removedId = parts[2];
+                          const removerName = removerId === user?.id?.toString() ? 'Bạn' : (memberMap[removerId]?.fullName || 'Thành viên');
+                          const removedName = removedId === user?.id?.toString() ? 'Bạn' : (memberMap[removedId]?.fullName || 'Thành viên');
+                          return `${removerName} đã xóa ${removedName} ra khỏi nhóm`;
+                        } else if (content.startsWith('group_disbanded:')) {
+                          const disbanderId = content.split(':')[1];
+                          const disbanderName = disbanderId === user?.id?.toString() ? 'Bạn' : (memberMap[disbanderId]?.fullName || 'Trưởng nhóm');
+                          return `${disbanderName} đã giải tán nhóm`;
+                        } else if (content.startsWith('role_deputy:')) {
+                          const parts = content.split(':');
+                          const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                          const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                          return `${actorName} đã đặt ${targetName} làm phó nhóm`;
+                        } else if (content.startsWith('role_undeputy:')) {
+                          const parts = content.split(':');
+                          const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                          const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                          return `${actorName} đã gỡ phó nhóm của ${targetName}`;
+                        } else if (content.startsWith('role_leader:')) {
+                          const parts = content.split(':');
+                          const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                          const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                          return `${actorName} đã đặt ${targetName} làm trưởng nhóm`;
+                        }
+                        return content;
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  /* Message Bubble container */
+                  <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-0.5 group relative`}>
                   
                   {/* Received: Avatar */}
                   {!isMe && (
                     <div className="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto mb-0.5 flex items-center justify-center font-bold text-xs text-white overflow-hidden"
-                      style={{ background: contactAvatar ? 'transparent' : '#0068FF' }}>
-                      {contactAvatar ? (
-                        <img src={contactAvatar} alt={contactName} className="w-full h-full object-cover" />
+                      style={{ background: msgSenderAvatar ? 'transparent' : '#0068FF' }}
+                      title={msgSenderName}
+                    >
+                      {msgSenderAvatar ? (
+                        <img src={msgSenderAvatar} alt={msgSenderName} className="w-full h-full object-cover" />
                       ) : (
-                        contactName.charAt(0).toUpperCase()
+                        msgSenderName.charAt(0).toUpperCase()
                       )}
                     </div>
                   )}
@@ -557,6 +713,13 @@ const MessageList = () => {
                   {isMe && actionMenu}
 
                   <div className={`max-w-[60%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                    {/* Sender Name in Group Chat */}
+                    {!isMe && activeConversation.isGroup && (
+                      <span className="text-[11px] mb-0.5 ml-1 opacity-70" style={{ color: 'var(--text-secondary)' }}>
+                        {msgSenderName}
+                      </span>
+                    )}
+
                     {msg.isRevoked ? (
                       <div className="px-3 py-[7px] rounded-2xl border border-[var(--border-light)] text-[15px] italic text-[var(--text-secondary)] bg-transparent opacity-70">
                         Tin nhắn đã bị thu hồi
@@ -567,7 +730,7 @@ const MessageList = () => {
                         {msg.replyTo && (
                           <div className="text-xs p-1.5 mb-1 border-l-[3px] rounded opacity-90 max-w-full truncate" 
                             style={{ borderColor: '#0068FF', background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                            <span className="font-semibold">{msg.replyTo.senderId === user?.id?.toString() ? 'Bạn' : contactName}</span>
+                            <span className="font-semibold">{msg.replyTo.senderId === user?.id?.toString() ? 'Bạn' : (activeConversation.isGroup ? (memberMap[msg.replyTo.senderId]?.fullName || 'Thành viên') : defaultContactName)}</span>
                             <br/>
                             <span className="opacity-80">
                               {msg.replyTo.messageType === 'sticker' ? '[Nhãn dán]' : 
@@ -681,6 +844,7 @@ const MessageList = () => {
                   {!isMe && actionMenu}
 
                 </div>
+                )}
               </div>
             );
           })}

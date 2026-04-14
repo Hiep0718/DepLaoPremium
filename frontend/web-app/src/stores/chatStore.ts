@@ -34,6 +34,7 @@ export interface Conversation {
   groupName?: string;
   lastMessage?: string | any;
   unreadCount?: number;
+  leftAt?: string;
 }
 
 export interface ContactInfo {
@@ -52,7 +53,7 @@ interface ChatState {
   isForwardModalOpen: boolean;
   markAsRead: (conversationId: string) => void;
   setConversations: (conversations: Conversation[]) => void;
-  setActiveConversation: (conversation: Conversation) => void;
+  setActiveConversation: (conversation: Conversation | null) => void;
   setActiveContactInfo: (info: ContactInfo) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;

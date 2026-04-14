@@ -26,14 +26,15 @@ export const sendMessage = async (req, res) => {
 
     // Update conversation last message and unread count
     const conversation = await Conversation.findOne({ conversationId });
-    
+
     if (conversation) {
       conversation.lastMessage = {
         content,
         senderId,
+        messageType,
         timestamp: new Date(),
       };
-      
+
       // Task 1: Increment unreadCount for all participants EXCEPT the sender
       if (conversation.participants) {
         conversation.participants.forEach(p => {
@@ -43,7 +44,7 @@ export const sendMessage = async (req, res) => {
           }
         });
       }
-      
+
       await conversation.save();
     }
 
@@ -74,10 +75,21 @@ export const getMessages = async (req, res) => {
     if (userId) {
       const conversation = await Conversation.findOne({ conversationId });
       if (conversation) {
+
         if (conversation.deletedAt && conversation.deletedAt.get(userId)) {
           query.createdAt = { $gt: conversation.deletedAt.get(userId) };
         }
         pinnedMessage = conversation.pinnedMessage;
+
+        // If user deleted the chat, only show messages after deletion
+        if (conversation.deletedAt && conversation.deletedAt.get(userId)) {
+          query.createdAt = { ...query.createdAt, $gt: conversation.deletedAt.get(userId) };
+        }
+        // If user left the group, only show messages up to when they left
+        if (conversation.leftMembers && conversation.leftMembers.get(userId)) {
+          const leftAt = conversation.leftMembers.get(userId);
+          query.createdAt = { ...(query.createdAt || {}), $lte: leftAt };
+        }
       }
       query.deletedBy = { $ne: userId };
     }
@@ -115,7 +127,10 @@ export const getConversations = async (req, res) => {
     const { userId } = req.params;
 
     const conversations = await Conversation.find({
-      'participants.userId': userId,
+      $or: [
+        { 'participants.userId': userId },
+        { [`leftMembers.${userId}`]: { $exists: true } },
+      ]
     }).sort({ 'lastMessage.timestamp': -1 });
 
     // Task 2: Format unreadCount as a number for the fetching user
@@ -128,12 +143,35 @@ export const getConversations = async (req, res) => {
         count = convObj.unreadCount[userId] || 0;
       }
       convObj.unreadCount = count;
+
+      // Check if user has left the group
+      let leftAt = null;
+      if (c.leftMembers && c.leftMembers.get) {
+        leftAt = c.leftMembers.get(userId) || null;
+      } else if (convObj.leftMembers && convObj.leftMembers[userId]) {
+        leftAt = convObj.leftMembers[userId] || null;
+      }
+      if (leftAt) {
+        convObj.leftAt = leftAt;
+        convObj.unreadCount = 0; // No unread for left members
+      }
+
       return convObj;
-    }).filter(c => {
-      // Exclude conversations if they were deleted by the user AFTER the last message
-      if (c.deletedAt && c.deletedAt[userId]) {
-        const deletedTime = new Date(c.deletedAt[userId]).getTime();
-        const lastMsgTime = c.lastMessage && c.lastMessage.timestamp ? new Date(c.lastMessage.timestamp).getTime() : 0;
+    }).filter(convObj => {
+      // Retrieve deletedAt for the user.
+      let delTimestamp = null;
+      if (convObj.deletedAt instanceof Map) {
+        delTimestamp = convObj.deletedAt.get(userId);
+      } else if (convObj.deletedAt && typeof convObj.deletedAt === 'object') {
+        delTimestamp = convObj.deletedAt[userId];
+      }
+
+      if (delTimestamp) {
+        const deletedTime = new Date(delTimestamp).getTime();
+        const lastMsgTime = convObj.lastMessage && convObj.lastMessage.timestamp
+          ? new Date(convObj.lastMessage.timestamp).getTime()
+          : 0;
+
         if (lastMsgTime <= deletedTime) {
           return false;
         }
@@ -191,6 +229,51 @@ export const createConversation = async (req, res) => {
     });
 
     await conversation.save();
+
+    if (isGroup && req.io) {
+      try {
+        const sysMsg = new Message({
+          conversationId,
+          senderId: creator,
+          receiverId: conversationId,
+          messageType: 'system',
+          content: 'Nhóm đã được tạo',
+          status: 'sent',
+        });
+        await sysMsg.save();
+
+        conversation.lastMessage = {
+          content: sysMsg.content,
+          senderId: creator,
+          messageType: 'system',
+          timestamp: new Date(),
+        };
+
+        // Increment unread count for everyone except creator
+        conversation.participants.forEach(p => {
+          if (p.userId !== creator) {
+            conversation.unreadCount.set(p.userId, 1);
+          }
+        });
+        await conversation.save();
+
+        const payload = {
+          messageId: sysMsg._id,
+          conversationId,
+          senderId: creator,
+          messageType: 'system',
+          content: sysMsg.content,
+          timestamp: sysMsg.createdAt,
+          status: 'received',
+        };
+
+        conversation.participants.forEach(p => {
+          req.io.to(`user_${p.userId}`).emit('message_received', payload);
+        });
+      } catch (err) {
+        console.error('Failed to emit system message for group creation:', err);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -288,7 +371,7 @@ export const markConversationAsRead = async (req, res) => {
     }
 
     const conversation = await Conversation.findOne({ conversationId });
-    
+
     if (!conversation) {
       return res.status(404).json({
         success: false,
@@ -421,6 +504,63 @@ export const updateMemberRole = async (req, res) => {
 
     await conversation.save();
 
+    // Emit system message for role change
+    if (req.io) {
+      try {
+        let sysContent = '';
+        if (newRole === 'leader') {
+          sysContent = `role_leader:${requesterId}:${targetUserId}`;
+        } else if (newRole === 'deputy') {
+          sysContent = `role_deputy:${requesterId}:${targetUserId}`;
+        } else if (newRole === 'member') {
+          sysContent = `role_undeputy:${requesterId}:${targetUserId}`;
+        }
+
+        if (sysContent) {
+          const sysMsg = new Message({
+            conversationId,
+            senderId: requesterId,
+            receiverId: conversationId,
+            messageType: 'system',
+            content: sysContent,
+            status: 'sent',
+          });
+          await sysMsg.save();
+
+          conversation.lastMessage = {
+            content: sysContent,
+            senderId: requesterId,
+            messageType: 'system',
+            timestamp: new Date(),
+          };
+
+          conversation.participants.forEach(p => {
+            if (p.userId !== requesterId) {
+              const current = conversation.unreadCount.get(p.userId) || 0;
+              conversation.unreadCount.set(p.userId, current + 1);
+            }
+          });
+          await conversation.save();
+
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: requesterId,
+            messageType: 'system',
+            content: sysContent,
+            timestamp: sysMsg.createdAt,
+            status: 'received',
+          };
+
+          conversation.participants.forEach(p => {
+            req.io.to(`user_${p.userId}`).emit('message_received', payload);
+          });
+        }
+      } catch (err) {
+        console.error('Failed to emit role change system message:', err);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: `Role updated: ${targetUserId} is now ${newRole}`,
@@ -461,13 +601,13 @@ export const removeMemberFromGroup = async (req, res) => {
     // Tìm requester
     const requester = conversation.participants.find(p => p.userId === requesterId);
     if (!requester) {
-       return res.status(403).json({ success: false, message: 'Requester not in group' });
+      return res.status(403).json({ success: false, message: 'Requester not in group' });
     }
 
     // Tìm target
     const target = conversation.participants.find(p => p.userId === targetUserId);
     if (!target) {
-       return res.status(404).json({ success: false, message: 'Target user not found in group' });
+      return res.status(404).json({ success: false, message: 'Target user not found in group' });
     }
 
     // Cho phép tự rời nhóm, hoặc kiểm tra quyền nếu xoá người khác
@@ -485,8 +625,69 @@ export const removeMemberFromGroup = async (req, res) => {
       }
     }
 
-    // Xoá
+    // Ghi lại thời điểm rời nhóm để giữ hội thoại trong danh sách của người đó
+    if (!conversation.leftMembers) {
+      conversation.leftMembers = new Map();
+    }
+    conversation.leftMembers.set(targetUserId, new Date());
+
+    // Xoá khỏi danh sách thành viên hiện tại
     conversation.participants = conversation.participants.filter(p => p.userId !== targetUserId);
+
+    // Emit system message
+    if (req.io) {
+      try {
+        const isSelfLeave = requesterId === targetUserId;
+        const sysContent = isSelfLeave
+          ? `member_left:${targetUserId}`
+          : `member_removed:${requesterId}:${targetUserId}`;
+
+        const sysMsg = new Message({
+          conversationId,
+          senderId: requesterId,
+          receiverId: conversationId,
+          messageType: 'system',
+          content: sysContent,
+          status: 'sent',
+        });
+        await sysMsg.save();
+
+        conversation.lastMessage = {
+          content: sysContent,
+          senderId: requesterId,
+          messageType: 'system',
+          timestamp: new Date(),
+        };
+
+        // Increment unread for remaining participants
+        conversation.participants.forEach(p => {
+          if (p.userId !== requesterId) {
+            const current = conversation.unreadCount.get(p.userId) || 0;
+            conversation.unreadCount.set(p.userId, current + 1);
+          }
+        });
+
+        const payload = {
+          messageId: sysMsg._id,
+          conversationId,
+          senderId: requesterId,
+          messageType: 'system',
+          content: sysContent,
+          timestamp: sysMsg.createdAt,
+          status: 'received',
+        };
+
+        // Emit to remaining participants
+        conversation.participants.forEach(p => {
+          req.io.to(`user_${p.userId}`).emit('message_received', payload);
+        });
+        // Also emit to the removed/left user so they see the notification
+        req.io.to(`user_${targetUserId}`).emit('message_received', payload);
+      } catch (err) {
+        console.error('Failed to emit system message for member removal:', err);
+      }
+    }
+
     await conversation.save();
 
     res.status(200).json({
@@ -529,12 +730,13 @@ export const addMembersToGroup = async (req, res) => {
     // Tìm requester
     const requester = conversation.participants.find(p => p.userId === requesterId);
     if (!requester) {
-       return res.status(403).json({ success: false, message: 'Requester not in group' });
+      return res.status(403).json({ success: false, message: 'Requester not in group' });
     }
 
     // Mọi thành viên đều có thể thêm người mới vào nhóm
     const currentMemberIds = new Set(conversation.participants.map(p => p.userId));
     let addedCount = 0;
+    const addedIds = [];
 
     for (const userId of targetUserIds) {
       if (!currentMemberIds.has(String(userId))) {
@@ -543,11 +745,61 @@ export const addMembersToGroup = async (req, res) => {
           role: 'member'
         });
         currentMemberIds.add(String(userId));
+        addedIds.push(String(userId));
         addedCount++;
+
+        // Clear leftMembers entry if re-adding a former member
+        if (conversation.leftMembers && conversation.leftMembers.get(String(userId))) {
+          conversation.leftMembers.delete(String(userId));
+        }
       }
     }
 
     if (addedCount > 0) {
+      if (req.io) {
+        try {
+          const sysMsg = new Message({
+            conversationId,
+            senderId: requesterId,
+            receiverId: conversationId,
+            messageType: 'system',
+            content: `added_members:${addedIds.join(',')}`,
+            status: 'sent',
+          });
+          await sysMsg.save();
+
+          conversation.lastMessage = {
+            content: sysMsg.content,
+            senderId: requesterId,
+            messageType: 'system',
+            timestamp: new Date(),
+          };
+
+          // Increment unread limit for everyone except requester
+          conversation.participants.forEach(p => {
+            if (p.userId !== requesterId) {
+              const current = conversation.unreadCount.get(p.userId) || 0;
+              conversation.unreadCount.set(p.userId, current + 1);
+            }
+          });
+
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: requesterId,
+            messageType: 'system',
+            content: sysMsg.content,
+            timestamp: sysMsg.createdAt,
+            status: 'received',
+          };
+
+          conversation.participants.forEach(p => {
+            req.io.to(`user_${p.userId}`).emit('message_received', payload);
+          });
+        } catch (err) {
+          console.error('Failed to emit system message for adding members:', err);
+        }
+      }
       await conversation.save();
     }
 
@@ -563,5 +815,60 @@ export const addMembersToGroup = async (req, res) => {
       message: 'Failed to add members',
       error: error.message,
     });
+  }
+};
+
+// API Giải tán nhóm
+export const disbandGroup = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId } = req.body;
+
+    if (!conversationId || !requesterId) {
+      return res.status(400).json({ success: false, message: 'Missing fields' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group conversation not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || requester.role !== 'leader') {
+      return res.status(403).json({ success: false, message: 'Only leader can disband group' });
+    }
+
+    // Emit system message to all participants BEFORE deleting
+    if (req.io) {
+      try {
+        const sysContent = `group_disbanded:${requesterId}`;
+        const payload = {
+          messageId: `disband_${conversationId}_${Date.now()}`,
+          conversationId,
+          senderId: requesterId,
+          messageType: 'system',
+          content: sysContent,
+          timestamp: new Date().toISOString(),
+          status: 'received',
+        };
+
+        conversation.participants.forEach(p => {
+          req.io.to(`user_${p.userId}`).emit('message_received', payload);
+        });
+      } catch (err) {
+        console.error('Failed to emit disband notification:', err);
+      }
+    }
+
+    // Xoá toàn bộ conversation
+    await Conversation.deleteOne({ conversationId });
+
+    res.status(200).json({
+      success: true,
+      message: 'Group disbanded successfully',
+    });
+  } catch (error) {
+    console.error('Disband group error:', error);
+    res.status(500).json({ success: false, message: 'Failed to disband group' });
   }
 };

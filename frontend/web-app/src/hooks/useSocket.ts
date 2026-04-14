@@ -68,8 +68,13 @@ export const useSocketSetup = () => {
           // Rút ra khỏi mảng hiện tại
           updatedConversations.splice(targetIndex, 1);
 
-          // Cập nhật nội dung
-          targetConv.lastMessage = data.content || data.text;
+          // Cập nhật nội dung (Để đồng bộ với logic hiển thị "Người dùng: Nội dung" ở Sidebar)
+          targetConv.lastMessage = {
+            content: data.content || data.text,
+            senderId: data.senderId,
+            messageType: (data as any).messageType || 'text',
+            timestamp: new Date().toISOString()
+          };
 
           // Chỉ tăng biến đếm nếu KHÔNG ĐANG MỞ cửa sổ chat đó
           if (chatState.activeConversation?.conversationId !== data.conversationId) {
@@ -92,14 +97,50 @@ export const useSocketSetup = () => {
             }
           });
         }
-        // 3. ═══ NOTIFICATIONS ═══
+        // 3. ═══ REFRESH CONVERSATION DATA FOR GROUP CHANGES ═══
+        const msgType = (data as any).messageType || 'text';
+        const msgContent = (data as any).content || '';
+        const isGroupChange = msgType === 'system' && (
+          msgContent.startsWith('added_members:') ||
+          msgContent.startsWith('member_left:') ||
+          msgContent.startsWith('member_removed:') ||
+          msgContent.startsWith('group_disbanded:') ||
+          msgContent.startsWith('role_') ||
+          msgContent === 'Nhóm đã được tạo'
+        );
+
+        if (isGroupChange) {
+          // Reload conversation list to get fresh participant/role data
+          import('../services/message.service').then(({ getConversationsList }) => {
+            if (user?.id) {
+              getConversationsList(user.id.toString()).then(res => {
+                const list = res.data?.data || res.data;
+                if (Array.isArray(list)) {
+                  const freshState = useChatStore.getState();
+                  freshState.setConversations(list);
+
+                  // If the active conversation is affected, update it with fresh data
+                  if (freshState.activeConversation?.conversationId === data.conversationId) {
+                    const freshConv = list.find((c: any) => c.conversationId === data.conversationId);
+                    if (freshConv) {
+                      freshState.setActiveConversation(freshConv);
+                    } else if (msgContent.startsWith('group_disbanded:')) {
+                      // Group was disbanded, clear active
+                      freshState.setActiveConversation(null);
+                    }
+                  }
+                }
+              }).catch(console.error);
+            }
+          });
+        }
+
+        // 4. ═══ NOTIFICATIONS ═══
         // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt
         if (!settingsState.notifyMessages) return;
 
-        const msgType = (data as any).messageType || 'text';
-
         // Nếu user tắt preview (ẩn nội dung), thay thế bằng dòng chữ chung chung
-        const msgContent = settingsState.notifyPreview ? (data.content || data.text || '') : 'Bạn có một tin nhắn mới';
+        const notifyContent = settingsState.notifyPreview ? (data.content || data.text || '') : 'Bạn có một tin nhắn mới';
 
         let senderName = 'Tin nhắn mới';
         let senderAvatar: string | undefined;
@@ -128,11 +169,11 @@ export const useSocketSetup = () => {
         };
 
         // Browser desktop notification (chỉ khi tab mất focus)
-        showMessageNotification(senderName, msgContent, msgType, senderAvatar, handleNotificationClick);
+        showMessageNotification(senderName, notifyContent, msgType, senderAvatar, handleNotificationClick);
 
         // In-app toast (khi đang ở conversation khác)
         if (!isInActiveConv) {
-          let toastMsg = msgContent;
+          let toastMsg = notifyContent;
           if (settingsState.notifyPreview) {
             if (msgType === 'image') toastMsg = '📷 Đã gửi một hình ảnh';
             else if (msgType === 'video') toastMsg = '🎬 Đã gửi một video';
