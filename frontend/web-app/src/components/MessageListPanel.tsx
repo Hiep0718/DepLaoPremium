@@ -36,6 +36,22 @@ const MessageListPanel = () => {
           const pid = String((p as any).userId || (p as any).id || p);
           if (pid && pid !== String(user?.id) && !map[pid]) unknownIds.push(pid);
         }
+        // Also extract IDs from system message content in lastMessage
+        const lastMsg = typeof conv.lastMessage === 'object' && conv.lastMessage !== null ? (conv.lastMessage as any) : null;
+        const content = lastMsg?.content || (typeof conv.lastMessage === 'string' ? conv.lastMessage : '');
+        if (typeof content === 'string') {
+          if (content.startsWith('member_left:')) {
+            const id = content.split(':')[1];
+            if (id && !map[id]) unknownIds.push(id);
+          } else if (content.startsWith('member_removed:')) {
+            const parts = content.split(':');
+            if (parts[1] && !map[parts[1]]) unknownIds.push(parts[1]);
+            if (parts[2] && !map[parts[2]]) unknownIds.push(parts[2]);
+          } else if (content.startsWith('added_members:')) {
+            content.split(':')[1].split(',').forEach((id: string) => { if (id && !map[id]) unknownIds.push(id); });
+          }
+          if (lastMsg?.senderId && !map[lastMsg.senderId]) unknownIds.push(String(lastMsg.senderId));
+        }
       }
       for (const uid of [...new Set(unknownIds)]) {
         try {
@@ -247,9 +263,55 @@ const MessageListPanel = () => {
                     </span>
                   </div>
                   <p className={`text-[13px] truncate ${hasUnread ? 'font-semibold' : ''}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                    {typeof conv.lastMessage === 'object' && conv.lastMessage !== null
-                      ? (conv.lastMessage as any).content
-                      : (conv.lastMessage as string) || 'Chưa có tin nhắn'}
+                    {(() => {
+                        const lastMsgObj = typeof conv.lastMessage === 'object' && conv.lastMessage !== null ? (conv.lastMessage as any) : null;
+                        const contentStr = lastMsgObj ? lastMsgObj.content : ((conv.lastMessage as string) || 'Chưa có tin nhắn');
+                        const isSystem = lastMsgObj?.messageType === 'system' || contentStr === 'Nhóm đã được tạo' || (typeof contentStr === 'string' && (contentStr.startsWith('added_members:') || contentStr.startsWith('member_left:') || contentStr.startsWith('member_removed:') || contentStr.startsWith('group_disbanded:') || contentStr.startsWith('role_')));
+                        
+                        if (isSystem) {
+                           const senderId = lastMsgObj ? String(lastMsgObj.senderId) : '';
+                           const actor = senderId === String(user?.id) ? 'Bạn' : (userMap[senderId]?.fullName || 'Thành viên');
+                           
+                           if (contentStr === 'Nhóm đã được tạo') {
+                              return conv.groupName ? `${actor} đã tạo nhóm "${conv.groupName}"` : `${actor} đã tạo một nhóm mới`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('added_members:')) {
+                              const addedIds = contentStr.split(':')[1].split(',');
+                              const names = addedIds.map((id: string) => id === String(user?.id) ? 'Bạn' : (userMap[id]?.fullName || 'Thành viên')).join(', ');
+                              return `${actor} đã thêm ${names} vào nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('member_left:')) {
+                              const leftId = contentStr.split(':')[1];
+                              const leftName = leftId === String(user?.id) ? 'Bạn' : (userMap[leftId]?.fullName || 'Thành viên');
+                              return `${leftName} đã rời khỏi nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('member_removed:')) {
+                              const parts = contentStr.split(':');
+                              const removerId = parts[1];
+                              const removedId = parts[2];
+                              const removerName = removerId === String(user?.id) ? 'Bạn' : (userMap[removerId]?.fullName || 'Thành viên');
+                              const removedName = removedId === String(user?.id) ? 'Bạn' : (userMap[removedId]?.fullName || 'Thành viên');
+                              return `${removerName} đã xóa ${removedName} ra khỏi nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('group_disbanded:')) {
+                              const disbanderId = contentStr.split(':')[1];
+                              const disbanderName = disbanderId === String(user?.id) ? 'Bạn' : (userMap[disbanderId]?.fullName || 'Trưởng nhóm');
+                              return `${disbanderName} đã giải tán nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('role_deputy:')) {
+                              const parts = contentStr.split(':');
+                              const actorN = parts[1] === String(user?.id) ? 'Bạn' : (userMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                              const targetN = parts[2] === String(user?.id) ? 'Bạn' : (userMap[parts[2]]?.fullName || 'Thành viên');
+                              return `${actorN} đã đặt ${targetN} làm phó nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('role_undeputy:')) {
+                              const parts = contentStr.split(':');
+                              const actorN = parts[1] === String(user?.id) ? 'Bạn' : (userMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                              const targetN = parts[2] === String(user?.id) ? 'Bạn' : (userMap[parts[2]]?.fullName || 'Thành viên');
+                              return `${actorN} đã gỡ phó nhóm của ${targetN}`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('role_leader:')) {
+                              const parts = contentStr.split(':');
+                              const actorN = parts[1] === String(user?.id) ? 'Bạn' : (userMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                              const targetN = parts[2] === String(user?.id) ? 'Bạn' : (userMap[parts[2]]?.fullName || 'Thành viên');
+                              return `${actorN} đã đặt ${targetN} làm trưởng nhóm`;
+                           }
+                        }
+                        return contentStr;
+                    })()}
                   </p>
                 </div>
                 {hasUnread && (

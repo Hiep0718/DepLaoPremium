@@ -33,6 +33,7 @@ const conversationSchema = new mongoose.Schema(
     lastMessage: {
       content: String,
       senderId: String,
+      messageType: String,
       timestamp: Date,
     },
     unreadCount: {
@@ -41,6 +42,11 @@ const conversationSchema = new mongoose.Schema(
       default: new Map(),
     },
     deletedAt: {
+      type: Map,
+      of: Date,
+      default: new Map(),
+    },
+    leftMembers: {
       type: Map,
       of: Date,
       default: new Map(),

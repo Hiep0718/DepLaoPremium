@@ -74,12 +74,17 @@ const setupSocketEvents = (io) => {
 
         const messageContent = content || text;
 
+        // Fetch conversation to determine if it's a group and get participants
+        const conversation = await Conversation.findOne({ conversationId });
+        const isGroup = conversation?.isGroup;
+        const actualReceiverId = isGroup ? conversationId : recipientId;
+
         // Save message to database (use 'content' and 'receiverId' to match Message schema)
         // Also map optional messageType and fileUrl
         const message = new Message({
           conversationId,
           senderId,
-          receiverId: recipientId,
+          receiverId: actualReceiverId,
           content: messageContent,
           messageType: messageType || 'text',
           fileUrl: fileUrl || null,
@@ -105,10 +110,7 @@ const setupSocketEvents = (io) => {
           }
         );
 
-        // Emit to both sender and recipient
-        io.to(`user_${senderId}`).emit('message_sent', {
-          messageId: message._id,
-          tempId,
+        const basePayload = {
           conversationId,
           senderId,
           text,
@@ -120,26 +122,35 @@ const setupSocketEvents = (io) => {
           replyTo: message.replyTo,
           isRevoked: message.isRevoked,
           timestamp: message.createdAt,
+        };
+
+        // Emit 'message_sent' back to sender
+        io.to(`user_${senderId}`).emit('message_sent', {
+          ...basePayload,
+          messageId: message._id,
+          tempId,
           status: 'sent',
         });
 
-        io.to(`user_${recipientId}`).emit('message_received', {
+        const receivedPayload = {
+          ...basePayload,
           messageId: message._id,
-          conversationId,
-          senderId,
-          text,
-          content: message.content,
-          messageType: message.messageType,
-          fileUrl: message.fileUrl,
-          fileName: message.fileName,
-          fileSize: message.fileSize,
-          replyTo: message.replyTo,
-          isRevoked: message.isRevoked,
-          timestamp: message.createdAt,
           status: 'received',
-        });
+        };
 
-        console.log(`[Socket] Message sent from ${senderId} to ${recipientId} (type: ${message.messageType})`);
+        // Emit 'message_received' to recipient(s)
+        if (isGroup && conversation && conversation.participants) {
+          conversation.participants.forEach((p) => {
+            const pId = p.userId || p.id || (typeof p === 'string' ? p : null);
+            if (pId && String(pId) !== String(senderId)) {
+              io.to(`user_${pId}`).emit('message_received', receivedPayload);
+            }
+          });
+          console.log(`[Socket] Group Message sent from ${senderId} in ${conversationId}`);
+        } else if (recipientId) {
+          io.to(`user_${recipientId}`).emit('message_received', receivedPayload);
+          console.log(`[Socket] Message sent from ${senderId} to ${recipientId} (type: ${message.messageType})`);
+        }
       } catch (error) {
         console.error('[Socket] Error sending message:', error);
         socket.emit('error', { message: 'Failed to send message' });

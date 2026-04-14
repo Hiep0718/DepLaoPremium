@@ -88,3 +88,14 @@ export const addMembersToGroup = async (
     targetUserIds,
   });
 };
+
+export const disbandGroup = async (
+  conversationId: string,
+  requesterId: string
+) => {
+  return messagingApi.delete(`/conversations/${conversationId}/disband`, {
+    data: {
+      requesterId,
+    },
+  });
+};

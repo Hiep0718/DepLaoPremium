@@ -3,7 +3,7 @@ import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Lin
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
-import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup } from '../../services/message.service';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
 
 const ConversationInfoPanel = () => {
@@ -177,6 +177,24 @@ const ConversationInfoPanel = () => {
       }
     } catch (err: any) {
       alert(err.response?.data?.message || 'Lỗi khi rời nhóm.');
+    }
+  };
+
+  const handleDisbandGroup = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    if (!window.confirm("CẢNH BÁO: Bạn có chắc chắn muốn giải tán nhóm này? Toàn bộ thành viên sẽ bị xóa và không thể khôi phục lại nhóm.")) return;
+
+    try {
+      await disbandGroup(activeConversation.conversationId, String(user.id));
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        setActiveConversation(null);
+        toggleInfoPanel();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Lỗi khi giải tán nhóm.');
     }
   };
 
@@ -640,6 +658,15 @@ const ConversationInfoPanel = () => {
                 onClick={handleLeaveGroup}>
                 <LogOut size={18} style={{ color: '#ef4444' }} />
                 <span className="text-sm" style={{ color: '#ef4444' }}>Rời nhóm</span>
+              </button>
+            )}
+            {activeConversation.isGroup && myRole === 'leader' && (
+              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onClick={handleDisbandGroup}>
+                <Trash2 size={18} style={{ color: '#ef4444' }} />
+                <span className="text-sm" style={{ color: '#ef4444' }}>Giải tán nhóm</span>
               </button>
             )}
             <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
