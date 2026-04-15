@@ -30,6 +30,10 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    groupAvatar: {
+      type: String,
+      default: null,
+    },
     lastMessage: {
       content: String,
       senderId: String,

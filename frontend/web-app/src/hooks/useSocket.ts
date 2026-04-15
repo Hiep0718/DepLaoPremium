@@ -106,6 +106,7 @@ export const useSocketSetup = () => {
           msgContent.startsWith('member_removed:') ||
           msgContent.startsWith('group_disbanded:') ||
           msgContent.startsWith('role_') ||
+          msgContent.startsWith('group_updated:') ||
           msgContent === 'Nhóm đã được tạo'
         );
 
@@ -201,6 +202,36 @@ export const useSocketSetup = () => {
             fileName: data.fileName,
             fileSize: data.fileSize,
             messageType: data.messageType,
+          });
+        }
+
+        // Cập nhật lastMessage và đẩy hội thoại lên đầu danh sách
+        const updatedConversations = [...state.conversations];
+        const targetIndex = updatedConversations.findIndex(c => c.conversationId === data.conversationId);
+        
+        if (targetIndex !== -1) {
+          const targetConv = { ...updatedConversations[targetIndex] };
+          updatedConversations.splice(targetIndex, 1);
+          
+          targetConv.lastMessage = {
+            content: data.content || data.text,
+            senderId: data.senderId,
+            messageType: data.messageType || 'text',
+            timestamp: data.timestamp || new Date().toISOString()
+          };
+          
+          updatedConversations.unshift(targetConv);
+          state.setConversations(updatedConversations);
+        } else {
+          // Nếu không tìm thấy, fetch lại danh sách
+          import('../services/message.service').then(({ getConversationsList }) => {
+            if (user?.id) {
+              getConversationsList(user.id.toString()).then(res => {
+                if (res.data?.success) {
+                  state.setConversations(res.data.data);
+                }
+              });
+            }
           });
         }
       });

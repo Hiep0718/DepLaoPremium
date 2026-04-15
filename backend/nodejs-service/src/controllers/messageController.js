@@ -186,7 +186,7 @@ export const getConversations = async (req, res) => {
 
 export const createConversation = async (req, res) => {
   try {
-    const { conversationId, participants, isGroup = false, groupName = null, creatorId = null } = req.body;
+    const { conversationId, participants, isGroup = false, groupName = null, creatorId = null, groupAvatar = null } = req.body;
 
     if (!conversationId || !participants || participants.length === 0) {
       return res.status(400).json({
@@ -217,6 +217,7 @@ export const createConversation = async (req, res) => {
       participants: participantDocs,
       isGroup,
       groupName: isGroup ? groupName : null,
+      groupAvatar: isGroup ? groupAvatar : null,
     });
 
     await conversation.save();
@@ -861,5 +862,111 @@ export const disbandGroup = async (req, res) => {
   } catch (error) {
     console.error('Disband group error:', error);
     res.status(500).json({ success: false, message: 'Failed to disband group' });
+  }
+};
+// API thay đổi thông tin nhóm (tên, avatar)
+export const updateGroupInfo = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, groupName, groupAvatar } = req.body;
+
+    if (!conversationId || !requesterId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: requesterId',
+      });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({
+        success: false,
+        message: 'Group conversation not found',
+      });
+    }
+
+    // Checking if requester is in the group
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester) {
+      return res.status(403).json({ success: false, message: 'Requester not in group' });
+    }
+
+    const updates = [];
+    if (groupName !== undefined && groupName !== conversation.groupName) {
+      conversation.groupName = groupName;
+      updates.push(`tên nhóm|${groupName}`);
+    }
+    
+    if (groupAvatar !== undefined && groupAvatar !== conversation.groupAvatar) {
+      conversation.groupAvatar = groupAvatar;
+      updates.push('ảnh nhóm');
+    }
+
+    if (updates.length > 0) {
+      await conversation.save();
+
+      // Emit system message
+      if (req.io) {
+        try {
+          const sysContent = `group_updated:${requesterId}:${updates.join(',')}`;
+
+          const sysMsg = new Message({
+            conversationId,
+            senderId: requesterId,
+            receiverId: conversationId,
+            messageType: 'system',
+            content: sysContent,
+            status: 'sent',
+          });
+          await sysMsg.save();
+
+          conversation.lastMessage = {
+            content: sysContent,
+            senderId: requesterId,
+            messageType: 'system',
+            timestamp: new Date(),
+          };
+
+          // Increment unread count for others
+          conversation.participants.forEach(p => {
+             if (p.userId !== requesterId) {
+               const current = conversation.unreadCount.get(p.userId) || 0;
+               conversation.unreadCount.set(p.userId, current + 1);
+             }
+          });
+          await conversation.save();
+
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: requesterId,
+            messageType: 'system',
+            content: sysContent,
+            timestamp: sysMsg.createdAt,
+            status: 'received',
+          };
+
+          conversation.participants.forEach(p => {
+            req.io.to(`user_${p.userId}`).emit('message_received', payload);
+          });
+        } catch (err) {
+          console.error('Failed to emit system message for group update:', err);
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Group info updated successfully',
+      data: conversation,
+    });
+  } catch (error) {
+    console.error('Update group info error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update group info',
+      error: error.message,
+    });
   }
 };

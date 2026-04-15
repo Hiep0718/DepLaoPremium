@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Search, Users, Check, Image as ImageIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Search, Users, Check, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { contactService, type ContactResponse } from '../services/contactService';
 import { createConversation } from '../services/message.service';
 import { useAuthStore } from '../stores/authStore';
@@ -19,6 +19,9 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuthStore();
 
@@ -40,6 +43,8 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
       setSearchText('');
       setSelectedIds(new Set());
       setError('');
+      setAvatarUrl('');
+      setUploadingAvatar(false);
     }
   }, [isOpen]);
 
@@ -67,6 +72,29 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
     setStep(2);
   };
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check size < 5MB
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Lỗi tải ảnh. Dung lượng phải < 5MB');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    setError('');
+    try {
+      const url = await contactService.uploadFile(file, 'avatar');
+      setAvatarUrl(url);
+    } catch (err: any) {
+      console.error('Lỗi upload avatar group:', err);
+      setError('Không thể tải ảnh lên. Vui lòng thử lại.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const handleCreate = async () => {
     if (!groupName.trim()) {
       setError('Vui lòng nhập tên nhóm');
@@ -78,7 +106,7 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
     setError('');
     try {
       const participantIds = [String(user.id), ...Array.from(selectedIds).map(String)];
-      const res = await createConversation(participantIds, true, groupName.trim(), String(user.id));
+      const res = await createConversation(participantIds, true, groupName.trim(), String(user.id), avatarUrl || undefined);
 
       const newConv = res.data?.data || res.data;
       const conversationId = newConv?.conversationId || newConv?._id || '';
@@ -270,14 +298,32 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
           <div className="flex-1 px-5 pt-3 pb-4 flex flex-col gap-5">
             {/* Avatar nhóm placeholder */}
             <div className="flex flex-col items-center gap-3 py-4">
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleAvatarChange}
+                disabled={uploadingAvatar}
+              />
               <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-105"
-                style={{ background: 'linear-gradient(135deg, #0068FF 0%, #00C6FF 100%)' }}
+                className="w-20 h-20 rounded-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-105 overflow-hidden relative shadow-sm"
+                style={{ background: avatarUrl ? 'transparent' : 'linear-gradient(135deg, #0068FF 0%, #00C6FF 100%)' }}
+                onClick={() => !uploadingAvatar && fileInputRef.current?.click()}
               >
-                <ImageIcon size={32} color="rgba(255,255,255,0.85)" />
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Group Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon size={32} color="rgba(255,255,255,0.85)" />
+                )}
+                {uploadingAvatar && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[1px]">
+                    <Loader2 size={24} className="text-white animate-spin" />
+                  </div>
+                )}
               </div>
               <p className="text-xs" style={{ color: 'var(--text-secondary, #6b7280)' }}>
-                Ảnh nhóm (tuỳ chọn)
+                {uploadingAvatar ? 'Đang tải lên...' : 'Ảnh nhóm (tuỳ chọn)'}
               </p>
             </div>
 

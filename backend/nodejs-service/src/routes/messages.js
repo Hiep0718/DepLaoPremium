@@ -12,6 +12,7 @@ import {
   removeMemberFromGroup,
   addMembersToGroup,
   disbandGroup,
+  updateGroupInfo,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -31,6 +32,7 @@ router.post('/conversation', createConversation);
 router.get('/conversations/:userId', getConversations);
 router.put('/conversations/:conversationId/read', markConversationAsRead);
 router.put('/conversations/:conversationId/role', updateMemberRole);
+router.put('/conversations/:conversationId/info', updateGroupInfo);
 router.post('/conversations/:conversationId/members', addMembersToGroup);
 router.delete('/conversations/:conversationId/members', removeMemberFromGroup);
 router.delete('/conversations/:conversationId/disband', disbandGroup);

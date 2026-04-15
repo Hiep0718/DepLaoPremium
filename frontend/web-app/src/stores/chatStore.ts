@@ -32,6 +32,7 @@ export interface Conversation {
   participants: any[];
   isGroup: boolean;
   groupName?: string;
+  groupAvatar?: string;
   lastMessage?: string | any;
   unreadCount?: number;
   leftAt?: string;

@@ -23,8 +23,8 @@ const ChatHeader = () => {
 
   const contact = activeContactInfo || conversationContact || activeConversation?.participants?.[0];
   // Use resolved contact info from store, with fallbacks
-  const displayName = activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện';
-  const contactAvatarUrl = activeContactInfo?.avatarUrl || contact?.avatarUrl;
+  const displayName = activeConversation?.isGroup ? (activeConversation.groupName || 'Nhóm trò chuyện') : (activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện');
+  const contactAvatarUrl = activeConversation?.isGroup ? activeConversation.groupAvatar : (activeContactInfo?.avatarUrl || contact?.avatarUrl);
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
   const setOutgoingCall = useCallStore((state) => state.setOutgoingCall);
