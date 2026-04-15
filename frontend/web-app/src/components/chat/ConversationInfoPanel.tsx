@@ -3,7 +3,8 @@ import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Lin
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
-import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup } from '../../services/message.service';
+import { contactService } from '../../services/contactService';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
 
 const ConversationInfoPanel = () => {
@@ -16,6 +17,10 @@ const ConversationInfoPanel = () => {
   const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
   const [menuOpenUid, setMenuOpenUid] = useState<string | null>(null);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Đóng menu khi click ngoài
@@ -198,11 +203,70 @@ const ConversationInfoPanel = () => {
     }
   };
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeConversation?.conversationId || !user?.id) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Dung lượng ảnh phải < 5MB');
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const url = await contactService.uploadFile(file, 'avatar');
+      await updateGroupInfo(
+        activeConversation.conversationId,
+        String(user.id),
+        undefined,
+        url
+      );
+      
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (error) {
+      console.error('Error changing group avatar:', error);
+      alert('Không thể đổi ảnh nhóm. Vui lòng thử lại.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleRenameGroup = async () => {
+    if (!activeConversation?.conversationId || !user?.id || !newGroupName.trim()) return;
+
+    try {
+      await updateGroupInfo(
+        activeConversation.conversationId,
+        String(user.id),
+        newGroupName.trim()
+      );
+      
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+      setIsRenameModalOpen(false);
+      setNewGroupName('');
+    } catch (error) {
+      console.error('Error renaming group:', error);
+      alert('Không thể đổi tên nhóm. Vui lòng thử lại.');
+    }
+  };
+
   if (!activeConversation) return null;
 
   // Use resolved contact info from store
-  const displayName = activeContactInfo?.name || 'Người dùng';
-  const displayAvatar = activeContactInfo?.avatarUrl;
+  const displayName = activeConversation.isGroup ? (activeConversation.groupName || 'Nhóm trò chuyện') : (activeContactInfo?.name || 'Người dùng');
+  const displayAvatar = activeConversation.isGroup ? activeConversation.groupAvatar : activeContactInfo?.avatarUrl;
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
   return (
@@ -226,29 +290,62 @@ const ConversationInfoPanel = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {/* Profile Section */}
         <div className="flex flex-col items-center py-5 px-4"
           style={{ borderBottom: '6px solid var(--border-light)' }}>
-          <div className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl text-white overflow-hidden mb-3"
-            style={{ background: displayAvatar ? 'transparent' : '#0068FF' }}>
+          {activeConversation.isGroup && (
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept="image/*"
+              onChange={handleAvatarChange}
+              disabled={uploadingAvatar}
+            />
+          )}
+          <div 
+            className={`w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl text-white mb-3 relative overflow-hidden shadow-sm ${(activeConversation.isGroup && !uploadingAvatar) ? 'cursor-pointer group' : ''}`}
+            style={{ background: displayAvatar ? 'transparent' : '#0068FF' }}
+            onClick={() => {
+              if (activeConversation.isGroup && !uploadingAvatar) {
+                fileInputRef.current?.click();
+              }
+            }}
+          >
             {displayAvatar ? (
               <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
             ) : (
               avatarLetter
+            )}
+            
+            {uploadingAvatar && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[1px]">
+                <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+              </div>
+            )}
+            {activeConversation.isGroup && !uploadingAvatar && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[1px]">
+                <ImageIcon size={20} className="text-white" />
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">
             <span className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>
               {displayName}
             </span>
-            <button className="p-1 rounded-md transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-              </svg>
-            </button>
+            {activeConversation.isGroup && (
+              <button className="p-1 rounded-md transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onClick={() => {
+                  setNewGroupName(activeConversation.groupName || '');
+                  setIsRenameModalOpen(true);
+                }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
 
@@ -694,6 +791,66 @@ const ConversationInfoPanel = () => {
         onConfirm={handleAddMembersConfirm}
         existingMemberIds={activeConversation?.participants?.map((p: any) => String(p.userId || p.id)) || []}
       />
+
+      {/* Rename Group Modal */}
+      {isRenameModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-[400px] rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200"
+            style={{ background: 'var(--bg-panel)' }}>
+            <div className="h-14 px-4 flex items-center justify-between border-b"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <h2 className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>Đổi tên nhóm</h2>
+              <button
+                onClick={() => setIsRenameModalOpen(false)}
+                className="p-1.5 rounded-xl transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4">
+              <input
+                type="text"
+                autoFocus
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                placeholder="Nhập tên nhóm mới..."
+                className="w-full px-4 py-2.5 rounded-xl text-sm transition-all outline-none border focus:ring-2 focus:ring-blue-500/20"
+                style={{
+                  background: 'var(--bg-search)',
+                  borderColor: 'var(--border-primary)',
+                  color: 'var(--text-primary)'
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameGroup();
+                }}
+              />
+            </div>
+
+            <div className="p-4 pt-2 flex justify-end gap-2 border-t"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <button
+                onClick={() => setIsRenameModalOpen(false)}
+                className="px-6 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-80"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleRenameGroup}
+                disabled={!newGroupName.trim() || newGroupName.trim() === activeConversation.groupName}
+                className="px-6 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: '#0068FF' }}
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

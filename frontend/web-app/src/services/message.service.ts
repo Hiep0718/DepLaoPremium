@@ -28,7 +28,7 @@ export const getConversationHistory = async (conversationId: string, userId: str
   return messagingApi.get(`/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`);
 };
 
-export const createConversation = async (participants: string[], isGroup = false, groupName?: string, creatorId?: string) => {
+export const createConversation = async (participants: string[], isGroup = false, groupName?: string, creatorId?: string, groupAvatar?: string) => {
   const conversationId = isGroup 
     ? `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
     : `1on1_${participants.sort().join('_')}`;
@@ -39,6 +39,7 @@ export const createConversation = async (participants: string[], isGroup = false
     isGroup,
     ...(groupName ? { groupName } : {}),
     ...(creatorId ? { creatorId } : {}),
+    ...(groupAvatar ? { groupAvatar } : {}),
   });
 };
 
@@ -97,5 +98,18 @@ export const disbandGroup = async (
     data: {
       requesterId,
     },
+  });
+};
+
+export const updateGroupInfo = async (
+  conversationId: string,
+  requesterId: string,
+  groupName?: string,
+  groupAvatar?: string
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/info`, {
+    requesterId,
+    ...(groupName !== undefined ? { groupName } : {}),
+    ...(groupAvatar !== undefined ? { groupAvatar } : {}),
   });
 };

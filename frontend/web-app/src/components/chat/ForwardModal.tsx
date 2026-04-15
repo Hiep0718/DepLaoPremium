@@ -81,7 +81,7 @@ const ForwardModal = () => {
 
   // Helper: get display name & avatar for a conversation
   const getConversationInfo = (conv: any) => {
-    if (conv.isGroup) return { name: 'Nhóm', avatar: undefined };
+    if (conv.isGroup) return { name: conv.groupName || 'Nhóm trò chuyện', avatar: conv.groupAvatar || undefined };
     for (const p of conv.participants) {
       const pid = String((p as any).userId || (p as any).id || p);
       if (pid !== String(user.id)) {

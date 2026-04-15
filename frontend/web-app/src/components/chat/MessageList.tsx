@@ -17,6 +17,48 @@ const BUBBLE_RADIUS = {
   minimal: { normal: '4px', corner: '2px' },
 };
 
+// Helper: detect URLs in text and render as clickable links
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+const renderTextWithLinks = (text: string) => {
+  if (!text) return text;
+  const parts = text.split(URL_REGEX);
+  if (parts.length === 1) return text;
+
+  return parts.map((part, i) => {
+    if (URL_REGEX.test(part)) {
+      // Reset regex lastIndex after test
+      URL_REGEX.lastIndex = 0;
+      const href = part.startsWith('http') ? part : `https://${part}`;
+      return (
+        <a
+          key={i}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            color: '#4A90D9',
+            textDecoration: 'underline',
+            wordBreak: 'break-all',
+          }}
+          onMouseEnter={(e) => {
+            (e.target as HTMLAnchorElement).style.color = '#2B6CB0';
+          }}
+          onMouseLeave={(e) => {
+            (e.target as HTMLAnchorElement).style.color = '#4A90D9';
+          }}
+        >
+          {part}
+        </a>
+      );
+    }
+    // Reset regex lastIndex
+    URL_REGEX.lastIndex = 0;
+    return part;
+  });
+};
+
 // Helper: format file size
 const formatFileSize = (bytes: number): string => {
   if (!bytes) return '';
@@ -686,6 +728,18 @@ const MessageList = () => {
                           const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
                           const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
                           return `${actorName} đã đặt ${targetName} làm trưởng nhóm`;
+                        } else if (content.startsWith('group_updated:')) {
+                          const parts = content.split(':');
+                          const actorId = parts[1];
+                          const updatesString = parts[2] || '';
+                          const actorName = actorId === user?.id?.toString() ? 'Bạn' : (memberMap[actorId]?.fullName || 'Thành viên');
+                          
+                          // Parse special formatting for name
+                          if (updatesString.includes('tên nhóm|')) {
+                            const newName = updatesString.split('tên nhóm|')[1].split(',')[0];
+                            return `${actorName} đã đổi tên đoạn chat thành "${newName}"`;
+                          }
+                          return `${actorName} đã thay đổi ${updatesString}`;
                         }
                         return content;
                       })()}
@@ -815,7 +869,7 @@ const MessageList = () => {
                             }}>
 
                             <div className="pr-12">
-                              <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.content || msg.text}</div>
+                              <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '')}</div>
                               {translatedMessages[messageId] && (
                                 <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>
                                   {translatedMessages[messageId]}

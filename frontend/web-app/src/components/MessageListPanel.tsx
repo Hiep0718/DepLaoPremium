@@ -86,7 +86,7 @@ const MessageListPanel = () => {
   }, [user, setConversations]);
 
   const getOtherParticipant = (conv: Conversation) => {
-    if (conv.isGroup) return { name: conv.groupName || 'Nhóm chưa đặt tên', avatar: undefined };
+    if (conv.isGroup) return { name: conv.groupName || 'Nhóm chưa đặt tên', avatar: conv.groupAvatar || undefined };
     for (const p of conv.participants) {
       const pid = String((p as any).userId || (p as any).id || p);
       if (pid !== String(user?.id)) {
@@ -308,6 +308,16 @@ const MessageListPanel = () => {
                               const actorN = parts[1] === String(user?.id) ? 'Bạn' : (userMap[parts[1]]?.fullName || 'Trưởng nhóm');
                               const targetN = parts[2] === String(user?.id) ? 'Bạn' : (userMap[parts[2]]?.fullName || 'Thành viên');
                               return `${actorN} đã đặt ${targetN} làm trưởng nhóm`;
+                           } else if (typeof contentStr === 'string' && contentStr.startsWith('group_updated:')) {
+                              const parts = contentStr.split(':');
+                              const actorN = parts[1] === String(user?.id) ? 'Bạn' : (userMap[parts[1]]?.fullName || 'Thành viên');
+                              const updatesString = parts[2] || '';
+                              
+                              if (updatesString.includes('tên nhóm|')) {
+                                const newName = updatesString.split('tên nhóm|')[1].split(',')[0];
+                                return `${actorN} đã đổi tên đoạn chat thành "${newName}"`;
+                              }
+                              return `${actorN} đã thay đổi ${updatesString}`;
                            }
                         }
                         return contentStr;
