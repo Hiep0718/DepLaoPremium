@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { MoreHorizontal, Download, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Video, Phone } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
 import { useAuthStore } from '../../stores/authStore';
@@ -794,6 +794,56 @@ const MessageList = () => {
                         /* Contact */
                         ) : msg.messageType === 'contact' ? (
                           renderContactMessage(msg, isMe, msgTime)
+
+                        /* Group Call */
+                        ) : msg.messageType === 'group_call' ? (
+                          <div 
+                            className="flex flex-col gap-2.5 px-3 py-3 min-w-[200px] max-w-[250px] shadow-sm"
+                            style={{
+                              background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
+                              border: isMe ? 'none' : '1px solid var(--border-light)',
+                              borderRadius: bubbleR.normal,
+                              borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
+                              borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+                            }}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[#E5F0FF] text-[#0068FF]">
+                                {msg.content === 'video' ? <Video size={20} fill="currentColor" stroke="currentColor" /> : <Phone size={20} fill="currentColor" stroke="currentColor" />}
+                              </div>
+                              <span className="font-semibold text-[15px]" style={{ color: 'var(--text-primary)' }}>
+                                Cuộc gọi nhóm
+                              </span>
+                            </div>
+                            <button 
+                              className="w-full py-2 rounded-2xl font-medium text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
+                              style={{ background: '#0068FF', fontSize: '14px' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const conversationId = msg.conversationId || activeConversation?.conversationId;
+                                if (conversationId) {
+                                  import('../../stores/groupCallStore').then(m => {
+                                      const currentUser = useAuthStore.getState().user;
+                                      m.useGroupCallStore.getState().setOutgoingCall(conversationId, String(currentUser?.id || currentUser?._id), msg.content === 'video');
+                                  });
+                                  socket.emit('group_call_join', { conversationId });
+                                }
+                              }}
+                            >
+                              Tham gia
+                            </button>
+                            {/* Time overlay */}
+                            <span className="text-[10px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
+                              style={{ color: 'var(--text-msg-time)', marginTop: '-2px' }}>
+                              {format(msgTime, 'HH:mm')}
+                              {isMe && (
+                                <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                              )}
+                            </span>
+                          </div>
 
                         /* Text (default) */
                         ) : (

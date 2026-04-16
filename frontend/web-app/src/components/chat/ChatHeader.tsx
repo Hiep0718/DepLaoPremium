@@ -27,9 +27,27 @@ const ChatHeader = () => {
   const contactAvatarUrl = activeConversation?.isGroup ? activeConversation.groupAvatar : (activeContactInfo?.avatarUrl || contact?.avatarUrl);
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
+// imports will be patched next
   const setOutgoingCall = useCallStore((state) => state.setOutgoingCall);
+  
+  const startCall = async (isVideo: boolean) => {
+    const conversationId = activeConversation?.conversationId || activeConversation?._id || (activeConversation as any)?.id;
+    const currentUser = useAuthStore.getState().user;
+    const callerInfo = {
+      id: currentUser?.id?.toString() || 'me',
+      fullName: currentUser?.fullName || 'Người dùng',
+      avatarUrl: currentUser?.avatarUrl || ''
+    };
 
-  const startCall = (isVideo: boolean) => {
+    if (activeConversation?.isGroup) {
+      // Logic gọi nhóm
+      const { setOutgoingCall: setGroupOutgoingCall } = await import('../../stores/groupCallStore').then(m => m.useGroupCallStore.getState());
+      setGroupOutgoingCall(conversationId, String(user?.id || user?._id), isVideo);
+      socket.emit('group_call_start', { conversationId, callerInfo, isVideo });
+      socket.emit('group_call_join', { conversationId });
+      return;
+    }
+
     let recipientId = null;
     
     // activeContactInfo doesn't contain an id, so we should always look in conversationContact first.
@@ -52,19 +70,10 @@ const ChatHeader = () => {
        return;
     }
     
-    const conversationId = activeConversation?.conversationId || activeConversation?._id || (activeConversation as any)?.id;
-    
-    // Store my basic info
-    const currentUser = useAuthStore.getState().user;
-    const callerInfo = {
-      id: currentUser?.id?.toString() || 'me',
-      fullName: currentUser?.fullName || 'Người dùng',
-      avatarUrl: currentUser?.avatarUrl || ''
-    };
-    
     setOutgoingCall(recipientId, { id: recipientId, fullName: displayName, avatarUrl: contactAvatarUrl }, isVideo, conversationId);
     socket.emit('call_request', { recipientId, callerInfo, isVideo, conversationId });
   };
+
 
   return (
     <div className="h-[60px] px-4 flex items-center justify-between sticky top-0 z-10 theme-transition shrink-0"
