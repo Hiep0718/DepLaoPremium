@@ -370,7 +370,6 @@ const MessageListPanel = () => {
       <SearchUserModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
-        onUserAdded={() => contactService.getContacts(0, 50).then(res => setContacts(res.content)).catch(console.error)}
       />
 
       <CreateGroupModal

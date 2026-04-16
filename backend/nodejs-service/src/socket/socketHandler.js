@@ -474,6 +474,280 @@ const setupSocketEvents = (io) => {
 
     // ═══════════════════ END WEBRTC CALL SIGNALING ═══════════════════
 
+    // ═══════════════════ GROUP CALL SIGNALING ═══════════════════
+
+    // Start a Group Call
+    socket.on('group_call_start', async (data) => {
+      const { conversationId, callerInfo, isVideo } = data;
+      
+      try {
+        const conversation = await Conversation.findOne({ conversationId });
+        if (!conversation || !conversation.participants) return;
+
+        const callContent = isVideo ? 'video' : 'audio';
+
+        // Save group call message
+        const msg = new Message({
+          conversationId,
+          senderId: socket.userId,
+          receiverId: conversationId,
+          messageType: 'group_call',
+          content: callContent,
+          status: 'sent'
+        });
+        await msg.save();
+        
+        await Conversation.findOneAndUpdate(
+          { conversationId },
+          {
+            lastMessage: {
+              content: '📞 Cuộc gọi nhóm',
+              senderId: socket.userId,
+              messageType: 'group_call',
+              timestamp: new Date(),
+            },
+            lastMessageTime: new Date(),
+          }
+        );
+
+        const payload = {
+          messageId: msg._id,
+          conversationId,
+          senderId: socket.userId,
+          messageType: 'group_call',
+          content: msg.content,
+          timestamp: msg.createdAt,
+          status: 'sent'
+        };
+
+        // Emit message back to sender
+        io.to(`user_${socket.userId}`).emit('message_sent', {
+          ...payload,
+          status: 'sent',
+        });
+
+        // Broadcast to all participants EXCEPT the caller
+        conversation.participants.forEach((p) => {
+          const pId = p.userId || p.id || (typeof p === 'string' ? p : null);
+          if (pId && String(pId) !== String(socket.userId)) {
+            io.to(`user_${pId}`).emit('group_call_incoming', {
+              conversationId,
+              callerId: socket.userId,
+              callerInfo,
+              isVideo
+            });
+            // Also emit the message to display bubble
+            io.to(`user_${pId}`).emit('message_received', payload);
+          }
+        });
+        console.log(`[Group Call] Started by ${socket.userId} in room ${conversationId}`);
+      } catch (err) {
+        console.error("Failed to start group call", err);
+      }
+    });
+
+    // Accept and Join a Group Call
+    socket.on('group_call_join', (data) => {
+      const { conversationId } = data;
+      const roomName = `group_call_${conversationId}`;
+      
+      socket.join(roomName);
+
+      // Notify others in the room that this user joined
+      socket.to(roomName).emit('group_user_joined', {
+        userId: socket.userId,
+      });
+      console.log(`[Group Call] User ${socket.userId} joined room ${roomName}`);
+    });
+
+    // WebRTC: Group Offer
+    socket.on('group_webrtc_offer', (data) => {
+      const { targetPeerId, offer, conversationId } = data;
+      io.to(`user_${targetPeerId}`).emit('group_webrtc_offer', {
+        senderPeerId: socket.userId,
+        offer,
+        conversationId
+      });
+    });
+
+    // WebRTC: Group Answer
+    socket.on('group_webrtc_answer', (data) => {
+      const { targetPeerId, answer, conversationId } = data;
+      io.to(`user_${targetPeerId}`).emit('group_webrtc_answer', {
+        senderPeerId: socket.userId,
+        answer,
+        conversationId
+      });
+    });
+
+    // WebRTC: Group ICE Candidate
+    socket.on('group_webrtc_ice_candidate', (data) => {
+      const { targetPeerId, candidate, conversationId } = data;
+      io.to(`user_${targetPeerId}`).emit('group_webrtc_ice_candidate', {
+        senderPeerId: socket.userId,
+        candidate,
+        conversationId
+      });
+    });
+
+    // Leave a Group Call
+    socket.on('group_call_leave', async (data) => {
+      const { conversationId } = data;
+      const roomName = `group_call_${conversationId}`;
+      
+      socket.leave(roomName);
+
+      // Notify others in the room
+      socket.to(roomName).emit('group_user_left', {
+        userId: socket.userId,
+      });
+      console.log(`[Group Call] User ${socket.userId} left room ${roomName}`);
+
+      // Check if room is empty
+      const room = io.sockets.adapter.rooms.get(roomName);
+      if (!room || room.size === 0) {
+        try {
+          const sysMsg = new Message({
+            conversationId,
+            senderId: socket.userId,
+            receiverId: conversationId,
+            messageType: 'system',
+            content: `Cuộc gọi nhóm đã kết thúc`,
+            status: 'sent'
+          });
+          await sysMsg.save();
+          
+          await Conversation.findOneAndUpdate(
+            { conversationId },
+            {
+              lastMessage: {
+                content: `📞 Cuộc gọi nhóm đã kết thúc`,
+                senderId: socket.userId,
+                messageType: 'system',
+                timestamp: new Date(),
+              },
+              lastMessageTime: new Date(),
+            }
+          );
+          
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: socket.userId,
+            messageType: 'system',
+            content: sysMsg.content,
+            timestamp: sysMsg.createdAt,
+            status: 'sent'
+          };
+          
+          // Emit to all users in the conversation
+          const conversation = await Conversation.findOne({ conversationId });
+          if (conversation && conversation.participants) {
+            conversation.participants.forEach((p) => {
+              const pId = p.userId || p.id || (typeof p === 'string' ? p : null);
+              if (pId) {
+                io.to(`user_${pId}`).emit('message_received', payload);
+              }
+            });
+          }
+        } catch (err) {
+          console.error("[Group Call] Failed to save group call ended message:", err);
+        }
+      }
+    });
+
+    // Decline / Reject an incoming group call (does not affect the room, just dismisses the ringing)
+    socket.on('group_call_reject', (data) => {
+      const { conversationId, callerId } = data;
+      // You can notify the caller if needed, but in a group context it might be noisy.
+      // Usually, we just quietly ignore it. 
+      console.log(`[Group Call] User ${socket.userId} rejected incoming group call from ${callerId}`);
+    });
+
+    // Mute signaling
+    socket.on('group_call_mute_state', (data) => {
+      const { conversationId, isMuted } = data;
+      const roomName = `group_call_${conversationId}`;
+      // Broadcast to other users in the group room
+      socket.to(roomName).emit('group_call_remote_mute', {
+        userId: socket.userId,
+        isMuted
+      });
+    });
+
+    // Video state signaling
+    socket.on('group_call_video_state', (data) => {
+      const { conversationId, isVideoOff } = data;
+      const roomName = `group_call_${conversationId}`;
+      // Broadcast to other users in the group room
+      socket.to(roomName).emit('group_call_remote_video_off', {
+        userId: socket.userId,
+        isVideoOff
+      });
+    });
+
+    // Cancel / End call before anyone joins
+    socket.on('group_call_cancel', async (data) => {
+      const { conversationId } = data;
+      try {
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation && conversation.participants) {
+          // 1. Broadcast "ended" signal to stop ringing
+          conversation.participants.forEach((p) => {
+            const pId = p.userId || p.id || (typeof p === 'string' ? p : null);
+            if (pId) {
+              io.to(`user_${pId}`).emit('group_call_ended', { conversationId });
+            }
+          });
+
+          // 2. Save and Broadcast System Message
+          const sysMsg = new Message({
+            conversationId,
+            senderId: socket.userId,
+            receiverId: conversationId,
+            messageType: 'system',
+            content: `Cuộc gọi nhóm đã kết thúc`,
+            status: 'sent'
+          });
+          await sysMsg.save();
+
+          await Conversation.findOneAndUpdate(
+            { conversationId },
+            {
+              lastMessage: {
+                content: `📞 Cuộc gọi nhóm đã kết thúc`,
+                senderId: socket.userId,
+                messageType: 'system',
+                timestamp: new Date(),
+              },
+              lastMessageTime: new Date(),
+            }
+          );
+
+          const payload = {
+            messageId: sysMsg._id,
+            conversationId,
+            senderId: socket.userId,
+            messageType: 'system',
+            content: sysMsg.content,
+            timestamp: sysMsg.createdAt,
+            status: 'sent'
+          };
+
+          conversation.participants.forEach((p) => {
+            const pId = p.userId || p.id || (typeof p === 'string' ? p : null);
+            if (pId) {
+              io.to(`user_${pId}`).emit('message_received', payload);
+            }
+          });
+        }
+      } catch (err) {
+        console.error("[Group Call] Cancel error:", err);
+      }
+    });
+
+    // ═══════════════════ END GROUP CALL SIGNALING ═══════════════════
+
     // ═══════════════════ QR LOGIN EVENTS ═══════════════════
 
     // Web requests a new QR login session

@@ -346,7 +346,6 @@ const ContactListPanel = () => {
       <SearchUserModal
         isOpen={isSearchModalOpen}
         onClose={() => setIsSearchModalOpen(false)}
-        onUserAdded={() => fetchContacts()}
       />
     </div>
   );

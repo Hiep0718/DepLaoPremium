@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
-  ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2,
-  Mic, Trash2, StopCircle, Contact
+  ScreenShare, Code, Type, X, FileText, Film, Loader2,
+  Mic, Trash2, Contact
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
 import { useChatStore } from '../../stores/chatStore';
