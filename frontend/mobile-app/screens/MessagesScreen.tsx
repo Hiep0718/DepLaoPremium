@@ -24,6 +24,7 @@ export interface Conversation {
     fullName: string;
     avatarUrl?: string;
   };
+  unreadCount?: number;
 }
 
 export function MessagesScreen() {
@@ -91,6 +92,12 @@ export function MessagesScreen() {
             senderId: data.senderId,
             timestamp: data.timestamp || new Date().toISOString()
           };
+          
+          // Tăng số đếm tin nhắn chưa đọc nếu không phải tin mình gửi
+          if (String(data.senderId) !== String(currentUserId)) {
+            updatedConv.unreadCount = (updatedConv.unreadCount || 0) + 1;
+          }
+
           const newList = prev.filter((_, i) => i !== idx);
           return [updatedConv, ...newList];
         } else {
@@ -122,21 +129,28 @@ export function MessagesScreen() {
 
   const renderItem = ({ item }: { item: Conversation }) => {
     const name = item.isGroup ? item.groupName : item.otherUser?.fullName;
-    const isUnread = false; 
+    const unreadCount = item.unreadCount || 0;
+    const isUnread = unreadCount > 0;
 
     return (
       <TouchableOpacity 
         style={styles.chatRow}
         activeOpacity={0.7}
-        onPress={() => router.push({ 
-            pathname: '/chat/[id]', 
-            params: { 
-                id: item.conversationId, 
-                name: name,
-                recipientId: item.otherUser?.id,
-                avatar: item.otherUser?.avatarUrl
-            } 
-        })}
+        onPress={() => {
+            // Đặt lại số đếm unread về 0 trên UI khi click vào
+            setConversations(prev => prev.map(c => 
+              c.conversationId === item.conversationId ? { ...c, unreadCount: 0 } : c
+            ));
+            router.push({ 
+              pathname: '/chat/[id]', 
+              params: { 
+                  id: item.conversationId, 
+                  name: name,
+                  recipientId: item.otherUser?.id,
+                  avatar: item.otherUser?.avatarUrl
+              } 
+            });
+        }}
       >
         {item.otherUser?.avatarUrl ? (
           <Image source={{ uri: item.otherUser.avatarUrl }} style={styles.avatar} />
@@ -150,10 +164,17 @@ export function MessagesScreen() {
             <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{name}</Text>
             <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
           </View>
-          <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>
-            {item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
-            {item.lastMessage?.content || 'Chưa có tin nhắn'}
-          </Text>
+          <View style={styles.chatPreviewRow}>
+            <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>
+              {item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
+              {item.lastMessage?.content || 'Chưa có tin nhắn'}
+            </Text>
+            {isUnread && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount > 5 ? '5+' : unreadCount}</Text>
+              </View>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -229,8 +250,24 @@ const styles = StyleSheet.create({
   chatName: { fontSize: 16, color: '#000' },
   chatNameUnread: { fontWeight: '700' },
   chatTime: { fontSize: 12, color: '#888' },
-  chatPreview: { fontSize: 14, color: '#666' },
+  chatPreview: { flex: 1, fontSize: 14, color: '#666' },
   chatPreviewUnread: { color: '#000', fontWeight: '600' },
+  chatPreviewRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  badge: {
+    backgroundColor: '#ff3b30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    marginLeft: 8,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   loadingWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyWrap: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#888', fontSize: 14 },

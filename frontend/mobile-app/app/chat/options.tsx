@@ -65,8 +65,21 @@ export default function ChatOptionsScreen() {
                 <Ionicons name={isGroup === 'true' ? 'people' : 'person'} size={40} color="#fff" />
               </View>
             )}
+            {isGroup === 'true' && (
+              <View style={styles.cameraIconBadge}>
+                <Ionicons name="camera-outline" size={16} color="#000" />
+              </View>
+            )}
           </View>
-          <Text style={styles.profileName} numberOfLines={2}>{name}</Text>
+          
+          {isGroup === 'true' ? (
+            <View style={styles.nameWrap}>
+              <Text style={styles.profileNameGroup} numberOfLines={2}>{name}</Text>
+              <Ionicons name="pencil-outline" size={20} color="#555" style={styles.nameEditIcon} />
+            </View>
+          ) : (
+            <Text style={styles.profileName} numberOfLines={2}>{name}</Text>
+          )}
 
           <View style={styles.actionCirclesRow}>
             <TouchableOpacity style={styles.actionCircleItem}>
@@ -76,12 +89,21 @@ export default function ChatOptionsScreen() {
               <Text style={styles.actionCircleLabel}>Tìm{'\n'}tin nhắn</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionCircleItem}>
-              <View style={styles.actionCircle}>
-                <Ionicons name="person-outline" size={24} color="#444" />
-              </View>
-              <Text style={styles.actionCircleLabel}>Trang{'\n'}cá nhân</Text>
-            </TouchableOpacity>
+            {isGroup === 'true' ? (
+              <TouchableOpacity style={styles.actionCircleItem}>
+                <View style={styles.actionCircle}>
+                  <Ionicons name="person-add-outline" size={24} color="#444" />
+                </View>
+                <Text style={styles.actionCircleLabel}>Thêm{'\n'}thành viên</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.actionCircleItem}>
+                <View style={styles.actionCircle}>
+                  <Ionicons name="person-outline" size={24} color="#444" />
+                </View>
+                <Text style={styles.actionCircleLabel}>Trang{'\n'}cá nhân</Text>
+              </TouchableOpacity>
+            )}
             
             <TouchableOpacity style={styles.actionCircleItem}>
               <View style={styles.actionCircle}>
@@ -91,15 +113,23 @@ export default function ChatOptionsScreen() {
             </TouchableOpacity>
             
             <TouchableOpacity style={styles.actionCircleItem}>
-              <View style={styles.actionCircle}>
-                <Ionicons name="notifications-outline" size={24} color="#444" />
+              <View style={isGroup === 'true' ? [styles.actionCircle, {backgroundColor: ZaloColors.blue}] : styles.actionCircle}>
+                <Ionicons name={isGroup === 'true' ? "notifications" : "notifications-outline"} size={24} color={isGroup === 'true' ? "#fff" : "#444"} />
               </View>
-              <Text style={styles.actionCircleLabel}>Tắt{'\n'}thông báo</Text>
+              <Text style={styles.actionCircleLabel}>{isGroup === 'true' ? 'Bật\nthông báo' : 'Tắt\nthông báo'}</Text>
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* Group Description */}
+        {isGroup === 'true' && (
+          <View style={styles.section}>
+            <OptionItem icon="information-circle-outline" label="Thêm mô tả nhóm" color="#888" />
+          </View>
+        )}
+
         {/* Section 1 */}
+        {isGroup !== 'true' && (
         <View style={styles.section}>
           <OptionItem icon="pencil-outline" label="Đổi tên gợi nhớ" />
           <OptionItem 
@@ -111,6 +141,7 @@ export default function ChatOptionsScreen() {
           />
           <OptionItem icon="time-outline" label="Nhật ký chung" showArrow />
         </View>
+        )}
 
         {/* Section 2: Media */}
         <View style={styles.section}>
@@ -135,13 +166,72 @@ export default function ChatOptionsScreen() {
         </View>
 
         {/* Section 3: Group Actions */}
+        {isGroup !== 'true' && (
         <View style={styles.section}>
           <OptionItem icon="person-add-outline" label={`Tạo nhóm với ${name || 'người này'}`} />
           <OptionItem icon="person-add-outline" label={`Thêm ${name || 'người này'} vào nhóm`} />
           <OptionItem icon="people-outline" label="Xem nhóm chung (26)" showArrow />
         </View>
+        )}
+
+        {/* Group Specific Sections */}
+        {isGroup === 'true' && (
+          <>
+            <View style={styles.section}>
+              <OptionItem icon="calendar-outline" label="Lịch nhóm" />
+              <OptionItem icon="pin-outline" label="Tin nhắn đã ghim" />
+              <OptionItem icon="bar-chart-outline" label="Bình chọn" />
+            </View>
+            <View style={styles.section}>
+              <OptionItem icon="people-outline" label="Xem thành viên (5)" />
+              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+                <View style={styles.optionLeft}>
+                  <Ionicons name="link-outline" size={22} color="#555" style={styles.optionIcon} />
+                  <View>
+                    <Text style={styles.optionLabel}>Link nhóm</Text>
+                    <Text style={styles.optionSubLabel}>https://zalo.me/g/mswsak197</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.section}>
+              <OptionItem 
+                icon="pin-outline" 
+                label="Ghim trò chuyện" 
+                toggle 
+                toggleValue={isPinned} 
+                onToggle={setIsPinned} 
+              />
+              <OptionItem 
+                icon="eye-off-outline" 
+                label="Ẩn trò chuyện" 
+                toggle 
+                toggleValue={isHidden} 
+                onToggle={setIsHidden} 
+              />
+              <OptionItem icon="settings-outline" label="Cài đặt cá nhân" />
+            </View>
+            <View style={styles.section}>
+              <OptionItem icon="warning-outline" label="Báo xấu" />
+              <OptionItem icon="pie-chart-outline" label="Dung lượng trò chuyện" />
+              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+                <View style={styles.optionLeft}>
+                  <Ionicons name="trash-outline" size={22} color="#FF4757" style={styles.optionIcon} />
+                  <Text style={[styles.optionLabel, { color: '#FF4757' }]}>Xóa lịch sử trò chuyện</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+                <View style={styles.optionLeft}>
+                  <Ionicons name="log-out-outline" size={22} color="#FF4757" style={styles.optionIcon} />
+                  <Text style={[styles.optionLabel, { color: '#FF4757' }]}>Rời nhóm</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
         {/* Section 4: Settings */}
+        {isGroup !== 'true' && (
         <View style={styles.section}>
           <OptionItem 
             icon="pin-outline" 
@@ -177,8 +267,10 @@ export default function ChatOptionsScreen() {
           
           <OptionItem icon="settings-outline" label="Cài đặt cá nhân" showArrow />
         </View>
+        )}
 
         {/* Section 5: Danger */}
+        {isGroup !== 'true' && (
         <View style={styles.section}>
           <OptionItem icon="warning-outline" label="Báo xấu" />
           <OptionItem icon="ban-outline" label="Quản lý chặn" showArrow />
@@ -191,6 +283,7 @@ export default function ChatOptionsScreen() {
             </View>
           </TouchableOpacity>
         </View>
+        )}
 
       </ScrollView>
     </SafeAreaView>
@@ -260,6 +353,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 20,
     marginBottom: 24,
+  },
+  cameraIconBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  nameWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 20,
+  },
+  profileNameGroup: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    textAlign: 'center',
+  },
+  nameEditIcon: {
+    marginLeft: 8,
   },
   
   actionCirclesRow: {
