@@ -22,6 +22,11 @@ interface MessageBubbleProps {
   handleDownloadFile: (url: string, fileName?: string) => void;
   openLocationInMaps: (lat: number, lng: number) => void;
   handleSendContactRequest?: (phone: string) => void; // Optional if needed inside
+  onQuickReact: (msg: Message, type?: string) => void;
+  onLongPressQuickReact?: (msg: Message) => void;
+  showReactionTooltip?: boolean;
+  closeReactionTooltip?: () => void;
+  lastReactionType?: string;
 }
 
 export default function MessageBubble({
@@ -40,6 +45,11 @@ export default function MessageBubble({
   handleDownloadFile,
   openLocationInMaps,
   handleSendContactRequest,
+  onQuickReact,
+  onLongPressQuickReact,
+  showReactionTooltip,
+  closeReactionTooltip,
+  lastReactionType = 'love',
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -408,6 +418,69 @@ export default function MessageBubble({
               )}
             </>
           )}
+          {/* ────── Reactions Display & Quick React ────── */}
+          {!item.isRevoked && (
+            <View style={[styles.reactionsRow, isMine ? styles.myReactionsRow : styles.theirReactionsRow]}>
+              {item.reactions && item.reactions.length > 0 && (
+                <TouchableOpacity 
+                  activeOpacity={0.8} 
+                  onPress={() => onQuickReact(item)}
+                  style={styles.reactionsWrapper}
+                >
+                  {Array.from(new Set([...item.reactions].reverse().map(r => r.type))).slice(0, 3).reverse().map(type => {
+                    const REACTION_EMOJIS = { love: '❤️', like: '👍', haha: '😆', wow: '😯', sad: '😢', angry: '😡' };
+                    return <Text key={type} style={styles.reactionMiniIcon}>{REACTION_EMOJIS[type as keyof typeof REACTION_EMOJIS]}</Text>;
+                  })}
+                  {item.reactions && item.reactions.length > 1 && (
+                    <Text style={styles.reactionCount}>{item.reactions.length}</Text>
+                  )}
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity 
+                style={styles.quickReactBtn} 
+                onPress={() => {
+                  if (!item.reactions || item.reactions.length === 0) {
+                    onQuickReact(item, 'love');
+                  } else {
+                    onQuickReact(item);
+                  }
+                }}
+                onLongPress={() => onLongPressQuickReact && onLongPressQuickReact(item)}
+              >
+                {item.reactions && item.reactions.length > 0 ? (
+                  <Text style={styles.quickReactEmoji}>
+                    {{ love: '❤️', like: '👍', haha: '😆', wow: '😯', sad: '😢', angry: '😡' }[lastReactionType as keyof typeof REACTION_EMOJIS] || '❤️'}
+                  </Text>
+                ) : (
+                  <Ionicons name="heart-outline" size={14} color="#555" />
+                )}
+              </TouchableOpacity>
+
+              {/* Tooltip Overlay (when long pressed) */}
+              {showReactionTooltip && (
+                <View style={[styles.reactionTooltip, isMine ? styles.myReactionTooltip : styles.theirReactionTooltip]}>
+                  {[
+                    { type: 'love', icon: '❤️' },
+                    { type: 'like', icon: '👍' },
+                    { type: 'haha', icon: '😆' },
+                    { type: 'wow', icon: '😯' },
+                    { type: 'sad', icon: '😢' },
+                    { type: 'angry', icon: '😡' }
+                  ].map(emoji => (
+                    <TouchableOpacity 
+                      key={emoji.type} 
+                      style={styles.tooltipEmojiBtn}
+                      onPress={() => onQuickReact(item, emoji.type)}
+                    >
+                      <Text style={styles.tooltipEmojiText}>{emoji.icon}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
           {isMine && !item.isRevoked && (
             <View style={styles.statusRow}>
               <MessageTick status={item.status} />
@@ -619,4 +692,118 @@ const styles = StyleSheet.create({
   translatedText: { fontSize: 14, fontStyle: 'italic', lineHeight: 20, opacity: 0.9 },
   translatingWrap: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
   translatingText: { fontSize: 12, color: '#999', marginLeft: 6, fontStyle: 'italic' },
+
+  reactionsWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: -10, // overlap bubble
+    marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  myReactions: {
+    alignSelf: 'flex-end',
+    marginRight: 10,
+  },
+  theirReactions: {
+    alignSelf: 'flex-start',
+    marginLeft: 10,
+  },
+  reactionMiniIcon: {
+    fontSize: 14,
+    marginHorizontal: 1,
+  },
+  reactionCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginLeft: 4,
+  },
+  reactionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: -10,
+    marginBottom: 4,
+    zIndex: 10,
+  },
+  myReactionsRow: {
+    alignSelf: 'flex-end',
+    marginRight: 10,
+  },
+  theirReactionsRow: {
+    alignSelf: 'flex-start',
+    marginLeft: 10,
+  },
+  reactionsWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginRight: 4,
+  },
+  quickReactBtn: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#eee',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 26,
+    height: 26,
+  },
+  quickReactEmoji: {
+    fontSize: 14,
+  },
+  reactionTooltip: {
+    position: 'absolute',
+    bottom: 30, // Show above the quick react button
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 100, // Make sure it floats above everything
+  },
+  myReactionTooltip: {
+    right: 0,
+  },
+  theirReactionTooltip: {
+    left: 0,
+  },
+  tooltipEmojiBtn: {
+    paddingHorizontal: 6,
+  },
+  tooltipEmojiText: {
+    fontSize: 24,
+  },
 });

@@ -133,6 +133,15 @@ export function useChatSocket({
       }
     };
 
+    const handleMessageReacted = (data: any) => {
+      if (data.conversationId !== id) return;
+      setMessages(prev =>
+        prev.map(m =>
+          String(m._id) === String(data.messageId) ? { ...m, reactions: data.reactions } : m
+        )
+      );
+    };
+
     socket.on('message_sent', handleMessageSent);
     socket.on('message_received', handleMessageReceived);
     socket.on('message_seen', handleMessageSeen);
@@ -141,6 +150,7 @@ export function useChatSocket({
     socket.on('message_deleted', handleMessageDeleted);
     socket.on('message_pinned', handleMessagePinned);
     socket.on('message_unpinned', handleMessageUnpinned);
+    socket.on('message_reacted', handleMessageReacted);
 
     return () => {
       socket.off('message_sent', handleMessageSent);
@@ -151,6 +161,7 @@ export function useChatSocket({
       socket.off('message_deleted', handleMessageDeleted);
       socket.off('message_pinned', handleMessagePinned);
       socket.off('message_unpinned', handleMessageUnpinned);
+      socket.off('message_reacted', handleMessageReacted);
     };
   }, [socket, id, currentUserId, setMessages, setPinnedMessage]);
 

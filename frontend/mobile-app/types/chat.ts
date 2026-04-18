@@ -19,4 +19,8 @@ export interface Message {
     senderId: string;
     messageType: string;
   };
+  reactions?: {
+    userId: string;
+    type: string;
+  }[];
 }

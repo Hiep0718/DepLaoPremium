@@ -272,6 +272,38 @@ const setupSocketEvents = (io) => {
       }
     });
 
+    // React to a message
+    socket.on('react_message', async (data) => {
+      try {
+        const { messageId, conversationId, userId, reactionType } = data;
+        if (!mongoose.Types.ObjectId.isValid(messageId)) return;
+
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        if (!message.reactions) message.reactions = [];
+        
+        // Always push to allow multiple reactions of the same type
+        message.reactions.push({ userId, type: reactionType });
+        
+        await message.save();
+
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation && conversation.participants) {
+          conversation.participants.forEach(p => {
+             io.to(`user_${p.userId}`).emit('message_reacted', {
+               messageId,
+               conversationId,
+               reactions: message.reactions
+             });
+          });
+        }
+        console.log(`[Socket] Message ${messageId} reacted with ${reactionType} by ${userId}`);
+      } catch (error) {
+        console.error('[Socket] Error reacting to message:', error);
+      }
+    });
+
     // User typing indicator
     socket.on('typing', (data) => {
       const { conversationId, userId, isTyping } = data;

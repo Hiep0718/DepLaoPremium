@@ -39,6 +39,7 @@ export function useChatActions({
 }: UseChatActionsProps) {
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [lastReaction, setLastReaction] = useState<string>('love');
 
   const handleSend = useCallback((text: string, setText: (val: string) => void, setIsTyping: (val: boolean) => void) => {
     const trimmed = text.trim();
@@ -316,6 +317,30 @@ export function useChatActions({
     setReminderDate(new Date(Date.now() + 3600000));
   }, [socket, currentUserId, id, recipientId, reminderText, reminderDate, setMessages, setShowReminderModal, setReminderText, setReminderDate]);
 
+  const handleReactMessage = useCallback((msg: Message, reactionType: string) => {
+    if (!socket || !currentUserId || !reactionType) return;
+    
+    setLastReaction(reactionType);
+
+    // Optimistic UI update
+    setMessages(prev => prev.map(m => {
+      if (String(m._id) === String(msg._id)) {
+        let newReactions = [...(m.reactions || [])];
+        // Always push to allow multiple reactions of the same type
+        newReactions.push({ userId: currentUserId, type: reactionType });
+        return { ...m, reactions: newReactions };
+      }
+      return m;
+    }));
+
+    socket.emit('react_message', {
+      messageId: msg._id,
+      conversationId: id,
+      userId: currentUserId,
+      reactionType
+    });
+  }, [socket, currentUserId, id, setMessages]);
+
   return {
     handleSend,
     sendSticker,
@@ -326,6 +351,8 @@ export function useChatActions({
     handleSendLocation,
     handleSendContact,
     handleSendReminder,
+    handleReactMessage,
+    lastReaction,
     translatingId,
     translatedMessages,
   };

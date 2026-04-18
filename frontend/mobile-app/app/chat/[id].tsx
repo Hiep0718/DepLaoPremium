@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, StyleSheet, KeyboardAvoidingView, Platform, Dimensions,
   FlatList, ActivityIndicator, Text, TouchableOpacity, Modal, Image, ScrollView,
-  TextInput, Linking, Animated as RNAnimated
+  TextInput, Linking, Animated as RNAnimated, TouchableWithoutFeedback, Keyboard
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,9 +67,20 @@ export default function ChatScreen() {
   const { isRecording, recordingTime, startRecording, cancelRecording, stopAndSendRecording } = useVoiceRecording({ socket, currentUserId, id, recipientId, setMessages });
   const { pendingMedia, setPendingMedia, uploadingMedia, uploadProgress, uploadingFile, handlePickImage, handleRemovePendingMedia, handleSendMedia, handlePickDocument } = useMediaHandling({ socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage });
   const { playingAudioId, audioProgress, playAudio } = useAudioPlayback(messages);
-  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, translatingId, translatedMessages } = useChatActions({
+  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, handleReactMessage, lastReaction, translatingId, translatedMessages } = useChatActions({
     socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage, pinnedMessage, toggleStickerPanel: (s) => toggleStickerPanel(s), setShowReminderModal, reminderText, setReminderText, reminderDate, setReminderDate
   });
+
+  const [reactionTooltipId, setReactionTooltipId] = useState<string | null>(null);
+
+  const REACTION_EMOJIS = [
+    { type: 'love', icon: '❤️' },
+    { type: 'like', icon: '👍' },
+    { type: 'haha', icon: '😆' },
+    { type: 'wow', icon: '😯' },
+    { type: 'sad', icon: '😢' },
+    { type: 'angry', icon: '😡' },
+  ];
 
   // Derived actions
   const handleSend = () => _handleSend(text, setText, setIsTyping);
@@ -180,29 +191,43 @@ export default function ChatScreen() {
         style={[styles.chatArea, { backgroundColor: '#e2e9f1' }]}
         behavior="padding"
       >
-        {isLoading ? (
-          <View style={styles.centerWrap}>
-            <ActivityIndicator size="large" color={ZaloColors.blue} />
-          </View>
-        ) : (
-          <FlatList
-            data={messages}
-            keyExtractor={item => item._id}
-            renderItem={({ item }) => (
-              <MessageBubble 
-                item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}
-                avatar={avatar} name={name} playingAudioId={playingAudioId} audioProgress={audioProgress}
-                translatedMessages={translatedMessages} translatingId={translatingId}
-                handleMessageLongPress={(msg) => setActionSheetMessage(msg)}
-                playAudio={playAudio} setLightboxUrl={setLightboxUrl}
-                handleDownloadFile={handleDownloadFile} openLocationInMaps={openLocationInMaps}
+        <View style={{ flex: 1 }}>
+          {isLoading ? (
+              <View style={styles.centerWrap}>
+                <ActivityIndicator size="large" color={ZaloColors.blue} />
+              </View>
+            ) : (
+              <FlatList
+                data={messages}
+                keyExtractor={item => item._id}
+                renderItem={({ item }) => (
+                  <MessageBubble 
+                    item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}
+                    avatar={avatar} name={name} playingAudioId={playingAudioId} audioProgress={audioProgress}
+                    translatedMessages={translatedMessages} translatingId={translatingId}
+                    handleMessageLongPress={(msg) => {
+                      setActionSheetMessage(msg);
+                      setReactionTooltipId(null);
+                    }}
+                    playAudio={playAudio} setLightboxUrl={setLightboxUrl}
+                    handleDownloadFile={handleDownloadFile} openLocationInMaps={openLocationInMaps}
+                    onQuickReact={(msg, specificType) => {
+                      handleReactMessage(msg, specificType || lastReaction);
+                    }}
+                    onLongPressQuickReact={(msg) => setReactionTooltipId(prev => prev === msg._id ? null : msg._id)}
+                    showReactionTooltip={reactionTooltipId === item._id}
+                    closeReactionTooltip={() => setReactionTooltipId(null)}
+                    lastReactionType={lastReaction}
+                  />
+                )}
+                inverted
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                onScrollBeginDrag={() => setReactionTooltipId(null)}
               />
             )}
-            inverted
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
+          </View>
 
         {/* Reply Preview */}
         {replyingMessage && (
@@ -373,6 +398,27 @@ export default function ChatScreen() {
         <TouchableOpacity style={styles.actionSheetOverlay} activeOpacity={1} onPress={() => setActionSheetMessage(null)}>
           <View style={styles.actionSheetContainer}>
             <View style={styles.actionSheetHandle} />
+            
+            {/* Reaction Picker */}
+            {actionSheetMessage && (
+              <View style={styles.reactionPickerContainer}>
+                {REACTION_EMOJIS.map((emoji) => {
+                  const hasReacted = actionSheetMessage.reactions?.some(r => r.userId === currentUserId && r.type === emoji.type);
+                  return (
+                    <TouchableOpacity 
+                      key={emoji.type} 
+                      style={[styles.reactionEmojiBtn, hasReacted && styles.reactionEmojiBtnActive]}
+                      onPress={() => {
+                         handleReactMessage(actionSheetMessage, emoji.type);
+                      }}
+                    >
+                      <Text style={styles.reactionEmojiText}>{emoji.icon}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
             <Text style={styles.actionSheetTitle}>Tùy chọn tin nhắn</Text>
 
             <TouchableOpacity style={styles.actionSheetItem} onPress={() => { if (actionSheetMessage) setReplyingMessage(actionSheetMessage); setActionSheetMessage(null); }}>
@@ -500,4 +546,24 @@ const styles = StyleSheet.create({
   actionSheetSeparator: { height: 1, backgroundColor: '#eee', marginVertical: 8 },
   actionSheetCancelBtn: { marginTop: 10, paddingVertical: 16, alignItems: 'center', backgroundColor: '#f5f5f5', borderRadius: 12 },
   actionSheetCancelText: { fontSize: 16, fontWeight: '600', color: '#666' },
+
+  reactionPickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    marginBottom: 20,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 30,
+    paddingVertical: 8,
+  },
+  reactionEmojiBtn: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  reactionEmojiBtnActive: {
+    backgroundColor: '#e6f0ff',
+  },
+  reactionEmojiText: {
+    fontSize: 28,
+  },
 });
