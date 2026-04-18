@@ -1,4 +1,8 @@
+import { useState } from "react"
 import { View, Text, ScrollView, TouchableOpacity } from "react-native"
+import { MiniGameScreen } from "./MiniGameScreen"
+import { MemoryGameScreen } from "./MemoryGameScreen"
+import { GameHubScreen } from "./GameHubScreen"
 
 interface Feature {
     id: string
@@ -7,7 +11,11 @@ interface Feature {
     description: string
 }
 
+type Screen = "discover" | "gameHub" | "game2048" | "memory"
+
 export function DiscoverScreen() {
+    const [screen, setScreen] = useState<Screen>("discover")
+
     const features: Feature[] = [
         {
             id: "1",
@@ -19,7 +27,7 @@ export function DiscoverScreen() {
             id: "2",
             name: "Game Mini",
             icon: "🎮",
-            description: "Chơi game và nhận thưởng",
+            description: "2048, Lật thẻ và nhiều hơn nữa",
         },
         {
             id: "3",
@@ -41,6 +49,32 @@ export function DiscoverScreen() {
         },
     ]
 
+    if (screen === "game2048") {
+        return <MiniGameScreen onBack={() => setScreen("gameHub")} />
+    }
+
+    if (screen === "memory") {
+        return <MemoryGameScreen onBack={() => setScreen("gameHub")} />
+    }
+
+    if (screen === "gameHub") {
+        return (
+            <GameHubScreen
+                onBack={() => setScreen("discover")}
+                onSelectGame={(id) => {
+                    if (id === "2048") setScreen("game2048")
+                    else if (id === "memory") setScreen("memory")
+                }}
+            />
+        )
+    }
+
+    const handleFeaturePress = (feature: Feature) => {
+        if (feature.id === "2") {
+            setScreen("gameHub")
+        }
+    }
+
     return (
         <View style={{ flex: 1, backgroundColor: "#fff" }}>
             <View
@@ -59,6 +93,7 @@ export function DiscoverScreen() {
                 {features.map((feature) => (
                     <TouchableOpacity
                         key={feature.id}
+                        onPress={() => handleFeaturePress(feature)}
                         style={{
                             flexDirection: "row",
                             alignItems: "center",
@@ -72,7 +107,7 @@ export function DiscoverScreen() {
                                 width: 50,
                                 height: 50,
                                 borderRadius: 12,
-                                backgroundColor: "#f0f0f0",
+                                backgroundColor: feature.id === "2" ? "#EBF3FF" : "#f0f0f0",
                                 justifyContent: "center",
                                 alignItems: "center",
                                 marginRight: 12,
