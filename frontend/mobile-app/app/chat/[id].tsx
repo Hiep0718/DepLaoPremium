@@ -62,7 +62,7 @@ export default function ChatScreen() {
   const moreActionsPanelHeight = useRef(new RNAnimated.Value(0)).current;
 
   // Custom Hooks
-  const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup } = useChatMessages(id, currentUserId, socket);
+  const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap } = useChatMessages(id, currentUserId, socket);
   const { isOtherTyping, lastSeenMessageId } = useChatSocket({ socket, id, currentUserId, setMessages, setPinnedMessage });
   const { isRecording, recordingTime, startRecording, cancelRecording, stopAndSendRecording } = useVoiceRecording({ socket, currentUserId, id, recipientId, setMessages });
   const { pendingMedia, setPendingMedia, uploadingMedia, uploadProgress, uploadingFile, handlePickImage, handleRemovePendingMedia, handleSendMedia, handlePickDocument } = useMediaHandling({ socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage });
@@ -205,6 +205,7 @@ export default function ChatScreen() {
                     item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}
                     avatar={avatar} name={name} playingAudioId={playingAudioId} audioProgress={audioProgress}
                     translatedMessages={translatedMessages} translatingId={translatingId}
+                    memberMap={memberMap}
                     handleMessageLongPress={(msg) => {
                       setActionSheetMessage(msg);
                       setReactionTooltipId(null);

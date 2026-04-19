@@ -1,8 +1,0 @@
-# MongoDB Connection (Dùng Docker local thay vì Atlas)
-MONGO_URI=mongodb://localhost:27017/messaging_db
-
-PORT=3001
-NODE_ENV=development
-SPRING_BOOT_URL=http://localhost:8082
-JWT_SECRET=zalo-clone-secret-key-very-long-string-for-jwt-signing-operations-please-change-in-production
-CORS_ORIGIN=http://localhost:5173,http://localhost:3000,http://localhost:3001,http://localhost:8082

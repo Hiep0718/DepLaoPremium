@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { chatApiClient } from '@/constants/chatApi';
+import apiClient from '@/constants/api';
 import { Message } from '@/types/chat';
 import { Socket } from 'socket.io-client';
 
@@ -77,6 +78,69 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     fetchHistory();
   }, [id, currentUserId, socket]);
 
+  // Fetch participant info for system messages
+  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+
+  useEffect(() => {
+    const fetchMissingMembers = async () => {
+      if (!messages || messages.length === 0) return;
+      
+      const allIds = new Set<string>();
+      
+      for (const msg of messages) {
+        if (msg.messageType !== 'system') continue;
+        const text = msg.content || '';
+        
+        if (text.startsWith('member_left:')) {
+          allIds.add(text.split(':')[1]);
+        } else if (text.startsWith('member_removed:')) {
+          const parts = text.split(':');
+          if (parts[1]) allIds.add(parts[1]);
+          if (parts[2]) allIds.add(parts[2]);
+        } else if (text.startsWith('added_members:')) {
+          const ids = text.split(':')[1].split(',');
+          ids.forEach(idx => {
+            if (idx.trim()) allIds.add(idx.trim());
+          });
+        } else if (text.startsWith('role_')) {
+          const parts = text.split(':');
+          if (parts[1]) allIds.add(parts[1]);
+          if (parts[2]) allIds.add(parts[2]);
+        }
+        if (msg.senderId) {
+          allIds.add(String(msg.senderId));
+        }
+      }
+      
+      const newIds = Array.from(allIds).filter(uid => !memberMap[uid]);
+      if (newIds.length === 0) return;
+      
+      const newMap = { ...memberMap };
+      let updated = false;
+      
+      for (const uid of newIds) {
+        try {
+          const res = await apiClient.get(`/users/${uid}`);
+          if (res.data?.data) {
+            newMap[uid] = { 
+              fullName: res.data.data.fullName || res.data.data.nickname || 'Thành viên',
+              avatarUrl: res.data.data.avatarUrl
+            };
+            updated = true;
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+      
+      if (updated) {
+        setMemberMap(newMap);
+      }
+    };
+    
+    fetchMissingMembers();
+  }, [messages]);
+
   return {
     messages,
     setMessages,
@@ -85,5 +149,6 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     setPinnedMessage,
     groupMemberCount,
     isGroup,
+    memberMap,
   };
 }

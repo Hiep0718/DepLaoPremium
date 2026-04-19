@@ -27,6 +27,7 @@ interface MessageBubbleProps {
   showReactionTooltip?: boolean;
   closeReactionTooltip?: () => void;
   lastReactionType?: string;
+  memberMap?: Record<string, { fullName: string; avatarUrl?: string }>;
 }
 
 export default function MessageBubble({
@@ -50,6 +51,7 @@ export default function MessageBubble({
   showReactionTooltip,
   closeReactionTooltip,
   lastReactionType = 'love',
+  memberMap,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -117,6 +119,64 @@ export default function MessageBubble({
     const pad = (n: number) => n.toString().padStart(2, '0');
     return `${pad(d.getHours())}:${pad(d.getMinutes())} - ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
   };
+
+  if (item.messageType === 'system') {
+    let text = item.content || '';
+    const isMeActor = String(item.senderId) === String(currentUserId);
+    
+    const getName = (uid: string) => {
+       if (uid === String(currentUserId)) return 'Bạn';
+       return (memberMap && memberMap[uid]?.fullName) ? memberMap[uid].fullName : 'Thành viên';
+    };
+    
+    const actor = isMeActor ? 'Bạn' : getName(String(item.senderId));
+    
+    if (text === 'Nhóm đã được tạo') {
+      text = `${actor} đã tạo nhóm mới`;
+    } else if (text === 'Đã thêm thành viên mới vào nhóm') {
+      text = `${actor} đã thêm thành viên mới vào nhóm`;
+    } else if (text.startsWith('added_members:')) {
+      const addedIds = text.split(':')[1].split(',');
+      const validIds = addedIds.map(id => id.trim()).filter(id => id !== '');
+      const addedNames = validIds.map(uid => getName(uid)).join(', ');
+      text = `${actor} đã thêm ${addedNames} vào nhóm`;
+    } else if (text.startsWith('member_left:')) {
+      const leftId = text.split(':')[1];
+      const leftName = getName(leftId);
+      text = `${leftName} đã rời nhóm`;
+    } else if (text.startsWith('member_removed:')) {
+      const parts = text.split(':');
+      const remover = getName(parts[1]);
+      const removed = getName(parts[2]);
+      text = `${remover} đã xóa ${removed} khỏi nhóm`;
+    } else if (text.startsWith('group_disbanded:')) {
+      text = `${actor} đã giải tán nhóm`;
+    } else if (text.startsWith('role_deputy:')) {
+       text = `${actor} đã đưa ${getName(text.split(':')[2])} lên làm phó nhóm`;
+    } else if (text.startsWith('role_undeputy:')) {
+       text = `${actor} đã gỡ quyền phó nhóm của ${getName(text.split(':')[2])}`;
+    } else if (text.startsWith('role_leader:')) {
+       text = `${actor} đã chuyển quyền trưởng nhóm cho ${getName(text.split(':')[2])}`;
+    } else if (text.startsWith('group_updated:')) {
+       const updatesString = text.split(':')[2] || '';
+       if (updatesString.includes('tên nhóm|')) {
+          const newName = updatesString.split('tên nhóm|')[1].split(',')[0];
+          text = `${actor} đã đổi tên nhóm thành "${newName}"`;
+       } else {
+          text = `${actor} đã cập nhật thông tin nhóm`;
+       }
+    }
+
+    return (
+      <View style={{ alignItems: 'center', marginVertical: 12 }}>
+        <View style={{ backgroundColor: 'rgba(0,0,0,0.06)', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#eee' }}>
+          <Text style={{ fontSize: 12, fontWeight: '500', color: '#666', textAlign: 'center' }}>
+            {text}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View>
