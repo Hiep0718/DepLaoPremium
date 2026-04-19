@@ -46,6 +46,7 @@ api.interceptors.response.use(
     // Only handle 401 errors (token expired) and avoid infinite loops
     if (error.response?.status === 401 && !originalRequest._retry) {
       const refreshToken = sessionStorage.getItem('refreshToken');
+      const currentAccessToken = sessionStorage.getItem('accessToken');
 
       // No refresh token available → force logout
       if (!refreshToken) {
@@ -54,7 +55,19 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
 
-      // If already refreshing, queue this request
+      // If the token in sessionStorage is different from the one in this failed request,
+      // it means another request has already successfully refreshed the token.
+      // We can just retry with the new token.
+      const requestAuthHeader = originalRequest.headers['Authorization'] || (originalRequest.headers.get && originalRequest.headers.get('Authorization'));
+      
+      // Only skip refresh if we extracted a valid header AND it differs from the current storage.
+      if (currentAccessToken && requestAuthHeader && requestAuthHeader !== `Bearer ${currentAccessToken}`) {
+        originalRequest.headers['Authorization'] = `Bearer ${currentAccessToken}`;
+        return api(originalRequest);
+      }
+
+      originalRequest._retry = true;
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -66,7 +79,6 @@ api.interceptors.response.use(
           .catch((err) => Promise.reject(err));
       }
 
-      originalRequest._retry = true;
       isRefreshing = true;
 
       try {
@@ -87,9 +99,15 @@ api.interceptors.response.use(
             sessionStorage.setItem('refreshToken', newRefreshToken);
           }
 
-          // Update zustand store token
+          // Update zustand store token safely
           const store = useAuthStore.getState();
-          store.setAuth(store.user, newAccessToken);
+          if (store.user) {
+            try {
+              store.setAuth(store.user, newAccessToken);
+            } catch (e) {
+              console.warn('Failed to update auth store:', e);
+            }
+          }
 
           // Process queued requests with new token
           processQueue(null, newAccessToken);
@@ -98,14 +116,14 @@ api.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
           return api(originalRequest);
         } else {
-          // Refresh failed → logout
+          // Token refresh returned success=false
           processQueue(error, null);
           useAuthStore.getState().logout();
           window.location.href = '/login';
           return Promise.reject(error);
         }
       } catch (refreshError) {
-        // Refresh request itself failed → logout
+        // Refresh request itself failed (e.g. 400 Bad Request, invalid refresh token)
         processQueue(refreshError, null);
         useAuthStore.getState().logout();
         window.location.href = '/login';

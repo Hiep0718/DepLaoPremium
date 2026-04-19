@@ -18,7 +18,7 @@ const MainLayout = () => {
       {/* Col 2: Left Panel */}
       {isContacts ? <ContactListPanel /> : <MessageListPanel />}
 
-      {/* Col 3: Chat Area (only when not in contacts full-view) */}
+      {/* Col 3: Chat Area */}
       {!isContacts && (
         <div className="flex-1 flex flex-col relative h-full z-10 theme-transition"
           style={{ borderLeft: '1px solid var(--border-primary)' }}>

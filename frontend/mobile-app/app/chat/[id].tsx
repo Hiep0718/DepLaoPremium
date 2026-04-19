@@ -17,6 +17,7 @@ import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
+import { fetchAiMessages, clearAiHistory, streamAiChatMobile } from '@/services/aiChat.service';
 import ForwardModal from '@/components/ForwardModal';
 import ContactSelectionModal from '@/components/ContactSelectionModal';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -112,6 +113,9 @@ export default function ChatScreen() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
+  
+  const isAi = (id as string)?.startsWith('ai_');
+  const [isAiStreaming, setIsAiStreaming] = useState(false);
 
   // ─── Group member count ───
   const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
@@ -390,40 +394,55 @@ export default function ChatScreen() {
     const fetchHistory = async () => {
       if (!currentUserId) return;
       try {
-        const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
-        const history: any[] = res.data?.data || [];
-        
-        if (res.data?.pinnedMessage) {
-          setPinnedMessage(res.data.pinnedMessage);
-        }
+        if (isAi) {
+          const aiHistory = await fetchAiMessages(currentUserId);
+          const mapped: Message[] = aiHistory.reverse().map((m: any) => ({
+            _id: m._id,
+            senderId: m.role === 'user' ? currentUserId : 'ai_food_bot',
+            recipientId: m.role === 'user' ? 'ai_food_bot' : currentUserId,
+            content: m.content,
+            messageType: 'text',
+            createdAt: m.createdAt,
+            status: 'seen',
+          }));
+          setMessages(mapped);
+          setPinnedMessage(null);
+        } else {
+          const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
+          const history: any[] = res.data?.data || [];
+          
+          if (res.data?.pinnedMessage) {
+            setPinnedMessage(res.data.pinnedMessage);
+          }
 
-        const mapped: Message[] = history.reverse().map((m: any) => ({
-          _id: m._id,
-          senderId: String(m.senderId),
-          recipientId: String(m.recipientId || ''),
-          content: m.content,
-          messageType: m.messageType || 'text',
-          fileUrl: m.fileUrl,
-          fileName: m.fileName,
-          fileSize: m.fileSize,
-          isRevoked: m.isRevoked || false,
-          createdAt: m.createdAt || m.timestamp,
-          // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
-          status: (m.status as MessageStatus) || 'sent',
-          replyTo: m.replyTo,
-        }));
+          const mapped: Message[] = history.reverse().map((m: any) => ({
+            _id: m._id,
+            senderId: String(m.senderId),
+            recipientId: String(m.recipientId || ''),
+            content: m.content,
+            messageType: m.messageType || 'text',
+            fileUrl: m.fileUrl,
+            fileName: m.fileName,
+            fileSize: m.fileSize,
+            isRevoked: m.isRevoked || false,
+            createdAt: m.createdAt || m.timestamp,
+            // Gán trạng thái dựa trên trường status từ DB (nếu backend lưu), mặc định 'sent'
+            status: (m.status as MessageStatus) || 'sent',
+            replyTo: m.replyTo,
+          }));
 
-        setMessages(mapped);
+          setMessages(mapped);
 
-        // Đánh dấu đã đọc tin nhắn mới nhất của đối phương
-        if (socket && currentUserId) {
-          const lastReceived = [...mapped].find(m => String(m.senderId) !== String(currentUserId));
-          if (lastReceived) {
-            socket.emit('mark_as_seen', {
-              messageId: lastReceived._id,
-              conversationId: id,
-              userId: currentUserId,
-            });
+          // Đánh dấu đã đọc tin nhắn mới nhất của đối phương
+          if (socket && currentUserId) {
+            const lastReceived = [...mapped].find(m => String(m.senderId) !== String(currentUserId));
+            if (lastReceived) {
+              socket.emit('mark_as_seen', {
+                messageId: lastReceived._id,
+                conversationId: id,
+                userId: currentUserId,
+              });
+            }
           }
         }
       } catch (err) {
@@ -600,7 +619,8 @@ export default function ChatScreen() {
   // ─── Gửi tin – Optimistic Update ──────────────────────────────────────────
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || !socket || !currentUserId) return;
+    if (!trimmed || !currentUserId) return;
+    if (!isAi && !socket) return;
 
     const tempId = `pending-${Date.now()}`;
     const replyData = replyingMessage ? {
@@ -625,6 +645,44 @@ export default function ChatScreen() {
     setText('');
     setReplyingMessage(null);
 
+    // AI Logic
+    if (isAi) {
+      setIsAiStreaming(true);
+      const botTempId = `ai-pending-${Date.now()}`;
+      setMessages(prev => [
+        {
+          _id: botTempId,
+          senderId: 'ai_food_bot',
+          recipientId: currentUserId,
+          content: '',
+          messageType: 'text',
+          createdAt: new Date().toISOString(),
+          status: 'seen',
+        },
+        ...prev
+      ]);
+
+      streamAiChatMobile(
+        currentUserId,
+        trimmed,
+        (token) => {
+          setMessages(prev =>
+            prev.map(m => (m._id === botTempId ? { ...m, content: m.content + token } : m))
+          );
+        },
+        () => setIsAiStreaming(false),
+        (errMsg) => {
+          setIsAiStreaming(false);
+          Alert.alert('Bếp AI', errMsg);
+        }
+      );
+      
+      // Đổi trạng thái tin gửi thành 'seen'
+      setMessages(prev => prev.map(m => m._id === tempId ? { ...m, status: 'seen' } : m));
+      return;
+    }
+
+    // Normal Send
     socket.emit('send_message', {
       tempId,
       conversationId: id,
@@ -638,7 +696,7 @@ export default function ChatScreen() {
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     setIsTyping(false);
     socket.emit('typing', { conversationId: id, userId: currentUserId, isTyping: false });
-  }, [text, socket, currentUserId, id, recipientId, replyingMessage]);
+  }, [text, socket, currentUserId, id, recipientId, replyingMessage, isAi]);
 
   // ─── Gửi Sticker ────────────────────────────────────────────────────────────
   const sendSticker = useCallback((stickerUrl: string) => {
@@ -1568,7 +1626,7 @@ export default function ChatScreen() {
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-          {isOtherTyping ? (
+          {isOtherTyping || isAiStreaming ? (
             <Text style={styles.headerStatus}>Đang gõ...</Text>
           ) : isGroup && groupMemberCount > 0 ? (
             <Text style={styles.headerStatus}>{groupMemberCount} thành viên</Text>

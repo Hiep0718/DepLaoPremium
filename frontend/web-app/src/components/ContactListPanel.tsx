@@ -122,7 +122,7 @@ const ContactListPanel = () => {
 
   // Group contacts alphabetically
   const grouped = contacts.reduce((acc, contact) => {
-    const name = contact.nickname || contact.fullName || '?';
+    const name = contact.fullName || '?';
     const letter = name.charAt(0).toUpperCase();
     if (!acc[letter]) acc[letter] = [];
     acc[letter].push(contact);
@@ -235,11 +235,11 @@ const ContactListPanel = () => {
                         {contact.avatarUrl ? (
                           <img src={contact.avatarUrl} alt={contact.fullName} className="w-full h-full object-cover" />
                         ) : (
-                          <span>{(contact.nickname || contact.fullName || '?').charAt(0).toUpperCase()}</span>
+                          <span>{(contact.fullName || '?').charAt(0).toUpperCase()}</span>
                         )}
                       </div>
                       <span className="flex-1 text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                        {contact.nickname || contact.fullName}
+                        {contact.fullName}
                       </span>
                       <button
                         className="opacity-0 group-hover:opacity-100 p-1.5 rounded-full transition-all"

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Search, UserPlus, Users as UsersIcon } from 'lucide-react';
 import { contactService, type ContactResponse } from '../services/contactService';
 import { getConversationsList } from '../services/message.service';
+import { fetchAiLastMessage } from '../services/aiChat.service';
 import { useChatStore, type Conversation } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/axios';
@@ -26,7 +27,7 @@ const MessageListPanel = () => {
       const map: Record<string, { fullName: string; avatarUrl?: string }> = { ...userNameCache };
       for (const c of contacts) {
         const key = String(c.contactUserId);
-        if (!map[key]) map[key] = { fullName: c.nickname || c.fullName, avatarUrl: c.avatarUrl };
+        if (!map[key]) map[key] = { fullName: c.fullName, avatarUrl: c.avatarUrl };
       }
       const unknownIds: string[] = [];
       for (const conv of conversations) {
@@ -55,8 +56,39 @@ const MessageListPanel = () => {
       try {
         if (!user || !user.id) return;
         const res = await getConversationsList(user.id.toString());
-        if (res.data && Array.isArray(res.data.data)) setConversations(res.data.data);
-        else if (res.data && Array.isArray(res.data)) setConversations(res.data);
+        let convs: Conversation[] = [];
+        if (res.data && Array.isArray(res.data.data)) convs = res.data.data;
+        else if (res.data && Array.isArray(res.data)) convs = res.data;
+
+        // Merge AI conversation if user has chat history
+        try {
+          const aiLast = await fetchAiLastMessage(user.id.toString());
+          if (aiLast && aiLast.exists) {
+            const aiConv: Conversation = {
+              conversationId: `ai_food_bot_${user.id}`,
+              participants: [{ userId: 'ai_food_bot', fullName: 'Bếp AI 🍜', avatarUrl: null }],
+              isGroup: false,
+              isAiBot: true,
+              lastMessage: {
+                content: aiLast.role === 'assistant'
+                  ? (aiLast.content && aiLast.content.length > 50 ? aiLast.content.substring(0, 50) + '...' : aiLast.content)
+                  : aiLast.content,
+                timestamp: aiLast.timestamp,
+              },
+            };
+            // Remove old AI conversation if exists, then add new one
+            convs = convs.filter(c => !c.conversationId.startsWith('ai_food_bot_'));
+            convs.push(aiConv);
+            // Sort by lastMessage timestamp (newest first)
+            convs.sort((a, b) => {
+              const tA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
+              const tB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+              return tB - tA;
+            });
+          }
+        } catch { /* AI service not available, skip */ }
+
+        setConversations(convs);
       } catch (err) {
         console.error("Failed to load conversations", err);
       } finally {
@@ -75,7 +107,6 @@ const MessageListPanel = () => {
         const resolved = userMap[pid];
         if (resolved) return { name: resolved.fullName, avatar: resolved.avatarUrl };
         if ((p as any).fullName) return { name: (p as any).fullName, avatar: (p as any).avatarUrl };
-        if ((p as any).nickname) return { name: (p as any).nickname, avatar: (p as any).avatarUrl };
         return { name: 'Người dùng', avatar: undefined };
       }
     }
@@ -84,8 +115,12 @@ const MessageListPanel = () => {
 
   const handleConversationClick = (conv: Conversation) => {
     setActiveConversation(conv);
-    const { name, avatar } = getOtherParticipant(conv);
-    useChatStore.getState().setActiveContactInfo({ name, avatarUrl: avatar });
+    if (conv.isAiBot) {
+      useChatStore.getState().setActiveContactInfo({ name: 'Bếp AI 🍜', avatarUrl: undefined });
+    } else {
+      const { name, avatar } = getOtherParticipant(conv);
+      useChatStore.getState().setActiveContactInfo({ name, avatarUrl: avatar });
+    }
   };
 
   const handleContactClick = (contact: ContactResponse) => {
@@ -94,7 +129,7 @@ const MessageListPanel = () => {
         p.id == contact.contactUserId || p.userId == contact.contactUserId || p.contactUserId == contact.contactUserId
       )
     );
-    const contactInfo = { name: contact.nickname || contact.fullName, avatarUrl: contact.avatarUrl };
+    const contactInfo = { name: contact.fullName, avatarUrl: contact.avatarUrl };
     if (existing) {
       setActiveConversation(existing);
     } else {
@@ -223,8 +258,14 @@ const MessageListPanel = () => {
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
                 <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white overflow-hidden"
-                  style={{ background: avatar ? 'transparent' : '#0068FF' }}>
-                  {avatar ? (
+                  style={{
+                    background: conv.isAiBot
+                      ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                      : (avatar ? 'transparent' : '#0068FF')
+                  }}>
+                  {conv.isAiBot ? (
+                    <span className="text-2xl">🍜</span>
+                  ) : avatar ? (
                     <img src={avatar} alt={displayName} className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-lg">{displayName.charAt(0).toUpperCase()}</span>
@@ -232,7 +273,12 @@ const MessageListPanel = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline mb-0.5">
-                    <h3 className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-primary)' }}>{displayName}</h3>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h3 className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: 'var(--text-primary)' }}>{displayName}</h3>
+                      {conv.isAiBot && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>AI</span>
+                      )}
+                    </div>
                     <span className={`text-[11px] shrink-0 ml-2 ${hasUnread ? 'font-bold text-blue-500' : ''}`} style={{ color: hasUnread ? '' : 'var(--text-secondary)' }}>
                       {conv.lastMessage?.timestamp
                         ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -271,11 +317,11 @@ const MessageListPanel = () => {
                   {contact.avatarUrl ? (
                     <img src={contact.avatarUrl} alt={contact.fullName} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-lg">{(contact.nickname || contact.fullName || '?').charAt(0).toUpperCase()}</span>
+                    <span className="text-lg">{(contact.fullName || '?').charAt(0).toUpperCase()}</span>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{contact.nickname || contact.fullName}</h3>
+                  <h3 className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{contact.fullName}</h3>
                   <p className="text-[13px] truncate" style={{ color: 'var(--text-accent)' }}>Bắt đầu trò chuyện</p>
                 </div>
               </div>

@@ -34,7 +34,7 @@ const ContactSelectionModal = ({ isOpen, onClose, onSelect }: ContactSelectionMo
   if (!isOpen) return null;
 
   const filteredContacts = contacts.filter(c => {
-    const name = c.nickname || c.fullName;
+    const name = c.fullName;
     return name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
            c.phone?.includes(searchTerm);
   });
@@ -73,7 +73,7 @@ const ContactSelectionModal = ({ isOpen, onClose, onSelect }: ContactSelectionMo
             <div className="p-4 text-center text-[var(--text-secondary)] text-sm">Không tìm thấy kết quả</div>
           ) : (
             filteredContacts.map(contact => {
-              const name = contact.nickname || contact.fullName;
+              const name = contact.fullName;
               const avatar = contact.avatarUrl;
 
               return (

@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown } from 'lucide-react';
+import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, Sparkles } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
+import { clearAiHistory } from '../../services/aiChat.service';
+import { useAuthStore } from '../../stores/authStore';
 
 const ConversationInfoPanel = () => {
   const { activeConversation, activeContactInfo, toggleInfoPanel, messages } = useChatStore();
@@ -32,6 +34,8 @@ const ConversationInfoPanel = () => {
 
   if (!activeConversation) return null;
 
+  const isAiConversation = activeConversation.conversationId.startsWith('ai_');
+
   // Use resolved contact info from store
   const displayName = activeContactInfo?.name || 'Người dùng';
   const displayAvatar = activeContactInfo?.avatarUrl;
@@ -57,8 +61,86 @@ const ConversationInfoPanel = () => {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Profile Section */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {isAiConversation ? (
+          <div className="flex flex-col">
+            {/* AI Profile Section */}
+            <div className="flex flex-col items-center py-8 px-4 text-center"
+              style={{ borderBottom: '6px solid var(--border-light)' }}>
+              <div className="w-20 h-20 rounded-full flex items-center justify-center font-bold text-4xl text-white mb-4 shadow-xl ring-4 ring-orange-500/20"
+                style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}>
+                🍜
+              </div>
+              <h4 className="font-bold text-xl mb-1.5" style={{ color: 'var(--text-primary)' }}>Bếp AI</h4>
+              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold tracking-wide uppercase" 
+                style={{ color: '#ea580c', borderColor: 'rgba(234,88,12,0.3)', background: 'rgba(234,88,12,0.1)', border: '1px solid currentColor' }}>
+                Trợ lý Ảo
+              </span>
+              <p className="text-sm mt-4 opacity-90 leading-relaxed max-w-[240px]" style={{ color: 'var(--text-secondary)' }}>
+                Trợ lý AI chuyên biệt, hỗ trợ tìm kiếm công thức, gợi ý thực đơn và giải đáp kiến thức ẩm thực chuyên sâu.
+              </p>
+            </div>
+
+            {/* Quick Suggestions */}
+            <div className="py-4" style={{ borderBottom: '6px solid var(--border-light)' }}>
+              <div className="px-4 mb-3">
+                <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                  <Sparkles size={16} style={{ color: '#f97316' }} /> Gợi ý nhanh
+                </span>
+              </div>
+              <div className="flex flex-col gap-2 px-4">
+                {[
+                  'Cách nấu phở bò chuẩn vị',
+                  'Gợi ý thực đơn chay cả tuần',
+                  'Mẹo bảo quản rau củ tươi lâu',
+                  'Cách làm món tráng miệng đơn giản'
+                ].map((prompt, idx) => (
+                  <button key={idx} className="text-left text-sm py-2.5 px-3 mb-1 rounded-xl transition-all group shadow-sm hover:shadow"
+                    style={{ background: 'var(--bg-input)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#ea580c'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                    onClick={() => {
+                        const evt = new CustomEvent('ai_prompt_selected', { detail: prompt });
+                        window.dispatchEvent(evt);
+                    }}
+                  >
+                    <span className="line-clamp-2">{prompt}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Settings */}
+            <div className="py-2">
+              <div className="px-4 py-2">
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Cài đặt cuộc trò chuyện
+                </span>
+              </div>
+              <button className="w-full flex items-center gap-3 px-4 py-3 transition-colors text-left"
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onClick={async () => {
+                  if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ và lịch sử của AI không?")) {
+                    const userId = useAuthStore.getState().user?.id?.toString();
+                    if (userId) {
+                      try {
+                        await clearAiHistory(userId);
+                        useChatStore.getState().setMessages([]);
+                      } catch { /* ignore */ }
+                    }
+                  }
+                }}>
+                <Trash2 size={18} style={{ color: '#ef4444' }} />
+                <div className="flex-1">
+                  <span className="text-sm font-medium" style={{ color: '#ef4444' }}>Xóa lịch sử & làm mới AI</span>
+                  <p className="text-[11px] mt-0.5 opacity-80" style={{ color: 'var(--text-secondary)' }}>Làm mới phiên trò chuyện từ đầu</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col">
         <div className="flex flex-col items-center py-5 px-4"
           style={{ borderBottom: '6px solid var(--border-light)' }}>
           <div className="w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl text-white overflow-hidden mb-3"
@@ -332,6 +414,8 @@ const ConversationInfoPanel = () => {
             </button>
           </div>
         </div>
+      </div>
+      )}
       </div>
     </div>
   );

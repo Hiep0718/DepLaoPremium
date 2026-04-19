@@ -67,6 +67,27 @@ services:
     networks:
       - deplao-network
 
+  ai-chat-service:
+    build: ./backend/ai-chat-service
+    container_name: deplao-ai-chat
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/ai_chat_db
+      PORT: 3002
+      NODE_ENV: production
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: qwen2:1.5b
+      JWT_SECRET: ${JWT_SECRET:-zalo-clone-secret-key-very-long-string-for-jwt-signing-operations-please-change-in-production}
+      CORS_ORIGIN: http://localhost:5173,http://localhost:3000,http://localhost:80
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mongodb
+    networks:
+      - deplao-network
+
   # =============================================
   # Frontend
   # =============================================

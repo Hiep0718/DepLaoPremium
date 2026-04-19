@@ -15,6 +15,7 @@ export default defineConfig({
     host: '0.0.0.0', // Expose to LAN
     proxy: {
       '/api/messages': 'http://127.0.0.1:3001',
+      '/api/ai-chat': 'http://127.0.0.1:3002',
       '/socket.io': {
         target: 'http://127.0.0.1:3001',
         ws: true

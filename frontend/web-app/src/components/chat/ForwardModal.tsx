@@ -47,7 +47,7 @@ const ForwardModal = () => {
       // Add all contacts to the map
       for (const c of contacts) {
         const key = String(c.contactUserId);
-        map[key] = { fullName: c.nickname || c.fullName, avatarUrl: c.avatarUrl };
+        map[key] = { fullName: c.fullName, avatarUrl: c.avatarUrl };
       }
 
       // Find unknown participant IDs
@@ -91,7 +91,6 @@ const ForwardModal = () => {
         }
         // Fallback to participant object fields
         if ((p as any).fullName) return { name: (p as any).fullName, avatar: (p as any).avatarUrl };
-        if ((p as any).nickname) return { name: (p as any).nickname, avatar: (p as any).avatarUrl };
         return { name: 'Người dùng', avatar: undefined };
       }
     }

@@ -8,6 +8,7 @@ import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
+import { fetchAiLastMessage } from '@/services/aiChat.service';
 
 interface Conversation {
   _id: string;
@@ -26,6 +27,7 @@ interface Conversation {
     fullName: string;
     avatarUrl?: string;
   };
+  isAiBot?: boolean;
 }
 
 export default function MessagesScreen() {
@@ -65,7 +67,34 @@ export default function MessagesScreen() {
 
       // Lọc bỏ những cuộc trò chuyện chưa có tin nhắn nào
       const activeConvs = enrichedConvs.filter(c => c.lastMessage && c.lastMessage.content);
-      setConversations(activeConvs);
+      
+      // Tải tin nhắn cuối cùng của AI
+      const aiData = await fetchAiLastMessage(currentUserId);
+      const aiConvId = `ai_food_bot_${currentUserId}`;
+      const aiConv: Conversation = {
+        _id: aiConvId,
+        conversationId: aiConvId,
+        participants: [{ userId: 'ai_food_bot' }],
+        isGroup: false,
+        isAiBot: true,
+        otherUser: {
+          id: 'ai_food_bot',
+          fullName: 'Bếp AI 🍜',
+          // Avatar gợi ý cho AI
+          avatarUrl: 'https://cdn-icons-png.flaticon.com/512/4712/4712139.png'
+        },
+        lastMessage: aiData && aiData.exists ? {
+          content: aiData.content || 'Hỏi tôi về ẩm thực!',
+          senderId: aiData.role === 'user' ? currentUserId : 'ai_food_bot',
+          timestamp: aiData.timestamp || new Date().toISOString()
+        } : {
+          content: 'Hỏi tôi về ẩm thực!',
+          senderId: 'ai_food_bot',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      setConversations([aiConv, ...activeConvs]);
     } catch (error) {
       console.log('Error loading conversations', error);
     } finally {
@@ -195,6 +224,23 @@ export default function MessagesScreen() {
           }
         />
       )}
+
+      {/* Nút Floating Bếp AI */}
+      <TouchableOpacity 
+        style={styles.fabAi}
+        activeOpacity={0.8}
+        onPress={() => router.push({ 
+          pathname: '/chat/[id]', 
+          params: { 
+              id: `ai_food_bot_${currentUserId}`, 
+              name: 'Bếp AI 🍜',
+              recipientId: 'ai_food_bot',
+              avatar: 'https://cdn-icons-png.flaticon.com/512/4712/4712139.png',
+          } 
+        })}
+      >
+        <Ionicons name="sparkles" size={24} color="#fff" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -243,4 +289,20 @@ const styles = StyleSheet.create({
   loadingWrapper: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyWrap: { padding: 40, alignItems: 'center' },
   emptyText: { color: '#888', fontSize: 14 },
+  fabAi: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#f97316',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
 });

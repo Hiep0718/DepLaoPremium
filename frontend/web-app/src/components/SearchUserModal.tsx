@@ -26,14 +26,14 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    
+
     setLoading(true);
     setError('');
     setSuccessMsg('');
     try {
       const isPhoneNumber = /^\d+$/.test(query.trim());
       let finalResults: any[] = [];
-      
+
       // 1. Luôn tìm trong danh bạ trước (hiển thị bạn bè)
       try {
         const contactRes = await contactService.searchContacts(query.trim());
@@ -51,9 +51,9 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
       if (isPhoneNumber) {
         const userRes = await searchUsers(query.trim());
         const allUsers = userRes.data?.data?.content || [];
-        
+
         const friendIds = new Set(finalResults.map(f => f.id));
-        const exactStrangers = allUsers.filter((u: any) => 
+        const exactStrangers = allUsers.filter((u: any) =>
           u.phone === query.trim() && !friendIds.has(u.id)
         ).map((u: any) => ({ ...u, isFriend: false }));
 
@@ -63,7 +63,7 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
       if (finalResults.length === 0) {
         setError('Không tìm thấy kết quả phù hợp.');
       }
-      
+
       setResults(finalResults as any[]);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Lỗi tìm kiếm');
@@ -76,7 +76,7 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     try {
       await contactService.sendFriendRequest(userData.phone, 'Xin chào, mình muốn kết bạn với bạn!');
       setSuccessMsg(`Đã gửi lời mời kết bạn đến ${userData.fullName}!`);
-      
+
       // Phát tín hiệu Real-time
       if (socket.connected) {
         socket.emit('friend_action', { recipientId: userData.id, action: 'new_request' });
@@ -97,8 +97,8 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
     // Current user can chat directly by providing a synthetic conversation
     // Node.js will handle mapping this or creating it in the real system
     setActiveConversation({
-      conversationId: `1to1_web_${user.id}`, 
-      participants: [user as any], 
+      conversationId: `1to1_web_${user.id}`,
+      participants: [user as any],
       isGroup: false,
       lastMessage: '...',
     });
@@ -115,7 +115,7 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="p-4">
           <form onSubmit={handleSearch} className="relative mb-4">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -129,8 +129,8 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading || !query.trim()}
               className="absolute right-1.5 top-1.5 bottom-1.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-semibold transition-colors"
             >
@@ -148,25 +148,25 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
               <p className="text-center text-slate-500 p-4">Không tìm thấy người dùng phù hợp.</p>
             ) : (
               results.map((u) => (
-                <div 
-                  key={u.id} 
+                <div
+                  key={u.id}
                   onClick={() => handleSelectUser(u)}
                   className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100/50 hover:border-slate-200 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3 w-full">
                     <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-lg shrink-0 overflow-hidden">
                       {u.avatarUrl ? (
-                         <img src={u.avatarUrl} alt={u.fullName} className="w-full h-full object-cover" />
+                        <img src={u.avatarUrl} alt={u.fullName} className="w-full h-full object-cover" />
                       ) : (
-                         (u.fullName || '?').charAt(0).toUpperCase()
+                        (u.fullName || '?').charAt(0).toUpperCase()
                       )}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                         <p className="font-semibold text-slate-800">{u.nickname || u.fullName}</p>
-                         {(u as any).isFriend && (
-                           <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">Bạn bè</span>
-                         )}
+                        <p className="font-semibold text-slate-800">{u.fullName}</p>
+                        {(u as any).isFriend && (
+                          <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">Bạn bè</span>
+                        )}
                       </div>
                       <p className="text-sm text-slate-500 flex items-center gap-1">
                         <Phone size={12} /> {u.phone}
@@ -174,7 +174,7 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
                     </div>
                   </div>
                   {!(u as any).isFriend && (
-                    <button 
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleAddFriend(u);

@@ -168,11 +168,27 @@ export const useSocketSetup = () => {
         console.log('User online:', data);
       });
 
+      socket.on('message_pinned', (data: any) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+           state.setPinnedMessage(data.pinnedMessage);
+        }
+      });
+
+      socket.on('message_unpinned', (data: any) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+           state.setPinnedMessage(null);
+        }
+      });
+
       return () => {
         socket.off('force_logout');
         socket.off('message_received');
         socket.off('message_sent');
         socket.off('user_online');
+        socket.off('message_pinned');
+        socket.off('message_unpinned');
         disconnectSocket();
       };
     }

@@ -2,9 +2,10 @@ import { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { MoreHorizontal, Download, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
+import { fetchAiMessages } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { socket } from '../../services/socket';
@@ -38,7 +39,7 @@ const getFileExtension = (url: string): string => {
 
 const MessageList = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { activeConversation, messages, setMessages, setReplyingMessage, setForwardingMessage, updateMessage, activeContactInfo } = useChatStore();
+  const { activeConversation, messages, setMessages, setReplyingMessage, setForwardingMessage, updateMessage, activeContactInfo, pinnedMessage, setPinnedMessage } = useChatStore();
   const { user } = useAuthStore();
   const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -47,23 +48,52 @@ const MessageList = () => {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  // AI streaming state (must be before any early return)
+  const isAiStreaming = useChatStore((s) => s.isAiStreaming);
+  const aiStreamingText = useChatStore((s) => s.aiStreamingText);
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
 
   useEffect(() => {
     if (!activeConversation || !user?.id) return;
+    const isAi = activeConversation.conversationId.startsWith('ai_');
+
     const fetchHistory = async () => {
       try {
-        const res = await getConversationHistory(activeConversation.conversationId, user.id.toString());
-        if (res.data && Array.isArray(res.data.data)) setMessages(res.data.data);
-        else if (res.data && Array.isArray(res.data)) setMessages(res.data);
+        if (isAi) {
+          // Load AI messages from ai-chat-service
+          const aiMsgs = await fetchAiMessages(user.id.toString());
+          const mapped = aiMsgs.map((m) => ({
+            id: m._id,
+            _id: m._id,
+            conversationId: activeConversation.conversationId,
+            senderId: m.role === 'user' ? user.id.toString() : 'ai_food_bot',
+            content: m.content,
+            text: m.content,
+            messageType: 'text' as const,
+            createdAt: m.createdAt,
+          }));
+          setMessages(mapped);
+          setPinnedMessage(null);
+        } else {
+          const res = await getConversationHistory(activeConversation.conversationId, user.id.toString());
+          if (res.data && Array.isArray(res.data.data)) {
+            setMessages(res.data.data);
+            setPinnedMessage(res.data.pinnedMessage || null);
+          } else if (res.data && Array.isArray(res.data)) {
+            setMessages(res.data);
+            setPinnedMessage((res as any).data.pinnedMessage || null);
+          }
+        }
       } catch (err) {
         console.error('Error fetching messages', err);
       }
     };
+
     if (!activeConversation.conversationId.startsWith('new_') && !activeConversation.conversationId.startsWith('contact_')) {
       fetchHistory();
     } else {
       setMessages([]);
+      setPinnedMessage(null);
     }
   }, [activeConversation, user, setMessages]);
 
@@ -91,6 +121,17 @@ const MessageList = () => {
       conversationId: activeConversation?.conversationId,
       userId: user.id.toString(),
     });
+    setOpenMenuId(null);
+  };
+
+  const handleTogglePinMessage = (msg: any) => {
+    if (!user) return;
+    const isCurrentlyPinned = pinnedMessage?.messageId === (msg._id || msg.id);
+    if (isCurrentlyPinned) {
+      socket.emit('unpin_message', { conversationId: activeConversation?.conversationId, userId: user.id.toString() });
+    } else {
+      socket.emit('pin_message', { messageId: msg._id || msg.id, conversationId: activeConversation?.conversationId, userId: user.id.toString() });
+    }
     setOpenMenuId(null);
   };
 
@@ -160,9 +201,10 @@ const MessageList = () => {
   }
 
   // Get contact info for received messages
+  const isAiConversation = activeConversation.conversationId.startsWith('ai_');
   const contact = activeConversation.participants?.[0];
-  const contactAvatar = activeContactInfo?.avatarUrl || contact?.avatarUrl;
-  const contactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
+  const contactAvatar = isAiConversation ? undefined : (activeContactInfo?.avatarUrl || contact?.avatarUrl);
+  const contactName = isAiConversation ? 'Bếp AI 🍜' : (activeContactInfo?.name || contact?.fullName || '?');
 
   // Render image message
   const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date, isInGrid: boolean = false) => {
@@ -360,8 +402,8 @@ const MessageList = () => {
       parsedContact = {};
     }
 
-    const { fullName, nickname, avatarUrl, phone, contactUserId, id } = parsedContact || {};
-    const displayName = nickname || fullName || 'Người dùng';
+    const { fullName, avatarUrl, phone, contactUserId, id } = parsedContact || {};
+    const displayName = fullName || 'Người dùng';
     const avatar = avatarUrl;
     const targetUserId = contactUserId || id;
     
@@ -440,8 +482,41 @@ const MessageList = () => {
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
-        <div className="max-w-3xl mx-auto space-y-1">
+      <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+        {pinnedMessage && (
+          <div className="sticky top-0 z-40 bg-[var(--bg-panel)] shadow-sm border border-[var(--border-light)] rounded-lg p-2.5 flex items-center justify-between mb-3 w-full opacity-95">
+            <div className="flex items-center gap-3 overflow-hidden">
+               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+                  <Pin size={16} className="text-blue-600" />
+               </div>
+               <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-semibold text-[var(--text-primary)]">Tin nhắn ghim</span>
+                  <span className="text-sm truncate text-[var(--text-secondary)]">
+                    {pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
+                     pinnedMessage.messageType === 'video' ? '[Video]' :
+                     pinnedMessage.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                     pinnedMessage.messageType === 'file' ? '[Tệp]' :
+                     pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                     pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
+                     pinnedMessage.content}
+                  </span>
+               </div>
+            </div>
+            <button className="p-1 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
+                onClick={() => {
+                   if (user) {
+                      socket.emit('unpin_message', { conversationId: activeConversation?.conversationId, userId: user.id.toString() });
+                   }
+                }}
+            >
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-secondary)' }}>
+                 <line x1="18" y1="6" x2="6" y2="18"></line>
+                 <line x1="6" y1="6" x2="18" y2="18"></line>
+               </svg>
+            </button>
+          </div>
+        )}
+        <div className="w-full space-y-1">
           {messages.map((msg, idx) => {
             const isMe = msg.senderId === user?.id?.toString();
             const msgTime = msg.createdAt ? new Date(msg.createdAt) : (msg.timestamp ? new Date(msg.timestamp) : new Date());
@@ -515,6 +590,10 @@ const MessageList = () => {
                         {translatingId === messageId ? 'Đang dịch...' : 'Dịch sang Tiếng Việt'}
                       </button>
                     )}
+                    <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
+                        onClick={() => handleTogglePinMessage(msg)}>
+                        {pinnedMessage?.messageId === messageId ? 'Bỏ ghim' : 'Ghim tin nhắn'}
+                    </button>
                     {isMe && (
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-red-500"
                         onClick={() => handleRevoke(msg)}>
@@ -544,8 +623,14 @@ const MessageList = () => {
                   {/* Received: Avatar */}
                   {!isMe && (
                     <div className="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto mb-0.5 flex items-center justify-center font-bold text-xs text-white overflow-hidden"
-                      style={{ background: contactAvatar ? 'transparent' : '#0068FF' }}>
-                      {contactAvatar ? (
+                      style={{
+                        background: isAiConversation
+                          ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                          : (contactAvatar ? 'transparent' : '#0068FF')
+                      }}>
+                      {isAiConversation ? (
+                        <span className="text-base">🍜</span>
+                      ) : contactAvatar ? (
                         <img src={contactAvatar} alt={contactName} className="w-full h-full object-cover" />
                       ) : (
                         contactName.charAt(0).toUpperCase()
@@ -685,7 +770,35 @@ const MessageList = () => {
             );
           })}
         </div>
+
+        {/* AI Streaming Bubble */}
+        {isAiConversation && isAiStreaming && (
+          <div className="w-full">
+            <div className="flex justify-start mb-0.5 group relative">
+              <div className="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto mb-0.5 flex items-center justify-center text-base text-white"
+                style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}>
+                🍜
+              </div>
+              <div className="max-w-[60%]">
+                <div className="px-3 py-[7px] text-[15px] leading-relaxed"
+                  style={{
+                    background: 'var(--bg-msg-received)',
+                    color: 'var(--text-primary)',
+                    borderRadius: '4px 18px 18px 18px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                  }}>
+                  {aiStreamingText || ''}
+                  <span className="inline-block w-[2px] h-[1em] ml-[2px] align-text-bottom" style={{ background: '#f97316', animation: 'blink 1s step-end infinite' }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={bottomRef} className="h-4" />
+
+        <style>{`@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }`}</style>
       </div>
 
       {/* Image Lightbox - rendered via Portal to escape stacking context */}

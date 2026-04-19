@@ -9,8 +9,10 @@ import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
 import { createConversation } from '../../services/message.service';
+import { streamAiChat } from '../../services/aiChat.service';
 import { uploadChatFile } from '../../services/upload.service';
 import { STICKERS } from '../../constants/stickers';
+import { showToast } from '../../services/notification.service';
 
 // Helper: format file size
 const formatFileSize = (bytes: number): string => {
@@ -26,7 +28,7 @@ const MessageInput = () => {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
-  
+
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -48,6 +50,18 @@ const MessageInput = () => {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handlePrompt = ((e: CustomEvent) => {
+      setMessageText(e.detail);
+      setTimeout(() => {
+         const input = document.querySelector('textarea') as HTMLTextAreaElement;
+         if (input) input.focus();
+      }, 0);
+    }) as EventListener;
+    window.addEventListener('ai_prompt_selected', handlePrompt);
+    return () => window.removeEventListener('ai_prompt_selected', handlePrompt);
   }, []);
 
   // Clean up preview URLs and recording timer on unmount
@@ -92,11 +106,11 @@ const MessageInput = () => {
     const recipientPart = conv.isGroup
       ? null
       : conv.participants.find((p: any) =>
-          p !== user.id && p !== user.id.toString() &&
-          p.id !== user.id && p.id?.toString() !== user.id.toString() &&
-          p.userId !== user.id && p.userId !== user.id.toString() &&
-          p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
-        );
+        p !== user.id && p !== user.id.toString() &&
+        p.id !== user.id && p.id?.toString() !== user.id.toString() &&
+        p.userId !== user.id && p.userId !== user.id.toString() &&
+        p.contactUserId !== user.id && p.contactUserId?.toString() !== user.id.toString()
+      );
     return recipientPart?.userId || recipientPart?.contactUserId || recipientPart?.id || recipientPart;
   };
 
@@ -104,11 +118,40 @@ const MessageInput = () => {
     e.preventDefault();
     if (!text.trim() || !activeConversation || !user) return;
 
-    const currentConversation = await ensureConversation();
-    if (!currentConversation) { return; }
-
+    const isAi = activeConversation.conversationId.startsWith('ai_');
     const activeText = text.trim();
     setText('');
+
+    if (isAi) {
+      // ── AI Chat Route ──
+      const { addMessage, setAiStreaming, appendAiToken, finishAiStream } = useChatStore.getState();
+      const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+      addMessage({
+        id: tempId,
+        conversationId: activeConversation.conversationId,
+        senderId: user.id.toString(),
+        content: activeText,
+        text: activeText,
+        messageType: 'text',
+        createdAt: new Date().toISOString(),
+      });
+      setAiStreaming(true);
+      await streamAiChat(
+        user.id.toString(),
+        activeText,
+        (token) => appendAiToken(token),
+        () => finishAiStream(user.id.toString()),
+        (errMsg) => {
+          setAiStreaming(false);
+          showToast('Bếp AI', errMsg, 'error');
+        }
+      );
+      return;
+    }
+
+    // ── Normal Chat Route ──
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) { return; }
 
     const recipientId = getRecipientId(currentConversation);
     const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
@@ -136,7 +179,7 @@ const MessageInput = () => {
 
   const sendSticker = async (stickerUrl: string) => {
     if (!activeConversation || !user) return;
-    
+
     const currentConversation = await ensureConversation();
     if (!currentConversation) return;
 
@@ -167,7 +210,7 @@ const MessageInput = () => {
 
   const sendContact = async (contactInfo: any) => {
     if (!activeConversation || !user) return;
-    
+
     const currentConversation = await ensureConversation();
     if (!currentConversation) return;
 
@@ -202,10 +245,21 @@ const MessageInput = () => {
     if (!files || files.length === 0) return;
 
     const newFiles = Array.from(files);
-    const newPreviews = newFiles.map(f => URL.createObjectURL(f));
+    const validFiles: File[] = [];
+    const validPreviews: string[] = [];
+    for (const f of newFiles) {
+      if (f.size > 50 * 1024 * 1024) {
+        showToast('Lỗi tải tệp', `Tệp "${f.name}" vượt quá dung lượng giới hạn (50MB)`, 'error');
+      } else {
+        validFiles.push(f);
+        validPreviews.push(URL.createObjectURL(f));
+      }
+    }
 
-    setPendingFiles(prev => [...prev, ...newFiles]);
-    setPreviewUrls(prev => [...prev, ...newPreviews]);
+    if (validFiles.length > 0) {
+      setPendingFiles(prev => [...prev, ...validFiles]);
+      setPreviewUrls(prev => [...prev, ...validPreviews]);
+    }
 
     // Reset the input
     e.target.value = '';
@@ -217,8 +271,20 @@ const MessageInput = () => {
     if (!files || files.length === 0) return;
 
     const newFiles = Array.from(files);
-    setPendingFiles(prev => [...prev, ...newFiles]);
-    setPreviewUrls(prev => [...prev, ...newFiles.map(() => '')]);
+    const validFiles: File[] = [];
+
+    for (const f of newFiles) {
+      if (f.size > 50 * 1024 * 1024) {
+        showToast('Lỗi tải tệp', `Tệp "${f.name}" vượt quá dung lượng giới hạn (50MB)`, 'error');
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validFiles.length > 0) {
+      setPendingFiles(prev => [...prev, ...validFiles]);
+      setPreviewUrls(prev => [...prev, ...validFiles.map(() => '')]);
+    }
 
     e.target.value = '';
   };
@@ -323,9 +389,13 @@ const MessageInput = () => {
         e.preventDefault();
         const file = item.getAsFile();
         if (file) {
-          const preview = URL.createObjectURL(file);
-          setPendingFiles(prev => [...prev, file]);
-          setPreviewUrls(prev => [...prev, preview]);
+          if (file.size > 50 * 1024 * 1024) {
+            showToast('Lỗi tải tệp', 'Hình ảnh dán vượt quá dung lượng giới hạn (50MB)', 'error');
+          } else {
+            const preview = URL.createObjectURL(file);
+            setPendingFiles(prev => [...prev, file]);
+            setPreviewUrls(prev => [...prev, preview]);
+          }
         }
         break;
       }
@@ -353,7 +423,7 @@ const MessageInput = () => {
 
         // Create a File from Blob
         const file = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
-        
+
         // Push file to pendingFiles and trigger send directly
         setPendingFiles([file]);
         setPreviewUrls(['']); // No preview url needed for audio right away
@@ -362,7 +432,7 @@ const MessageInput = () => {
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
-      
+
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
@@ -393,7 +463,7 @@ const MessageInput = () => {
     setRecordingTime(0);
     // We rely on an effect to automatically sendFiles if pendingFiles was updated with an audio message
     setTimeout(() => {
-       sendFiles();
+      sendFiles();
     }, 100);
   };
 
@@ -405,12 +475,23 @@ const MessageInput = () => {
 
   if (!activeConversation) return null;
 
+  const isAiConversation = activeConversation.conversationId.startsWith('ai_');
+  const isAiStreaming = useChatStore.getState().isAiStreaming;
+
   // Get recipient name for placeholder
   const contact = activeConversation.participants?.[0];
-  const recipientName = contact ? (contact.nickname || contact.fullName || 'bạn bè') : 'bạn bè';
+  const recipientName = isAiConversation ? 'Bếp AI' : (contact ? (contact.fullName || 'bạn bè') : 'bạn bè');
+
+  // AI suggestion chips
+  const aiSuggestions = [
+    '🍜 Công thức phở bò',
+    '🥗 Món ăn chay đơn giản',
+    '🍳 Nấu ăn từ trứng và rau',
+    '🌶️ Ẩm thực miền Trung',
+  ];
 
   // Zalo toolbar icons — matches real Zalo PC exactly
-  const toolButtons = [
+  const toolButtons = isAiConversation ? [] : [
     { icon: Sticker, title: 'Sticker', action: () => setShowStickers(!showStickers) },
     { icon: ImageIcon, title: 'Hình ảnh', action: () => imageInputRef.current?.click() },
     { icon: Paperclip, title: 'Đính kèm tệp', action: () => fileInputRef.current?.click() },
@@ -487,6 +568,23 @@ const MessageInput = () => {
         )}
       </div>
 
+      {/* AI Suggestion Chips */}
+      {isAiConversation && !text.trim() && !isAiStreaming && (
+        <div className="flex gap-2 px-3 py-2 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-light)' }}>
+          {aiSuggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setText(s.replace(/^[^\s]+\s/, ''))}
+              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all flex-shrink-0"
+              style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.25)' }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Pending Files Preview */}
       {pendingFiles.length > 0 && (
         <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border-light)', background: 'var(--bg-panel)' }}>
@@ -537,16 +635,16 @@ const MessageInput = () => {
               Đang trả lời {replyingMessage.senderId === user.id.toString() ? 'chính mình' : 'người khác'}
             </span>
             <span className="truncate text-xs mt-0.5 opacity-80" style={{ color: 'var(--text-secondary)' }}>
-              {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' : 
-               replyingMessage.messageType === 'image' ? '[Hình ảnh]' :
-               replyingMessage.messageType === 'contact' ? '[Danh thiếp]' :
-               replyingMessage.messageType === 'video' ? '[Video]' :
-               replyingMessage.messageType === 'file' ? '[Tệp]' :
-               (replyingMessage.content || replyingMessage.text)}
+              {replyingMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                replyingMessage.messageType === 'image' ? '[Hình ảnh]' :
+                  replyingMessage.messageType === 'contact' ? '[Danh thiếp]' :
+                    replyingMessage.messageType === 'video' ? '[Video]' :
+                      replyingMessage.messageType === 'file' ? '[Tệp]' :
+                        (replyingMessage.content || replyingMessage.text)}
             </span>
           </div>
           <button type="button" onClick={() => setReplyingMessage(null)} className="p-1 rounded-full hover:bg-[var(--bg-hover)] transition-colors">
-             <X size={16} style={{ color: 'var(--text-secondary)' }} />
+            <X size={16} style={{ color: 'var(--text-secondary)' }} />
           </button>
         </div>
       )}
@@ -587,10 +685,13 @@ const MessageInput = () => {
               className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
               style={{ color: 'var(--text-primary)' }}
               rows={1}
-              placeholder={pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`}
+              placeholder={isAiConversation
+                ? 'Hỏi Bếp AI về ẩm thực...'
+                : (pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`)}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onPaste={handlePaste}
+              disabled={isAiConversation && isAiStreaming}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();

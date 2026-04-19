@@ -31,6 +31,7 @@ export interface Conversation {
   _id?: string;
   participants: any[];
   isGroup: boolean;
+  isAiBot?: boolean;
   lastMessage?: string | any;
   unreadCount?: number;
 }
@@ -49,6 +50,9 @@ interface ChatState {
   replyingMessage: Message | null;
   forwardingMessage: Message | null;
   isForwardModalOpen: boolean;
+  // AI streaming state
+  isAiStreaming: boolean;
+  aiStreamingText: string;
   markAsRead: (conversationId: string) => void;
   setConversations: (conversations: Conversation[]) => void;
   setActiveConversation: (conversation: Conversation) => void;
@@ -62,9 +66,15 @@ interface ChatState {
   toggleInfoPanel: () => void;
   clearChat: () => void;
   deleteActiveConversationHistory: (userId: string) => Promise<void>;
+  pinnedMessage: any | null;
+  setPinnedMessage: (msg: any | null) => void;
+  // AI streaming actions
+  setAiStreaming: (val: boolean) => void;
+  appendAiToken: (token: string) => void;
+  finishAiStream: (userId: string) => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversation: null,
   activeContactInfo: null,
@@ -73,6 +83,8 @@ export const useChatStore = create<ChatState>((set) => ({
   replyingMessage: null,
   forwardingMessage: null,
   isForwardModalOpen: false,
+  isAiStreaming: false,
+  aiStreamingText: '',
   markAsRead: async (conversationId) => {
     set((state) => ({
       conversations: state.conversations.map(c =>
@@ -109,8 +121,11 @@ export const useChatStore = create<ChatState>((set) => ({
     messages: [],
     replyingMessage: null,
     forwardingMessage: null,
-    isForwardModalOpen: false
+    isForwardModalOpen: false,
+    pinnedMessage: null
   }),
+  pinnedMessage: null,
+  setPinnedMessage: (pinnedMessage) => set({ pinnedMessage }),
   deleteActiveConversationHistory: async (userId: string) => {
     const state = useChatStore.getState();
     const convId = state.activeConversation?.conversationId;
@@ -128,5 +143,29 @@ export const useChatStore = create<ChatState>((set) => ({
       console.error('Failed to delete conversation history:', e);
       throw e;
     }
-  }
+  },
+  // AI streaming
+  setAiStreaming: (val) => set({ isAiStreaming: val, aiStreamingText: val ? '' : '' }),
+  appendAiToken: (token) => set((s) => ({ aiStreamingText: s.aiStreamingText + token })),
+  finishAiStream: (userId) => {
+    const finalText = get().aiStreamingText.trim();
+    if (finalText) {
+      const aiMsg: Message = {
+        id: `ai_${Date.now()}`,
+        conversationId: `ai_food_bot_${userId}`,
+        senderId: 'ai_food_bot',
+        content: finalText,
+        text: finalText,
+        messageType: 'text',
+        createdAt: new Date().toISOString(),
+      };
+      set((s) => ({
+        messages: [...s.messages, aiMsg],
+        isAiStreaming: false,
+        aiStreamingText: '',
+      }));
+    } else {
+      set({ isAiStreaming: false, aiStreamingText: '' });
+    }
+  },
 }));

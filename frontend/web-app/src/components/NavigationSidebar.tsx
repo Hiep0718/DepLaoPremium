@@ -1,7 +1,8 @@
-import { MessageSquare, Users, CloudLightning, ClipboardList, Settings } from 'lucide-react';
+import { MessageSquare, Users, CloudLightning, ClipboardList, Settings, Bot } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useChatStore } from '../stores/chatStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { contactService } from '../services/contactService';
@@ -36,11 +37,38 @@ const NavigationSidebar = () => {
   const currentTab = location.pathname.startsWith('/contacts') ? 'contacts' : 'messages';
   const avatarLetter = user?.fullName ? user.fullName.charAt(0).toUpperCase() : 'U';
 
+  // Handler: mở AI conversation (tạo nếu chưa có)
+  const openAiChat = () => {
+    if (!user?.id) return;
+    const chatState = useChatStore.getState();
+    const aiConvId = `ai_food_bot_${user.id}`;
+
+    // Check if AI conversation already exists in list
+    let aiConv = chatState.conversations.find(c => c.conversationId === aiConvId);
+    if (!aiConv) {
+      // Create virtual AI conversation
+      aiConv = {
+        conversationId: aiConvId,
+        participants: [{ userId: 'ai_food_bot', fullName: 'Bếp AI 🍜', avatarUrl: null }],
+        isGroup: false,
+        isAiBot: true,
+        lastMessage: { content: 'Hỏi tôi về ẩm thực!', timestamp: new Date().toISOString() },
+      };
+      chatState.setConversations([aiConv, ...chatState.conversations]);
+    }
+
+    chatState.setActiveConversation(aiConv);
+    chatState.setActiveContactInfo({ name: 'Bếp AI 🍜', avatarUrl: undefined });
+    // Navigate to messages if on contacts page
+    if (location.pathname !== '/') navigate('/');
+  };
+
   const navItems = [
-    { key: 'messages', icon: MessageSquare, path: '/', title: 'Tin nhắn' },
-    { key: 'contacts', icon: Users, path: '/contacts', title: 'Danh bạ' },
-    { key: 'cloud', icon: CloudLightning, path: '#', title: 'Cloud' },
-    { key: 'tools', icon: ClipboardList, path: '#', title: 'Công cụ' },
+    { key: 'messages', icon: MessageSquare, path: '/', title: 'Tin nhắn', isAi: false },
+    { key: 'contacts', icon: Users, path: '/contacts', title: 'Danh bạ', isAi: false },
+    { key: 'ai-chat', icon: Bot, path: '#ai', title: 'Bếp AI 🍜', isAi: true },
+    { key: 'cloud', icon: CloudLightning, path: '#', title: 'Cloud', isAi: false },
+    { key: 'tools', icon: ClipboardList, path: '#', title: 'Công cụ', isAi: false },
   ];
 
   return (
@@ -73,20 +101,34 @@ const NavigationSidebar = () => {
         {navItems.map((item) => {
           const isActive = currentTab === item.key;
           const Icon = item.icon;
+          const isAiItem = item.isAi;
+          // Active color: orange for AI tab, blue/white for rest
+          const activeColor = isAiItem ? '#f97316' : (isDark ? '#60a5fa' : '#ffffff');
+          const iconColor = isActive
+            ? (isAiItem ? '#f97316' : 'var(--text-sidebar-icon-active)')
+            : 'var(--text-sidebar-icon)';
           return (
             <button
               key={item.key}
-              onClick={() => item.path !== '#' && navigate(item.path)}
+              onClick={() => {
+                if (isAiItem) { openAiChat(); }
+                else if (item.path !== '#') { navigate(item.path); }
+              }}
               className="w-full py-3 flex justify-center items-center transition-all relative group"
               title={item.title}
               style={{
-                color: isActive ? 'var(--text-sidebar-icon-active)' : 'var(--text-sidebar-icon)',
-                background: isActive ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.15)') : 'transparent',
+                color: iconColor,
+                background: isActive
+                  ? (isAiItem
+                    ? 'rgba(249,115,22,0.2)'
+                    : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.15)'))
+                  : 'transparent',
               }}
             >
               {isActive && (
-                <div className="absolute left-0 top-1/4 bottom-1/4 w-[3px] rounded-r-full"
-                  style={{ background: isDark ? '#60a5fa' : '#ffffff' }}
+                <div
+                  className="absolute left-0 top-1/4 bottom-1/4 w-[3px] rounded-r-full"
+                  style={{ background: activeColor }}
                 />
               )}
               <Icon size={24} strokeWidth={1.5} />

@@ -22,7 +22,7 @@ const Sidebar = () => {
   const getChatName = (participants: any[]) => {
     if (!participants || participants.length === 0) return 'Cuộc trò chuyện';
     const otherParticipant = participants.find(p => p.userId !== user?.id && p._id !== user?.id);
-    return otherParticipant?.nickname || otherParticipant?.fullName || 'Người dùng ẩn danh';
+    return otherParticipant?.fullName || 'Người dùng ẩn danh';
   };
 
   return (

@@ -1,7 +1,8 @@
-import { Phone, Video, Search, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Trash2, Loader2 } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useCallStore } from '../../stores/callStore';
 import { useAuthStore } from '../../stores/authStore';
+import { clearAiHistory } from '../../services/aiChat.service';
 import { socket } from '../../services/socket';
 
 const ChatHeader = () => {
@@ -22,9 +23,14 @@ const ChatHeader = () => {
   );
 
   const contact = activeContactInfo || conversationContact || activeConversation?.participants?.[0];
+
+  // Detect AI conversation
+  const isAiConversation = activeConversation?.conversationId?.startsWith('ai_');
+  const isAiStreaming = useChatStore((s) => s.isAiStreaming);
+
   // Use resolved contact info from store, with fallbacks
-  const displayName = activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện';
-  const contactAvatarUrl = activeContactInfo?.avatarUrl || contact?.avatarUrl;
+  const displayName = isAiConversation ? 'Bếp AI 🍜' : (activeContactInfo?.name || contact?.fullName || 'Chọn cuộc trò chuyện');
+  const contactAvatarUrl = isAiConversation ? undefined : (activeContactInfo?.avatarUrl || contact?.avatarUrl);
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
   const setOutgoingCall = useCallStore((state) => state.setOutgoingCall);
@@ -71,18 +77,40 @@ const ChatHeader = () => {
       style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-primary)' }}>
       <div className="flex items-center gap-3 cursor-pointer group">
         <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white overflow-hidden"
-          style={{ background: contactAvatarUrl ? 'transparent' : '#0068FF' }}>
-          {contactAvatarUrl ? (
+          style={{
+            background: isAiConversation
+              ? 'linear-gradient(135deg, #f97316, #ea580c)'
+              : (contactAvatarUrl ? 'transparent' : '#0068FF'),
+            boxShadow: isAiConversation ? '0 2px 8px rgba(249,115,22,0.4)' : undefined,
+          }}>
+          {isAiConversation ? (
+            <span className="text-xl">🍜</span>
+          ) : contactAvatarUrl ? (
             <img src={contactAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
           ) : (
             <span className="text-lg">{avatarLetter}</span>
           )}
         </div>
         <div>
-          <h2 className="font-semibold text-[15px] leading-tight group-hover:underline" style={{ color: 'var(--text-primary)' }}>
-            {displayName}
-          </h2>
-          {contact && (
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-[15px] leading-tight group-hover:underline" style={{ color: 'var(--text-primary)' }}>
+              {displayName}
+            </h2>
+            {isAiConversation && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>AI</span>
+            )}
+          </div>
+          {isAiConversation ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {isAiStreaming ? (
+                <span className="text-xs flex items-center gap-1" style={{ color: '#f97316' }}>
+                  <Loader2 size={10} className="animate-spin" /> Đang trả lời...
+                </span>
+              ) : (
+                <span className="text-xs" style={{ color: '#f97316' }}>Trợ lý ẩm thực • Online</span>
+              )}
+            </div>
+          ) : contact && (
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Truy cập gần đây
@@ -93,7 +121,29 @@ const ChatHeader = () => {
         </div>
       </div>
 
-      {contact && (
+      {isAiConversation ? (
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={toggleInfoPanel}
+            className="p-2.5 rounded-lg transition-all duration-150"
+            style={{
+              color: isInfoPanelOpen ? 'var(--text-accent)' : 'var(--text-secondary)',
+              background: isInfoPanelOpen ? 'var(--bg-active)' : 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              if (!isInfoPanelOpen) e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              if (!isInfoPanelOpen) e.currentTarget.style.background = 'transparent';
+              if (!isInfoPanelOpen) e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="Thông tin hội thoại AI"
+          >
+            {isInfoPanelOpen ? <PanelRightClose size={20} strokeWidth={1.5} /> : <PanelRightOpen size={20} strokeWidth={1.5} />}
+          </button>
+        </div>
+      ) : contact && (
         <div className="flex items-center gap-0.5">
           {[
             { Icon: Phone, title: 'Gọi thoại', onClick: () => startCall(false) },
