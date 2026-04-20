@@ -24,6 +24,7 @@ export interface Message {
   createdAt?: string;
   _uploading?: boolean;
   _uploadFailed?: boolean;
+  reactions?: any[];
 }
 
 export interface Conversation {

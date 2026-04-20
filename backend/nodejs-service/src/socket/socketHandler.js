@@ -79,12 +79,11 @@ const setupSocketEvents = (io) => {
         const isGroup = conversation?.isGroup;
         const actualReceiverId = isGroup ? conversationId : recipientId;
 
-        // Save message to database (use 'content' and 'receiverId' to match Message schema)
-        // Also map optional messageType and fileUrl
+        // Save message to database
         const message = new Message({
           conversationId,
           senderId,
-          receiverId: recipientId,
+          receiverId: recipientId || conversationId,
           content: messageContent,
           messageType: messageType || 'text',
           fileUrl: fileUrl || null,
@@ -96,25 +95,39 @@ const setupSocketEvents = (io) => {
 
         await message.save();
 
-        // Update conversation lastMessage (match Conversation schema format)
-        await Conversation.findOneAndUpdate(
-          { conversationId },
-          {
-            lastMessage: {
-              content: text, // e.g. '[Nhãn dán]' or '[Hình ảnh]' sent from client
-              senderId,
-              messageType: messageType || 'text',
-              timestamp: new Date(),
-            },
-            lastMessageTime: new Date(),
+        // Update conversation lastMessage and unreadCounts
+        if (conversation) {
+          conversation.lastMessage = {
+            content: messageContent,
+            senderId,
+            messageType: messageType || 'text',
+            timestamp: new Date(),
+          };
+          conversation.lastMessageTime = new Date();
+
+          // Increment unreadCount for all participants except the sender
+          if (conversation.participants) {
+            conversation.participants.forEach(p => {
+              const pId = p.userId || p.id || p;
+              const pIdStr = String(pId);
+              if (pId && pIdStr !== String(senderId)) {
+                // Skip if user has left the group
+                if (conversation.leftMembers && conversation.leftMembers.has(pIdStr)) {
+                  return;
+                }
+                const currentCount = conversation.unreadCount.get(pIdStr) || 0;
+                conversation.unreadCount.set(pIdStr, currentCount + 1);
+              }
+            });
           }
-        );
+          await conversation.save();
+        }
 
         const basePayload = {
           conversationId,
           senderId,
-          text,
-          content: message.content,
+          text: messageContent,
+          content: messageContent,
           messageType: message.messageType,
           fileUrl: message.fileUrl,
           fileName: message.fileName,
@@ -132,12 +145,25 @@ const setupSocketEvents = (io) => {
           status: 'sent',
         });
 
-        io.to(`user_${recipientId}`).emit('message_received', {
+        // Broadcast 'message_received' to recipients
+        const receivePayload = {
+          ...basePayload,
           messageId: message._id,
           status: 'received',
-        });
+        };
 
-        console.log(`[Socket] Message sent from ${senderId} to ${recipientId} (type: ${message.messageType})`);
+        if (isGroup && conversation?.participants) {
+          conversation.participants.forEach(p => {
+            const pId = p.userId || p.id || p;
+            if (pId && String(pId) !== String(senderId)) {
+              io.to(`user_${pId}`).emit('message_received', receivePayload);
+            }
+          });
+        } else if (recipientId) {
+          io.to(`user_${recipientId}`).emit('message_received', receivePayload);
+        }
+
+        console.log(`[Socket] Message sent in ${conversationId} from ${senderId} (isGroup: ${!!isGroup})`);
       } catch (error) {
         console.error('[Socket] Error sending message:', error);
         socket.emit('error', { message: 'Failed to send message' });
@@ -176,19 +202,26 @@ const setupSocketEvents = (io) => {
         if (!mongoose.Types.ObjectId.isValid(messageId)) return;
 
         const message = await Message.findById(messageId);
-        if (!message || message.senderId !== userId) return;
+        if (!message || String(message.senderId) !== String(userId)) return;
 
         message.isRevoked = true;
         await message.save();
 
-        io.to(`conv_${conversationId}`).emit('message_revoked', { messageId, conversationId });
-
-        // Broadcast to all participants explicitly
         const conversation = await Conversation.findOne({ conversationId });
-        if (conversation && conversation.participants) {
-          conversation.participants.forEach(p => {
-             io.to(`user_${p.userId}`).emit('message_revoked', { messageId, conversationId });
-          });
+        if (conversation) {
+          // Update lastMessage if it was the revoked one
+          // We compare timestamps as a heuristic since we don't store messageId in lastMessage
+          if (conversation.lastMessage && 
+              new Date(conversation.lastMessage.timestamp).getTime() === new Date(message.createdAt).getTime()) {
+            conversation.lastMessage.content = 'Tin nhắn đã bị thu hồi';
+            await conversation.save();
+          }
+
+          if (conversation.participants) {
+            conversation.participants.forEach(p => {
+               io.to(`user_${p.userId}`).emit('message_revoked', { messageId, conversationId });
+            });
+          }
         }
 
         console.log(`[Socket] Message ${messageId} revoked by ${userId}`);
@@ -283,7 +316,9 @@ const setupSocketEvents = (io) => {
 
         if (!message.reactions) message.reactions = [];
         
-        // Always push to allow multiple reactions of the same type
+        if (!message.reactions) message.reactions = [];
+        
+        // Always push to allow multiple reactions of same or different types from one user
         message.reactions.push({ userId, type: reactionType });
         
         await message.save();
@@ -421,6 +456,176 @@ const setupSocketEvents = (io) => {
         } catch (err) {
           console.error("Failed to save missed call message", err);
         }
+      }
+    });
+
+    // ═══════════════════ GROUP POLLS ═══════════════════
+
+    // Create a new poll
+    socket.on('create_poll', async (data) => {
+      const { conversationId, question, options, isMultipleChoice = false } = data;
+      const userId = socket.userId;
+
+      try {
+        const pollContent = JSON.stringify({
+          question,
+          options: options.map((opt, idx) => ({ id: idx, text: opt, votes: [] })),
+          isMultipleChoice
+        });
+
+        const pollMsg = new Message({
+          conversationId,
+          senderId: userId,
+          messageType: 'poll',
+          content: pollContent,
+          status: 'sent'
+        });
+
+        await pollMsg.save();
+
+        // Update conversation last message
+        await Conversation.findOneAndUpdate(
+          { conversationId },
+          {
+            lastMessage: {
+              content: `📊 Bình chọn: ${question}`,
+              senderId: userId,
+              messageType: 'poll',
+              timestamp: new Date()
+            },
+            lastMessageTime: new Date()
+          }
+        );
+
+        // Broadcast to all participants
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation) {
+          conversation.participants.forEach(p => {
+            io.to(`user_${p.userId}`).emit('message_received', {
+              messageId: pollMsg._id,
+              conversationId,
+              senderId: userId,
+              messageType: 'poll',
+              content: pollContent,
+              timestamp: pollMsg.createdAt,
+              status: 'sent'
+            });
+          });
+        }
+      } catch (err) {
+        console.error("[Socket] create_poll error:", err);
+      }
+    });
+
+    // Vote on a poll
+    socket.on('vote_poll', async (data) => {
+      const { messageId, optionId, conversationId } = data;
+      const userId = socket.userId;
+
+      try {
+        const message = await Message.findById(messageId);
+        if (!message || message.messageType !== 'poll') return;
+
+        let pollData = JSON.parse(message.content);
+        
+        // Logic: Single choice for now
+        // Remove userId from all other options
+        pollData.options.forEach(opt => {
+          opt.votes = (opt.votes || []).filter(v => String(v) !== String(userId));
+        });
+
+        // Add userId to the selected option
+        const targetOption = pollData.options.find(opt => opt.id === optionId);
+        if (targetOption) {
+          targetOption.votes.push(userId);
+        }
+
+        message.content = JSON.stringify(pollData);
+        await message.save();
+
+        // Broadcast update
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation) {
+          conversation.participants.forEach(p => {
+            io.to(`user_${p.userId}`).emit('message_reacted', { 
+              messageId: message._id,
+              conversationId,
+              content: message.content, 
+              reactions: message.reactions 
+            });
+          });
+        }
+      } catch (err) {
+        console.error("[Socket] vote_poll error:", err);
+      }
+    });
+
+    // Edit a poll
+    socket.on('update_poll', async (data) => {
+      const { messageId, question, options, conversationId } = data;
+      const userId = socket.userId;
+
+      try {
+        const pollMsg = await Message.findById(messageId);
+        if (!pollMsg) return;
+
+        // Only sender can edit
+        if (pollMsg.senderId.toString() !== userId) {
+          return socket.emit('error', { message: 'Bạn không có quyền chỉnh sửa bình chọn này' });
+        }
+
+        const currentContent = JSON.parse(pollMsg.content);
+        
+        // Update question
+        currentContent.question = question;
+        
+        // Update options (keep votes for existing ones, add new ones)
+        const updatedOptions = options.map((optText, idx) => {
+           const existing = currentContent.options.find(o => o.text === optText);
+           if (existing) return existing;
+           return { id: currentContent.options.length + idx, text: optText, votes: [] };
+        });
+        
+        // Actually simpler: if the user sends the WHOLE new options array, we might lose votes.
+        // Let's assume for now they just edit the text or add.
+        // A better way is to pass option objects.
+        
+        currentContent.options = options.map((opt, idx) => {
+          // If opt is a string, it's a new option text
+          if (typeof opt === 'string') {
+            // Find if there was an option with this text before
+            const oldOpt = currentContent.options.find(o => o.text === opt);
+            if (oldOpt) return oldOpt;
+            return { id: Date.now() + idx, text: opt, votes: [] };
+          }
+          // If opt is an object {id, text}
+          const oldOpt = currentContent.options.find(o => o.id === opt.id);
+          if (oldOpt) {
+            oldOpt.text = opt.text;
+            return oldOpt;
+          }
+          return { id: opt.id || (Date.now() + idx), text: opt.text, votes: [] };
+        });
+
+        pollMsg.content = JSON.stringify(currentContent);
+        await pollMsg.save();
+
+        // Broadcast update
+        io.to(`conversation_${conversationId}`).emit('message_reacted', {
+          messageId: pollMsg._id,
+          conversationId,
+          content: pollMsg.content,
+          reactions: pollMsg.reactions
+        });
+
+        // Update conversation last message if it was the last one
+        await Conversation.findOneAndUpdate(
+          { conversationId, 'lastMessage.timestamp': pollMsg.createdAt },
+          { 'lastMessage.content': `📊 Bình chọn: ${question}` }
+        );
+
+      } catch (err) {
+        console.error("[Socket] update_poll error:", err);
       }
     });
 

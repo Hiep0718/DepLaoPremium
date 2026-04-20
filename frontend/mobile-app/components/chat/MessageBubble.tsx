@@ -28,6 +28,7 @@ interface MessageBubbleProps {
   closeReactionTooltip?: () => void;
   lastReactionType?: string;
   memberMap?: Record<string, { fullName: string; avatarUrl?: string }>;
+  onVotePoll?: (msg: Message, optionId: number) => void;
 }
 
 export default function MessageBubble({
@@ -52,6 +53,7 @@ export default function MessageBubble({
   closeReactionTooltip,
   lastReactionType = 'love',
   memberMap,
+  onVotePoll,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -63,6 +65,7 @@ export default function MessageBubble({
   const isLocation = !item.isRevoked && item.messageType === 'location';
   const isReminder = !item.isRevoked && item.messageType === 'reminder';
   const isContact = !item.isRevoked && item.messageType === 'contact';
+  const isPoll = !item.isRevoked && item.messageType === 'poll';
   const isImage = !item.isRevoked && !isSticker && !isAudio && !isVideo && !isFile && !isLocation && !isReminder && !isContact && (
     item.messageType === 'image' ||
     item.imageUrl ||
@@ -112,6 +115,13 @@ export default function MessageBubble({
       if (data.text && data.reminderTime) return data;
     } catch { /* not JSON */ }
     return null;
+  };
+
+  const parsePoll = (content?: string) => {
+    if (!content) return null;
+    try {
+      return typeof content === 'string' ? JSON.parse(content) : content;
+    } catch { return null; }
   };
 
   const formatReminderTime = (isoString: string): string => {
@@ -451,6 +461,63 @@ export default function MessageBubble({
                     </TouchableOpacity>
                   );
                 })()
+              ) : isPoll ? (
+                /* ────── Poll Message ────── */
+                (() => {
+                  const pollData = parsePoll(item.content);
+                  if (!pollData) return null;
+                  const totalVotes = pollData.options.reduce((sum: number, opt: any) => sum + (opt.votes?.length || 0), 0);
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onLongPress={() => handleMessageLongPress(item)}
+                    >
+                      <View style={[styles.pollBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                        <View style={styles.pollHeader}>
+                          <Ionicons name="bar-chart" size={18} color={ZaloColors.blue} />
+                          <Text style={styles.pollHeaderTitle}>Bình chọn</Text>
+                        </View>
+                        
+                        <Text style={styles.pollQuestion}>{pollData.question}</Text>
+                        
+                        <View style={styles.pollOptionsWrap}>
+                          {pollData.options.map((option: any) => {
+                            const votesCount = option.votes?.length || 0;
+                            const percentage = totalVotes > 0 ? (votesCount / totalVotes) * 100 : 0;
+                            const hasVoted = option.votes?.includes(currentUserId);
+
+                            return (
+                              <TouchableOpacity 
+                                key={option.id}
+                                activeOpacity={0.7}
+                                onPress={() => onVotePoll && onVotePoll(item, option.id)}
+                                style={[
+                                  styles.pollOptionBtn,
+                                  hasVoted && styles.pollOptionBtnVoted
+                                ]}
+                              >
+                                <View style={[styles.pollProgressBg, { width: `${percentage}%` }]} />
+                                <View style={styles.pollOptionContent}>
+                                  <Text style={[styles.pollOptionText, hasVoted && styles.pollOptionTextVoted]}>
+                                    {option.text}
+                                  </Text>
+                                  {votesCount > 0 && (
+                                    <Text style={styles.pollOptionCount}>{votesCount}</Text>
+                                  )}
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        <View style={styles.pollFooter}>
+                          <Text style={styles.pollFooterText}>{totalVotes} lượt bình chọn</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })()
               ) : (
                 <TouchableOpacity
                   activeOpacity={0.8}
@@ -744,6 +811,86 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#e0e0e0',
   },
   revokedText: { fontSize: 14, color: '#999', fontStyle: 'italic' },
+  
+  // Poll Message Styles
+  pollBubble: {
+    width: 280,
+    borderRadius: 16,
+    padding: 12,
+  },
+  pollHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  pollHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: ZaloColors.blue,
+  },
+  pollQuestion: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  pollOptionsWrap: {
+    gap: 10,
+  },
+  pollOptionBtn: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+    position: 'relative',
+    height: 44,
+    justifyContent: 'center',
+  },
+  pollOptionBtnVoted: {
+    borderColor: ZaloColors.blue,
+    backgroundColor: '#f0f7ff',
+  },
+  pollProgressBg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 104, 255, 0.1)',
+  },
+  pollOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    zIndex: 1,
+  },
+  pollOptionText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  pollOptionTextVoted: {
+    color: ZaloColors.blue,
+    fontWeight: '700',
+  },
+  pollOptionCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#666',
+  },
+  pollFooter: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  pollFooterText: {
+    fontSize: 12,
+    color: '#888',
+  },
 
   translatedWrap: {
     marginTop: 6, paddingTop: 6,

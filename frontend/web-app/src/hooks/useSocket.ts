@@ -73,7 +73,7 @@ export const useSocketSetup = () => {
             content: data.content || data.text,
             senderId: data.senderId,
             messageType: (data as any).messageType || 'text',
-            timestamp: new Date().toISOString()
+            timestamp: data.timestamp || new Date().toISOString()
           };
 
           // Chỉ tăng biến đếm nếu KHÔNG ĐANG MỞ cửa sổ chat đó
@@ -192,6 +192,29 @@ export const useSocketSetup = () => {
         }
       });
 
+      socket.on('message_reacted', (data: any) => {
+        const state = useChatStore.getState();
+        const msgId = data.messageId;
+        const currentMsg = state.messages.find(m => m.id === msgId || m._id === msgId);
+        
+        state.updateMessage(msgId, { 
+          reactions: data.reactions, 
+          content: data.content || currentMsg?.content 
+        });
+      });
+
+      socket.on('message_revoked', (data: any) => {
+        const state = useChatStore.getState();
+        state.updateMessage(data.messageId, { isRevoked: true });
+      });
+
+      socket.on('message_deleted', (data: any) => {
+        const state = useChatStore.getState();
+        const currentMessages = state.messages;
+        const filtered = currentMessages.filter(m => m.id !== data.messageId && m._id !== data.messageId);
+        state.setMessages(filtered);
+      });
+
       socket.on('message_sent', (data: any) => {
         const state = useChatStore.getState();
         if (data.tempId && data.messageId) {
@@ -244,6 +267,9 @@ export const useSocketSetup = () => {
         socket.off('force_logout');
         socket.off('message_received');
         socket.off('message_sent');
+        socket.off('message_reacted');
+        socket.off('message_revoked');
+        socket.off('message_deleted');
         socket.off('user_online');
         disconnectSocket();
       };

@@ -137,7 +137,7 @@ export function useChatSocket({
       if (data.conversationId !== id) return;
       setMessages(prev =>
         prev.map(m =>
-          String(m._id) === String(data.messageId) ? { ...m, reactions: data.reactions } : m
+          String(m._id) === String(data.messageId) ? { ...m, reactions: data.reactions, content: data.content || m.content } : m
         )
       );
     };

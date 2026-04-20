@@ -23,6 +23,7 @@ import ChatInputBar from '@/components/chat/ChatInputBar';
 import ActionPanels from '@/components/chat/ActionPanels';
 import ForwardModal from '@/components/ForwardModal';
 import ContactSelectionModal from '@/components/ContactSelectionModal';
+import CreatePollModal from '@/components/chat/CreatePollModal';
 
 // Hooks
 import { useChatMessages } from '@/hooks/chat/useChatMessages';
@@ -53,6 +54,7 @@ export default function ChatScreen() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderText, setReminderText] = useState('');
   const [reminderDate, setReminderDate] = useState<Date>(new Date(Date.now() + 3600000));
@@ -67,7 +69,7 @@ export default function ChatScreen() {
   const { isRecording, recordingTime, startRecording, cancelRecording, stopAndSendRecording } = useVoiceRecording({ socket, currentUserId, id, recipientId, setMessages });
   const { pendingMedia, setPendingMedia, uploadingMedia, uploadProgress, uploadingFile, handlePickImage, handleRemovePendingMedia, handleSendMedia, handlePickDocument } = useMediaHandling({ socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage });
   const { playingAudioId, audioProgress, playAudio } = useAudioPlayback(messages);
-  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, handleReactMessage, lastReaction, translatingId, translatedMessages } = useChatActions({
+  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, handleReactMessage, handleCreatePoll, handleVotePoll, lastReaction, translatingId, translatedMessages } = useChatActions({
     socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage, pinnedMessage, toggleStickerPanel: (s) => toggleStickerPanel(s), setShowReminderModal, reminderText, setReminderText, reminderDate, setReminderDate
   });
 
@@ -199,6 +201,7 @@ export default function ChatScreen() {
             ) : (
               <FlatList
                 data={messages}
+                extraData={messages}
                 keyExtractor={item => item._id}
                 renderItem={({ item }) => (
                   <MessageBubble 
@@ -219,6 +222,7 @@ export default function ChatScreen() {
                     showReactionTooltip={reactionTooltipId === item._id}
                     closeReactionTooltip={() => setReactionTooltipId(null)}
                     lastReactionType={lastReaction}
+                    onVotePoll={handleVotePoll}
                   />
                 )}
                 inverted
@@ -444,6 +448,20 @@ export default function ChatScreen() {
               </TouchableOpacity>
             )}
 
+            {isGroup && (
+              <TouchableOpacity style={styles.actionSheetItem} onPress={() => { setActionSheetMessage(null); setShowPollModal(true); }}>
+                <Ionicons name="bar-chart-outline" size={22} color="#333" />
+                <Text style={styles.actionSheetItemText}>Tạo bình chọn</Text>
+              </TouchableOpacity>
+            )}
+
+            {actionSheetMessage && actionSheetMessage.messageType === 'poll' && String(actionSheetMessage.senderId) === String(currentUserId) && (
+              <TouchableOpacity style={styles.actionSheetItem} onPress={() => { setShowPollModal(true); }}>
+                <Ionicons name="create-outline" size={22} color="#333" />
+                <Text style={styles.actionSheetItemText}>Chỉnh sửa bình chọn</Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.actionSheetSeparator} />
 
             {actionSheetMessage && String(actionSheetMessage.senderId) === String(currentUserId) && (
@@ -464,6 +482,22 @@ export default function ChatScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <CreatePollModal 
+        visible={showPollModal} 
+        onClose={() => { setShowPollModal(false); setActionSheetMessage(null); }}
+        onCreate={handleCreatePoll}
+        onUpdate={(q, o) => {
+          if (actionSheetMessage) {
+            handleCreatePoll(q, o, actionSheetMessage._id);
+          }
+        }}
+        initialData={actionSheetMessage?.messageType === 'poll' ? (() => {
+          try {
+            return typeof actionSheetMessage.content === 'string' ? JSON.parse(actionSheetMessage.content) : actionSheetMessage.content;
+          } catch(e) { return null; }
+        })() : null}
+      />
+
       </SafeAreaView>
     </View>
   );

@@ -54,6 +54,7 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
           createdAt: m.createdAt || m.timestamp,
           status: m.status || 'sent',
           replyTo: m.replyTo,
+          reactions: m.reactions || [],
         }));
 
         setMessages(mapped);

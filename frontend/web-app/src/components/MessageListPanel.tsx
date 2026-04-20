@@ -265,8 +265,18 @@ const MessageListPanel = () => {
                   <p className={`text-[13px] truncate ${hasUnread ? 'font-semibold' : ''}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                     {(() => {
                         const lastMsgObj = typeof conv.lastMessage === 'object' && conv.lastMessage !== null ? (conv.lastMessage as any) : null;
-                        const contentStr = lastMsgObj ? lastMsgObj.content : ((conv.lastMessage as string) || 'Chưa có tin nhắn');
-                        const isSystem = lastMsgObj?.messageType === 'system' || contentStr === 'Nhóm đã được tạo' || (typeof contentStr === 'string' && (contentStr.startsWith('added_members:') || contentStr.startsWith('member_left:') || contentStr.startsWith('member_removed:') || contentStr.startsWith('group_disbanded:') || contentStr.startsWith('role_')));
+                        const msgType = lastMsgObj?.messageType;
+                        let contentStr = lastMsgObj ? lastMsgObj.content : ((conv.lastMessage as string) || 'Chưa có tin nhắn');
+
+                        // If it's a poll and still JSON, parse it
+                        if ((msgType === 'poll' || (typeof contentStr === 'string' && contentStr.startsWith('{"question":'))) && typeof contentStr === 'string' && contentStr.startsWith('{')) {
+                           try {
+                              const pollData = JSON.parse(contentStr);
+                              contentStr = `📊 Bình chọn: ${pollData.question}`;
+                           } catch (e) {}
+                        }
+
+                        const isSystem = msgType === 'system' || contentStr === 'Nhóm đã được tạo' || (typeof contentStr === 'string' && (contentStr.startsWith('added_members:') || contentStr.startsWith('member_left:') || contentStr.startsWith('member_removed:') || contentStr.startsWith('group_disbanded:') || contentStr.startsWith('role_')));
                         
                         if (isSystem) {
                            const senderId = lastMsgObj ? String(lastMsgObj.senderId) : '';

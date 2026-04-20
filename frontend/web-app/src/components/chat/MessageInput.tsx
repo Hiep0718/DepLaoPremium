@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
   ScreenShare, Code, Type, X, FileText, Film, Loader2,
-  Mic, Trash2, Contact
+  Mic, Trash2, Contact, BarChart2
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
+import CreatePollModal from './CreatePollModal';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
@@ -26,6 +27,7 @@ const MessageInput = () => {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isPollModalOpen, setIsPollModalOpen] = useState(false);
   
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -418,7 +420,8 @@ const MessageInput = () => {
     { icon: ScreenShare, title: 'Chụp màn hình' },
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
-    { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() }
+    { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() },
+    ...(activeConversation.isGroup ? [{ icon: BarChart2, title: 'Tạo bình chọn', action: () => setIsPollModalOpen(true) }] : [])
   ];
 
   return (
@@ -648,6 +651,12 @@ const MessageInput = () => {
         isOpen={isContactModalOpen}
         onClose={() => setIsContactModalOpen(false)}
         onSelect={sendContact}
+      />
+
+      <CreatePollModal
+        isOpen={isPollModalOpen}
+        onClose={() => setIsPollModalOpen(false)}
+        conversationId={activeConversation.conversationId}
       />
     </div>
   );

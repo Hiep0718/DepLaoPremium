@@ -341,6 +341,33 @@ export function useChatActions({
     });
   }, [socket, currentUserId, id, setMessages]);
 
+  const handleCreatePoll = useCallback((question: string, options: string[], messageId?: string) => {
+    if (!socket || !currentUserId) return;
+    if (messageId) {
+      socket.emit('update_poll', {
+        messageId,
+        conversationId: id,
+        question,
+        options
+      });
+    } else {
+      socket.emit('create_poll', {
+        conversationId: id,
+        question,
+        options
+      });
+    }
+  }, [socket, id, currentUserId]);
+
+  const handleVotePoll = useCallback((msg: Message, optionId: number) => {
+    if (!socket || !currentUserId) return;
+    socket.emit('vote_poll', {
+      messageId: msg._id || msg.id,
+      optionId,
+      conversationId: id
+    });
+  }, [socket, id, currentUserId]);
+
   return {
     handleSend,
     sendSticker,
@@ -352,6 +379,8 @@ export function useChatActions({
     handleSendContact,
     handleSendReminder,
     handleReactMessage,
+    handleCreatePoll,
+    handleVotePoll,
     lastReaction,
     translatingId,
     translatedMessages,
