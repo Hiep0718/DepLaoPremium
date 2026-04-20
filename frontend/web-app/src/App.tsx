@@ -12,6 +12,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useAuthStore } from './stores/authStore';
 
 import CallManager from './components/call/CallManager';
+import GroupCallManager from './components/call/GroupCallManager';
 
 function App() {
   const { isDark } = useThemeStore();
@@ -57,7 +58,12 @@ function App() {
       <ToastContainer />
       
       {/* Global WebRTC Calling UI */}
-      {user && <CallManager />}
+      {user && (
+        <>
+          <CallManager />
+          <GroupCallManager />
+        </>
+      )}
     </>
   );
 }

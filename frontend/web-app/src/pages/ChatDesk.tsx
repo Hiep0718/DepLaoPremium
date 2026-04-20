@@ -15,7 +15,13 @@ const ChatDesk = () => {
       <div className="flex-1 flex flex-col h-full min-w-0">
         <ChatHeader />
         <MessageList />
-        <MessageInput />
+        {activeConversation?.leftAt ? (
+          <div className="px-4 py-3 text-center text-sm border-t" style={{ background: 'var(--bg-panel)', borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+            Bạn không còn là thành viên của nhóm này
+          </div>
+        ) : (
+          <MessageInput />
+        )}
       </div>
 
       {/* Right Info Panel — slides in */}

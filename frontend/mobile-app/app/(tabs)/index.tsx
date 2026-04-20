@@ -189,7 +189,16 @@ export default function MessagesScreen() {
           </View>
           <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>
             {item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
-            {item.lastMessage?.content || 'Chưa có tin nhắn'}
+            {(() => {
+                const content = item.lastMessage?.content || 'Chưa có tin nhắn';
+                if (typeof content === 'string' && content.startsWith('{"question":')) {
+                    try {
+                        const poll = JSON.parse(content);
+                        return `📊 Bình chọn: ${poll.question}`;
+                    } catch(e) { return content; }
+                }
+                return content;
+            })()}
           </Text>
         </View>
       </TouchableOpacity>

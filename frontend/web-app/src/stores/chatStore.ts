@@ -24,6 +24,7 @@ export interface Message {
   createdAt?: string;
   _uploading?: boolean;
   _uploadFailed?: boolean;
+  reactions?: any[];
 }
 
 export interface Conversation {
@@ -31,9 +32,17 @@ export interface Conversation {
   _id?: string;
   participants: any[];
   isGroup: boolean;
+
   isAiBot?: boolean;
+
+  groupName?: string;
+  groupAvatar?: string;
+  requireApproval?: boolean;
+  pendingMembers?: any[];
+
   lastMessage?: string | any;
   unreadCount?: number;
+  leftAt?: string;
 }
 
 export interface ContactInfo {
@@ -55,8 +64,9 @@ interface ChatState {
   aiStreamingText: string;
   markAsRead: (conversationId: string) => void;
   setConversations: (conversations: Conversation[]) => void;
-  setActiveConversation: (conversation: Conversation) => void;
+  setActiveConversation: (conversation: Conversation | null) => void;
   setActiveContactInfo: (info: ContactInfo) => void;
+  updateActiveConversation: (updates: Partial<Conversation>) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
@@ -102,6 +112,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
   setConversations: (conversations) => set({ conversations }),
   setActiveConversation: (activeConversation) => set({ activeConversation }),
+  updateActiveConversation: (updates) => set((state) => ({
+    activeConversation: state.activeConversation
+      ? { ...state.activeConversation, ...updates }
+      : null,
+    conversations: state.conversations.map(c =>
+      c.conversationId === state.activeConversation?.conversationId
+        ? { ...c, ...updates }
+        : c
+    )
+  })),
   setActiveContactInfo: (activeContactInfo) => set({ activeContactInfo }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),

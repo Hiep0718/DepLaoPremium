@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
-  ScreenShare, Code, Type, Zap, MoreHorizontal, X, FileText, Film, Loader2,
-  Mic, Trash2, StopCircle, Contact
+  ScreenShare, Code, Type, X, FileText, Film, Loader2,
+  Mic, Trash2, Contact, BarChart2
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
+import CreatePollModal from './CreatePollModal';
 import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import { socket } from '../../services/socket';
@@ -28,6 +30,11 @@ const MessageInput = () => {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
+
+
+  const [isPollModalOpen, setIsPollModalOpen] = useState(false);
+
 
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -56,8 +63,8 @@ const MessageInput = () => {
     const handlePrompt = ((e: CustomEvent) => {
       setMessageText(e.detail);
       setTimeout(() => {
-         const input = document.querySelector('textarea') as HTMLTextAreaElement;
-         if (input) input.focus();
+        const input = document.querySelector('textarea') as HTMLTextAreaElement;
+        if (input) input.focus();
       }, 0);
     }) as EventListener;
     window.addEventListener('ai_prompt_selected', handlePrompt);
@@ -499,7 +506,8 @@ const MessageInput = () => {
     { icon: ScreenShare, title: 'Chụp màn hình' },
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
-    { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() }
+    { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() },
+    ...(activeConversation.isGroup ? [{ icon: BarChart2, title: 'Tạo bình chọn', action: () => setIsPollModalOpen(true) }] : [])
   ];
 
   return (
@@ -750,6 +758,15 @@ const MessageInput = () => {
         onClose={() => setIsContactModalOpen(false)}
         onSelect={sendContact}
       />
+
+      {isPollModalOpen && createPortal(
+        <CreatePollModal
+          isOpen={isPollModalOpen}
+          onClose={() => setIsPollModalOpen(false)}
+          conversationId={activeConversation.conversationId}
+        />,
+        document.body
+      )}
     </div>
   );
 };

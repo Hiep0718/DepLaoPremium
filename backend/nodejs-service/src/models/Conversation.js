@@ -11,6 +11,11 @@ const conversationSchema = new mongoose.Schema(
     participants: [
       {
         userId: String,
+        role: {
+          type: String,
+          enum: ['leader', 'deputy', 'member'],
+          default: 'member',
+        },
         joinedAt: {
           type: Date,
           default: Date.now,
@@ -25,9 +30,28 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    groupAvatar: {
+      type: String,
+      default: null,
+    },
+    requireApproval: {
+      type: Boolean,
+      default: false,
+    },
+    pendingMembers: [
+      {
+        userId: String,
+        addedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+      }
+    ],
     lastMessage: {
       content: String,
       senderId: String,
+      messageType: String,
       timestamp: Date,
       messageType: String,
     },
@@ -44,6 +68,11 @@ const conversationSchema = new mongoose.Schema(
       default: new Map(),
     },
     deletedAt: {
+      type: Map,
+      of: Date,
+      default: new Map(),
+    },
+    leftMembers: {
       type: Map,
       of: Date,
       default: new Map(),

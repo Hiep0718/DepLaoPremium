@@ -29,48 +29,68 @@ const ChatHeader = () => {
   const isAiStreaming = useChatStore((s) => s.isAiStreaming);
 
   // Use resolved contact info from store, with fallbacks
-  const displayName = isAiConversation ? 'Bếp AI 🍜' : (activeContactInfo?.name || contact?.fullName || 'Chọn cuộc trò chuyện');
-  const contactAvatarUrl = isAiConversation ? undefined : (activeContactInfo?.avatarUrl || contact?.avatarUrl);
+
+  const displayName = isAiConversation 
+    ? 'Bếp AI 🍜' 
+    : (activeConversation?.isGroup 
+        ? (activeConversation.groupName || 'Nhóm trò chuyện') 
+        : (activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện'));
+
+  const contactAvatarUrl = isAiConversation 
+    ? undefined 
+    : (activeConversation?.isGroup 
+        ? activeConversation.groupAvatar 
+        : (activeContactInfo?.avatarUrl || contact?.avatarUrl));
+
   const avatarLetter = displayName.charAt(0).toUpperCase();
 
+  // imports will be patched next
   const setOutgoingCall = useCallStore((state) => state.setOutgoingCall);
 
-  const startCall = (isVideo: boolean) => {
-    let recipientId = null;
-    
-    // activeContactInfo doesn't contain an id, so we should always look in conversationContact first.
-    const targetContact = conversationContact || activeConversation?.participants?.[0];
-    
-    if (typeof targetContact === 'string') {
-       recipientId = targetContact;
-    } else if (targetContact) {
-       recipientId = targetContact.userId || targetContact._id || targetContact.id;
-    }
-    
-    // Final fallback in case activeContactInfo somehow had it, or we fell back to 'contact'
-    if (!recipientId && contact) {
-      if (typeof contact === 'string') recipientId = contact;
-      else recipientId = contact.userId || contact._id || contact.id;
-    }
-    
-    if (!recipientId) {
-       console.warn('[startCall] Cannot determine recipient ID from contact:', contact, 'or conversationContact:', conversationContact);
-       return;
-    }
-    
+  const startCall = async (isVideo: boolean) => {
     const conversationId = activeConversation?.conversationId || activeConversation?._id || (activeConversation as any)?.id;
-    
-    // Store my basic info
     const currentUser = useAuthStore.getState().user;
     const callerInfo = {
       id: currentUser?.id?.toString() || 'me',
       fullName: currentUser?.fullName || 'Người dùng',
       avatarUrl: currentUser?.avatarUrl || ''
     };
-    
+
+    if (activeConversation?.isGroup) {
+      // Logic gọi nhóm
+      const { setOutgoingCall: setGroupOutgoingCall } = await import('../../stores/groupCallStore').then(m => m.useGroupCallStore.getState());
+      setGroupOutgoingCall(conversationId, String(user?.id || user?._id), isVideo);
+      socket.emit('group_call_start', { conversationId, callerInfo, isVideo });
+      socket.emit('group_call_join', { conversationId });
+      return;
+    }
+
+    let recipientId = null;
+
+    // activeContactInfo doesn't contain an id, so we should always look in conversationContact first.
+    const targetContact = conversationContact || activeConversation?.participants?.[0];
+
+    if (typeof targetContact === 'string') {
+      recipientId = targetContact;
+    } else if (targetContact) {
+      recipientId = targetContact.userId || targetContact._id || targetContact.id;
+    }
+
+    // Final fallback in case activeContactInfo somehow had it, or we fell back to 'contact'
+    if (!recipientId && contact) {
+      if (typeof contact === 'string') recipientId = contact;
+      else recipientId = contact.userId || contact._id || contact.id;
+    }
+
+    if (!recipientId) {
+      console.warn('[startCall] Cannot determine recipient ID from contact:', contact, 'or conversationContact:', conversationContact);
+      return;
+    }
+
     setOutgoingCall(recipientId, { id: recipientId, fullName: displayName, avatarUrl: contactAvatarUrl }, isVideo, conversationId);
     socket.emit('call_request', { recipientId, callerInfo, isVideo, conversationId });
   };
+
 
   return (
     <div className="h-[60px] px-4 flex items-center justify-between sticky top-0 z-10 theme-transition shrink-0"
