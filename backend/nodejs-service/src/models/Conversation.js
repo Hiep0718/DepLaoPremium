@@ -34,6 +34,20 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    requireApproval: {
+      type: Boolean,
+      default: false,
+    },
+    pendingMembers: [
+      {
+        userId: String,
+        addedBy: String,
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+      }
+    ],
     lastMessage: {
       content: String,
       senderId: String,

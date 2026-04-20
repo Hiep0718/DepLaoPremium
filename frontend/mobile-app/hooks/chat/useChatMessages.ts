@@ -9,6 +9,7 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
   const [isLoading, setIsLoading] = useState(true);
   const [pinnedMessage, setPinnedMessage] = useState<any>(null);
   const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
+  const [participantRoles, setParticipantRoles] = useState<Record<string, string>>({});
   const isGroup = id?.startsWith('group_');
 
   // Fetch group info
@@ -21,6 +22,12 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
         const thisConv = allConvs.find((c: any) => c.conversationId === id);
         if (thisConv?.participants) {
           setGroupMemberCount(thisConv.participants.length);
+          const roles: Record<string, string> = {};
+          thisConv.participants.forEach((p: any) => {
+            const uid = String(p.userId || p.id);
+            if (uid) roles[uid] = p.role || 'member';
+          });
+          setParticipantRoles(roles);
         }
       } catch (err) {
         console.log('Error fetching group info:', err);
@@ -151,5 +158,6 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     groupMemberCount,
     isGroup,
     memberMap,
+    participantRoles,
   };
 }

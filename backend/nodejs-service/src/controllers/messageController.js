@@ -734,24 +734,43 @@ export const addMembersToGroup = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Requester not in group' });
     }
 
-    // Mọi thành viên đều có thể thêm người mới vào nhóm
+    // Kiểm tra cài đặt duyệt thành viên
+    const isApprovalRequired = conversation.requireApproval && requester.role === 'member';
+
     const currentMemberIds = new Set(conversation.participants.map(p => p.userId));
+    const currentPendingIds = new Set((conversation.pendingMembers || []).map(p => p.userId));
+    
     let addedCount = 0;
+    let pendingCount = 0;
     const addedIds = [];
+    const pendingIds = [];
 
     for (const userId of targetUserIds) {
       if (!currentMemberIds.has(String(userId))) {
-        conversation.participants.push({
-          userId: String(userId),
-          role: 'member'
-        });
-        currentMemberIds.add(String(userId));
-        addedIds.push(String(userId));
-        addedCount++;
+        if (isApprovalRequired) {
+          if (!currentPendingIds.has(String(userId))) {
+            if (!conversation.pendingMembers) conversation.pendingMembers = [];
+            conversation.pendingMembers.push({
+              userId: String(userId),
+              addedBy: requesterId,
+            });
+            currentPendingIds.add(String(userId));
+            pendingIds.push(String(userId));
+            pendingCount++;
+          }
+        } else {
+          conversation.participants.push({
+            userId: String(userId),
+            role: 'member'
+          });
+          currentMemberIds.add(String(userId));
+          addedIds.push(String(userId));
+          addedCount++;
 
-        // Clear leftMembers entry if re-adding a former member
-        if (conversation.leftMembers && conversation.leftMembers.get(String(userId))) {
-          conversation.leftMembers.delete(String(userId));
+          // Clear leftMembers entry if re-adding a former member
+          if (conversation.leftMembers && conversation.leftMembers.get(String(userId))) {
+            conversation.leftMembers.delete(String(userId));
+          }
         }
       }
     }
@@ -801,12 +820,27 @@ export const addMembersToGroup = async (req, res) => {
           console.error('Failed to emit system message for adding members:', err);
         }
       }
-      await conversation.save();
     }
+
+    if (pendingCount > 0 && req.io) {
+      // Báo cho leader/deputy biết có thành viên chờ duyệt
+      conversation.participants.forEach(p => {
+        if (p.role === 'leader' || p.role === 'deputy') {
+          req.io.to(`user_${p.userId}`).emit('pending_members_updated', {
+            conversationId,
+            pendingMembers: conversation.pendingMembers
+          });
+        }
+      });
+    }
+
+    await conversation.save();
 
     res.status(200).json({
       success: true,
-      message: `Added ${addedCount} members successfully`,
+      message: isApprovalRequired 
+        ? `Added ${pendingCount} members to pending list` 
+        : `Added ${addedCount} members successfully`,
       data: conversation,
     });
   } catch (error) {
@@ -977,5 +1011,197 @@ export const updateGroupInfo = async (req, res) => {
       message: 'Failed to update group info',
       error: error.message,
     });
+  }
+};
+
+// API Bật/Tắt chế độ duyệt thành viên
+export const toggleRequireApproval = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, requireApproval } = req.body;
+
+    if (!conversationId || !requesterId || requireApproval === undefined) {
+      return res.status(400).json({ success: false, message: 'Missing fields' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || (requester.role !== 'leader' && requester.role !== 'deputy')) {
+      return res.status(403).json({ success: false, message: 'Only leader or deputy can change this setting' });
+    }
+
+    conversation.requireApproval = requireApproval;
+
+    await conversation.save();
+
+    if (req.io) {
+      conversation.participants.forEach(p => {
+        req.io.to(`user_${p.userId}`).emit('group_settings_updated', {
+          conversationId,
+          settings: { requireApproval }
+        });
+      });
+    }
+
+    res.status(200).json({ success: true, message: 'Approval setting updated', data: conversation });
+  } catch (error) {
+    console.error('Toggle require approval error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update setting', error: error.message });
+  }
+};
+
+// API Duyệt thành viên đang chờ
+export const approvePendingMember = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, targetUserIds } = req.body;
+
+    if (!conversationId || !requesterId || !targetUserIds || !Array.isArray(targetUserIds)) {
+      return res.status(400).json({ success: false, message: 'Missing fields' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || (requester.role !== 'leader' && requester.role !== 'deputy')) {
+      return res.status(403).json({ success: false, message: 'Only leader or deputy can approve members' });
+    }
+
+    const approvedIds = [];
+    const currentMemberIds = new Set(conversation.participants.map(p => p.userId));
+
+    // Lọc ra những người có trong pendingMembers và chưa có trong participants
+    const pendingToApprove = (conversation.pendingMembers || []).filter(pm => targetUserIds.includes(pm.userId));
+
+    for (const pm of pendingToApprove) {
+      if (!currentMemberIds.has(String(pm.userId))) {
+        conversation.participants.push({
+          userId: String(pm.userId),
+          role: 'member'
+        });
+        approvedIds.push(String(pm.userId));
+
+        // Clear leftMembers entry
+        if (conversation.leftMembers && conversation.leftMembers.get(String(pm.userId))) {
+          conversation.leftMembers.delete(String(pm.userId));
+        }
+      }
+    }
+
+    // Xóa khỏi danh sách chờ
+    conversation.pendingMembers = conversation.pendingMembers.filter(pm => !targetUserIds.includes(pm.userId));
+
+    if (approvedIds.length > 0 && req.io) {
+      try {
+        const sysMsg = new Message({
+          conversationId,
+          senderId: requesterId,
+          receiverId: conversationId,
+          messageType: 'system',
+          content: `added_members:${approvedIds.join(',')}`,
+          status: 'sent',
+        });
+        await sysMsg.save();
+
+        conversation.lastMessage = {
+          content: sysMsg.content,
+          senderId: requesterId,
+          messageType: 'system',
+          timestamp: new Date(),
+        };
+
+        // Emit message
+        const payload = {
+          messageId: sysMsg._id,
+          conversationId,
+          senderId: requesterId,
+          messageType: 'system',
+          content: sysMsg.content,
+          timestamp: sysMsg.createdAt,
+          status: 'received',
+        };
+
+        conversation.participants.forEach(p => {
+          if (p.userId !== requesterId) {
+            const current = conversation.unreadCount.get(p.userId) || 0;
+            conversation.unreadCount.set(p.userId, current + 1);
+          }
+          req.io.to(`user_${p.userId}`).emit('message_received', payload);
+        });
+
+      } catch (err) {
+        console.error('Failed to emit system message for approved members:', err);
+      }
+    }
+
+    await conversation.save();
+
+    // Thông báo cho admin khác là danh sách pending đã cập nhật
+    if (req.io) {
+      conversation.participants.forEach(p => {
+        if (p.role === 'leader' || p.role === 'deputy') {
+          req.io.to(`user_${p.userId}`).emit('pending_members_updated', {
+            conversationId,
+            pendingMembers: conversation.pendingMembers
+          });
+        }
+      });
+    }
+
+    res.status(200).json({ success: true, message: `Approved ${approvedIds.length} members`, data: conversation });
+  } catch (error) {
+    console.error('Approve member error:', error);
+    res.status(500).json({ success: false, message: 'Failed to approve member', error: error.message });
+  }
+};
+
+// API Từ chối thành viên đang chờ
+export const rejectPendingMember = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, targetUserIds } = req.body;
+
+    if (!conversationId || !requesterId || !targetUserIds || !Array.isArray(targetUserIds)) {
+      return res.status(400).json({ success: false, message: 'Missing fields' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || (requester.role !== 'leader' && requester.role !== 'deputy')) {
+      return res.status(403).json({ success: false, message: 'Only leader or deputy can reject members' });
+    }
+
+    // Xóa khỏi danh sách chờ
+    conversation.pendingMembers = conversation.pendingMembers.filter(pm => !targetUserIds.includes(pm.userId));
+
+    await conversation.save();
+
+    // Thông báo cho admin khác là danh sách pending đã cập nhật
+    if (req.io) {
+      conversation.participants.forEach(p => {
+        if (p.role === 'leader' || p.role === 'deputy') {
+          req.io.to(`user_${p.userId}`).emit('pending_members_updated', {
+            conversationId,
+            pendingMembers: conversation.pendingMembers
+          });
+        }
+      });
+    }
+
+    res.status(200).json({ success: true, message: 'Rejected members', data: conversation });
+  } catch (error) {
+    console.error('Reject member error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reject member', error: error.message });
   }
 };

@@ -29,6 +29,8 @@ interface MessageBubbleProps {
   lastReactionType?: string;
   memberMap?: Record<string, { fullName: string; avatarUrl?: string }>;
   onVotePoll?: (msg: Message, optionId: number) => void;
+  isGroup?: boolean;
+  participantRoles?: Record<string, string>;
 }
 
 export default function MessageBubble({
@@ -54,6 +56,8 @@ export default function MessageBubble({
   lastReactionType = 'love',
   memberMap,
   onVotePoll,
+  isGroup,
+  participantRoles,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -213,13 +217,40 @@ export default function MessageBubble({
             </View>
           ) : (
             <>
+              {/* Sender Name + Role Badge (Groups only) */}
+              {!isMine && isGroup && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2, marginLeft: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: '#666' }}>
+                    {memberMap && item.senderId && memberMap[String(item.senderId)] ? memberMap[String(item.senderId)].fullName : (name || 'Thành viên')}
+                  </Text>
+                  {(() => {
+                    const senderRole = participantRoles ? participantRoles[String(item.senderId)] : 'member';
+                    if (senderRole === 'leader') {
+                      return (
+                        <View style={{ backgroundColor: '#fff7ed', paddingHorizontal: 4, paddingVertical: 0.5, borderRadius: 4, marginLeft: 6, borderWidth: 0.5, borderColor: '#f59e0b' }}>
+                          <Text style={{ fontSize: 8, color: '#f59e0b', fontWeight: '700' }}>TRƯỞNG NHÓM</Text>
+                        </View>
+                      );
+                    }
+                    if (senderRole === 'deputy') {
+                      return (
+                        <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 4, paddingVertical: 0.5, borderRadius: 4, marginLeft: 6, borderWidth: 0.5, borderColor: '#10b981' }}>
+                          <Text style={{ fontSize: 8, color: '#10b981', fontWeight: '700' }}>PHÓ NHÓM</Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
+                </View>
+              )}
+
               {/* ────── Reply Block ────── */}
               {item.replyTo && (
                 <View style={styles.replyBubble}>
                   <View style={styles.replyBubbleLine} />
                   <View style={styles.replyBubbleTextWrap}>
                     <Text style={styles.replyBubbleHeader}>
-                      {String(item.replyTo.senderId) === String(currentUserId) ? 'Bạn' : name}
+                      {String(item.replyTo.senderId) === String(currentUserId) ? 'Bạn' : (memberMap && item.replyTo.senderId && memberMap[String(item.replyTo.senderId)] ? memberMap[String(item.replyTo.senderId)].fullName : (name || 'Người dùng'))}
                     </Text>
                     <Text style={styles.replyBubbleContent} numberOfLines={1}>
                       {item.replyTo.messageType === 'sticker' ? '[Nhãn dán]' :

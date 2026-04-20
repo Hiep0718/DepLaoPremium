@@ -47,6 +47,17 @@ export default function CreatePollModal({ visible, onClose, onCreate, onUpdate, 
     newOptions[index] = value;
     setOptions(newOptions);
   };
+  const handleCreate = () => {
+    if (!question.trim()) {
+      Alert.alert('Thông báo', 'Vui lòng nhập câu hỏi');
+      return;
+    }
+
+    const filteredOptions = options.map(o => o.trim()).filter(o => o !== '');
+    if (filteredOptions.length < 2) {
+      Alert.alert('Thông báo', 'Vui lòng nhập ít nhất 2 phương án');
+      return;
+    }
 
     if (initialData && onUpdate) {
       onUpdate(question.trim(), filteredOptions);

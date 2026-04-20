@@ -34,6 +34,8 @@ export interface Conversation {
   isGroup: boolean;
   groupName?: string;
   groupAvatar?: string;
+  requireApproval?: boolean;
+  pendingMembers?: any[];
   lastMessage?: string | any;
   unreadCount?: number;
   leftAt?: string;
@@ -57,6 +59,7 @@ interface ChatState {
   setConversations: (conversations: Conversation[]) => void;
   setActiveConversation: (conversation: Conversation | null) => void;
   setActiveContactInfo: (info: ContactInfo) => void;
+  updateActiveConversation: (updates: Partial<Conversation>) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
@@ -94,6 +97,16 @@ export const useChatStore = create<ChatState>((set) => ({
   },
   setConversations: (conversations) => set({ conversations }),
   setActiveConversation: (activeConversation) => set({ activeConversation }),
+  updateActiveConversation: (updates) => set((state) => ({
+    activeConversation: state.activeConversation 
+      ? { ...state.activeConversation, ...updates } 
+      : null,
+    conversations: state.conversations.map(c => 
+      c.conversationId === state.activeConversation?.conversationId 
+        ? { ...c, ...updates }
+        : c
+    )
+  })),
   setActiveContactInfo: (activeContactInfo) => set({ activeContactInfo }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),

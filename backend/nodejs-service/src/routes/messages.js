@@ -13,6 +13,9 @@ import {
   addMembersToGroup,
   disbandGroup,
   updateGroupInfo,
+  toggleRequireApproval,
+  approvePendingMember,
+  rejectPendingMember,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -37,5 +40,8 @@ router.post('/conversations/:conversationId/members', addMembersToGroup);
 router.delete('/conversations/:conversationId/members', removeMemberFromGroup);
 router.delete('/conversations/:conversationId/disband', disbandGroup);
 router.delete('/conversations/:conversationId/history', deleteConversationHistory);
+router.put('/conversations/:conversationId/approval-setting', toggleRequireApproval);
+router.post('/conversations/:conversationId/pending/approve', approvePendingMember);
+router.post('/conversations/:conversationId/pending/reject', rejectPendingMember);
 
 export default router;

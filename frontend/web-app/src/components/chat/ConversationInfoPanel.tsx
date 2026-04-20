@@ -4,7 +4,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
 import { contactService } from '../../services/contactService';
-import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo } from '../../services/message.service';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
 
 const ConversationInfoPanel = () => {
@@ -20,6 +20,8 @@ const ConversationInfoPanel = () => {
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [expandedPending, setExpandedPending] = useState(false);
+  const [pendingMemberMap, setPendingMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +123,73 @@ const ConversationInfoPanel = () => {
     };
     fetchMembers();
   }, [activeConversation?.conversationId, activeConversation?.isGroup, activeConversation?.participants?.length]);
+
+  // Fetch thông tin các thành viên đang chờ duyệt
+  useEffect(() => {
+    if (!activeConversation?.isGroup || !activeConversation.pendingMembers?.length) {
+      setPendingMemberMap({});
+      return;
+    }
+    const fetchPending = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+      for (const pm of activeConversation.pendingMembers!) {
+        const uid = String(pm.userId);
+        if (!uid || pendingMemberMap[uid]) continue;
+        try {
+          const res = await api.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName, avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+      setPendingMemberMap(prev => ({ ...prev, ...map }));
+    };
+    fetchPending();
+  }, [activeConversation?.pendingMembers?.length]);
+
+  const handleToggleApproval = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    const newValue = !activeConversation.requireApproval;
+    try {
+      await toggleRequireApproval(activeConversation.conversationId, String(user.id), newValue);
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể thay đổi cài đặt');
+    }
+  };
+
+  const handleApproveMember = async (userId: string) => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    try {
+      await approvePendingMember(activeConversation.conversationId, String(user.id), [userId]);
+      // Reload conversation
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể duyệt thành viên');
+    }
+  };
+
+  const handleRejectMember = async (userId: string) => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    try {
+      await rejectPendingMember(activeConversation.conversationId, String(user.id), [userId]);
+      // Reload conversation
+      const res = await getConversationsList(String(user.id));
+      const list = res.data?.data || res.data;
+      if (Array.isArray(list)) {
+        setConversations(list);
+        const updated = list.find((c: any) => c.conversationId === activeConversation.conversationId);
+        if (updated) setActiveConversation(updated);
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể từ chối thành viên');
+    }
+  };
 
   const mediaMessages = useMemo(() => {
     return messages.filter(m => !m.isRevoked && (m.messageType === 'image' || m.messageType === 'video') && m.fileUrl);
@@ -411,8 +480,9 @@ const ConversationInfoPanel = () => {
                     const role = p.role || 'member';
 
                     const roleBadge: Record<string, { label: string; bg: string; color: string }> = {
-                      leader: { label: 'Trưởng nhóm', bg: 'rgba(0,104,255,0.1)', color: '#0068FF' },
-                      deputy: { label: 'Phó nhóm', bg: 'rgba(16,185,129,0.1)', color: '#10b981' },
+                      leader: { label: 'Trưởng nhóm', bg: '#fff7ed', color: '#f59e0b' },
+                      deputy: { label: 'Phó nhóm', bg: '#f0fdf4', color: '#10b981' },
+                      member: { label: 'Thành viên', bg: 'transparent', color: 'var(--text-secondary)' },
                     };
 
                     // Xây dựng menu items cho quyền quản lý
@@ -477,10 +547,22 @@ const ConversationInfoPanel = () => {
                             {name}
                           </p>
                           {roleBadge[role] && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
-                              style={{ background: roleBadge[role].bg, color: roleBadge[role].color }}>
-                              {roleBadge[role].label}
-                            </span>
+                            <div className="mt-0.5">
+                              {role === 'member' ? (
+                                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                                  {roleBadge[role].label}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase inline-block"
+                                  style={{ 
+                                    background: roleBadge[role].bg, 
+                                    color: roleBadge[role].color,
+                                    border: `1px solid ${roleBadge[role].color}40` 
+                                  }}>
+                                  {roleBadge[role].label}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -551,6 +633,121 @@ const ConversationInfoPanel = () => {
             </>
           )}
         </div>
+
+        {/* Cài đặt duyệt thành viên - Chỉ hiện cho leader/deputy */}
+        {activeConversation.isGroup && (myRole === 'leader' || myRole === 'deputy') && (
+          <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+            <div className="px-4 py-2">
+              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Quản lý thành viên
+              </span>
+            </div>
+            {/* Toggle duyệt thành viên */}
+            <button
+              className="w-full flex items-center justify-between px-4 py-2.5 transition-colors text-left"
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              onClick={handleToggleApproval}
+            >
+              <div className="flex items-center gap-3">
+                <Shield size={18} style={{ color: '#0068FF' }} />
+                <div>
+                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Duyệt thành viên mới</span>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    {activeConversation.requireApproval ? 'Thành viên thêm người cần được Admin duyệt' : 'Mọi thành viên đều có thể thêm người'}
+                  </p>
+                </div>
+              </div>
+              <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
+                style={{ background: activeConversation.requireApproval ? '#0068FF' : 'var(--bg-hover)' }}>
+                <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
+                  style={{ left: activeConversation.requireApproval ? '21px' : '3px' }} />
+              </div>
+            </button>
+
+            {/* Danh sách chờ duyệt */}
+            {activeConversation.pendingMembers && activeConversation.pendingMembers.length > 0 && (
+              <>
+                <button
+                  className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                  onClick={() => setExpandedPending(!expandedPending)}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <div className="flex items-center gap-3">
+                    <UserPlus size={18} style={{ color: '#f59e0b' }} />
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      Chờ duyệt ({activeConversation.pendingMembers.length})
+                    </span>
+                  </div>
+                  <ChevronDown size={16} style={{
+                    color: 'var(--text-secondary)',
+                    transform: expandedPending ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.2s'
+                  }} />
+                </button>
+                {expandedPending && (
+                  <div className="px-2 pb-2">
+                    {activeConversation.pendingMembers.map((pm: any) => {
+                      const uid = String(pm.userId);
+                      const info = pendingMemberMap[uid];
+                      const name = info?.fullName || `User ${uid}`;
+                      const avatar = info?.avatarUrl;
+                      const addedByInfo = memberMap[String(pm.addedBy)];
+                      const addedByName = addedByInfo?.fullName || `User ${pm.addedBy}`;
+
+                      return (
+                        <div
+                          key={uid}
+                          className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors"
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                        >
+                          <div
+                            className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                            style={{ background: avatar ? 'transparent' : '#f59e0b' }}
+                          >
+                            {avatar ? (
+                              <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                            ) : (
+                              name.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                              {name}
+                            </p>
+                            <p className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                              Được mời bởi {addedByName}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleApproveMember(uid)}
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
+                              style={{ background: '#10b981' }}
+                              title="Duyệt"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              onClick={() => handleRejectMember(uid)}
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
+                              style={{ background: '#ef4444' }}
+                              title="Từ chối"
+                            >
+                              ✗
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Ảnh/Video Section */}
         <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>

@@ -113,3 +113,36 @@ export const updateGroupInfo = async (
     ...(groupAvatar !== undefined ? { groupAvatar } : {}),
   });
 };
+
+export const toggleRequireApproval = async (
+  conversationId: string,
+  requesterId: string,
+  requireApproval: boolean
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/approval-setting`, {
+    requesterId,
+    requireApproval,
+  });
+};
+
+export const approvePendingMember = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/pending/approve`, {
+    requesterId,
+    targetUserIds,
+  });
+};
+
+export const rejectPendingMember = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/pending/reject`, {
+    requesterId,
+    targetUserIds,
+  });
+};

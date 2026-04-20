@@ -580,43 +580,43 @@ const setupSocketEvents = (io) => {
         currentContent.question = question;
         
         // Update options (keep votes for existing ones, add new ones)
-        const updatedOptions = options.map((optText, idx) => {
-           const existing = currentContent.options.find(o => o.text === optText);
-           if (existing) return existing;
-           return { id: currentContent.options.length + idx, text: optText, votes: [] };
-        });
-        
-        // Actually simpler: if the user sends the WHOLE new options array, we might lose votes.
-        // Let's assume for now they just edit the text or add.
-        // A better way is to pass option objects.
-        
         currentContent.options = options.map((opt, idx) => {
-          // If opt is a string, it's a new option text
-          if (typeof opt === 'string') {
-            // Find if there was an option with this text before
-            const oldOpt = currentContent.options.find(o => o.text === opt);
-            if (oldOpt) return oldOpt;
-            return { id: Date.now() + idx, text: opt, votes: [] };
+          // If opt is a string (new format from frontend)
+          const optText = typeof opt === 'string' ? opt : opt.text;
+          const optId = typeof opt === 'object' && opt.id !== undefined ? opt.id : null;
+
+          // Try to find existing option by ID or Text
+          let oldOpt = null;
+          if (optId !== null) {
+            oldOpt = currentContent.options.find(o => o.id === optId);
+          } else {
+            oldOpt = currentContent.options.find(o => o.text === optText);
           }
-          // If opt is an object {id, text}
-          const oldOpt = currentContent.options.find(o => o.id === opt.id);
+
           if (oldOpt) {
-            oldOpt.text = opt.text;
+            oldOpt.text = optText; // Update text if it changed but keep votes
             return oldOpt;
           }
-          return { id: opt.id || (Date.now() + idx), text: opt.text, votes: [] };
+
+          // New option
+          return { id: Date.now() + idx, text: optText, votes: [] };
         });
 
         pollMsg.content = JSON.stringify(currentContent);
         await pollMsg.save();
 
-        // Broadcast update
-        io.to(`conversation_${conversationId}`).emit('message_reacted', {
-          messageId: pollMsg._id,
-          conversationId,
-          content: pollMsg.content,
-          reactions: pollMsg.reactions
-        });
+        // Broadcast update to all participants
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation) {
+          conversation.participants.forEach(p => {
+            io.to(`user_${p.userId}`).emit('message_reacted', {
+              messageId: pollMsg._id,
+              conversationId,
+              content: pollMsg.content,
+              reactions: pollMsg.reactions
+            });
+          });
+        }
 
         // Update conversation last message if it was the last one
         await Conversation.findOneAndUpdate(

@@ -263,6 +263,30 @@ export const useSocketSetup = () => {
         console.log('User online:', data);
       });
 
+      socket.on('group_settings_updated', (data: { conversationId: string, settings: any }) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateActiveConversation(data.settings);
+        } else {
+          // Update in conversations list
+          state.setConversations(state.conversations.map(c => 
+            c.conversationId === data.conversationId ? { ...c, ...data.settings } : c
+          ));
+        }
+      });
+
+      socket.on('pending_members_updated', (data: { conversationId: string, pendingMembers: any[] }) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateActiveConversation({ pendingMembers: data.pendingMembers });
+        } else {
+          // Update in conversations list
+          state.setConversations(state.conversations.map(c => 
+            c.conversationId === data.conversationId ? { ...c, pendingMembers: data.pendingMembers } : c
+          ));
+        }
+      });
+
       return () => {
         socket.off('force_logout');
         socket.off('message_received');
@@ -271,6 +295,8 @@ export const useSocketSetup = () => {
         socket.off('message_revoked');
         socket.off('message_deleted');
         socket.off('user_online');
+        socket.off('group_settings_updated');
+        socket.off('pending_members_updated');
         disconnectSocket();
       };
     }

@@ -203,7 +203,10 @@ const MessageList = () => {
     };
     const handleReacted = (data: any) => {
         if (data.messageId) {
-            updateMessage(data.messageId, { reactions: data.reactions });
+            updateMessage(data.messageId, { 
+                reactions: data.reactions,
+                content: data.content // This is important for real-time poll updates
+            });
         }
     };
 
@@ -292,12 +295,15 @@ const MessageList = () => {
   const defaultContactName = activeContactInfo?.name || contact?.nickname || contact?.fullName || '?';
 
   // Render image message
-  const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date, isInGrid: boolean = false) => {
+  const renderImageMessage = (msg: any, isMe: boolean, msgTime: Date, isInGrid: boolean = false, isLastInCluster: boolean = true) => {
     const isUploading = (msg as any)._uploading;
     const isFailed = (msg as any)._uploadFailed;
 
     return (
-      <div className={`relative group/media overflow-hidden cursor-pointer ${isInGrid ? 'w-full h-full rounded-md' : 'rounded-xl max-w-[280px]'}`}
+      <div className={`relative group/media overflow-hidden cursor-pointer ${isInGrid ? 'w-full h-full rounded-md' : 'max-w-[280px]'}`}
+        style={{
+          borderRadius: isInGrid ? '4px' : (isLastInCluster ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px') : '18px'),
+        }}
         onClick={() => !isUploading && msg.fileUrl && setLightboxUrl(msg.fileUrl)}
       >
         <img
@@ -334,12 +340,16 @@ const MessageList = () => {
   };
 
   // Render video message
-  const renderVideoMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+  const renderVideoMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
     const isUploading = (msg as any)._uploading;
     const isFailed = (msg as any)._uploadFailed;
 
     return (
-      <div className="relative group/media rounded-xl overflow-hidden max-w-[320px]">
+      <div className="relative group/media overflow-hidden max-w-[320px]"
+        style={{
+          borderRadius: isLastInCluster ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px') : '18px',
+        }}
+      >
         {isUploading ? (
           <div className="w-[280px] h-[160px] bg-[var(--bg-hover)] rounded-xl flex items-center justify-center">
             <Loader2 size={32} className="animate-spin" style={{ color: 'var(--text-secondary)' }} />
@@ -373,12 +383,16 @@ const MessageList = () => {
   };
 
   // Render audio message
-  const renderAudioMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+  const renderAudioMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
     const isUploading = (msg as any)._uploading;
 
     return (
-      <div className="relative group/media rounded-xl p-2 max-w-[320px]"
-        style={{ background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)' }}>
+      <div className="relative group/media p-2 max-w-[320px]"
+        style={{ 
+          background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)',
+          borderRadius: isLastInCluster ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px') : '18px',
+          boxShadow: !isMe ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+        }}>
         {isUploading ? (
           <div className="flex items-center gap-2 w-48 h-10 px-2 justify-center">
             <Loader2 size={24} className="animate-spin" style={{ color: 'var(--text-secondary)' }} />
@@ -409,7 +423,7 @@ const MessageList = () => {
   };
 
   // Render file message
-  const renderFileMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+  const renderFileMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
     const isUploading = (msg as any)._uploading;
     const isFailed = (msg as any)._uploadFailed;
     const fileName = (msg as any).fileName || msg.content || msg.text || 'File';
@@ -421,9 +435,10 @@ const MessageList = () => {
         className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl max-w-[320px] transition-shadow hover:shadow-md cursor-pointer ${isFailed ? 'opacity-70 bg-red-50' : ''}`}
         style={{
           background: isFailed ? 'var(--bg-panel)' : isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)',
-          borderRadius: bubbleR.normal,
-          borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
-          borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+          borderRadius: isLastInCluster 
+            ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px')
+            : '18px',
+          boxShadow: !isMe ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
           border: isFailed ? '1px solid red' : undefined
         }}
         onClick={() => {
@@ -479,7 +494,7 @@ const MessageList = () => {
   };
 
   // Render contact message
-  const renderContactMessage = (msg: any, isMe: boolean, msgTime: Date) => {
+  const renderContactMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
     let parsedContact: any = null;
     try {
       parsedContact = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
@@ -498,9 +513,9 @@ const MessageList = () => {
         style={{
           background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
           border: isMe ? 'none' : '1px solid var(--border-light)',
-          borderRadius: bubbleR.normal,
-          borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
-          borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+          borderRadius: isLastInCluster 
+            ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px')
+            : '18px',
         }}
       >
         <div className="flex items-center gap-3">
@@ -605,7 +620,7 @@ const MessageList = () => {
     };
 
     return (
-      <div className="p-4 min-w-[280px] max-w-[350px] shadow-sm relative group/poll"
+      <div className="p-4 min-w-[280px] max-w-[350px] shadow-sm relative group"
         style={{
           background: 'var(--bg-panel)',
           border: '1px solid var(--border-light)',
@@ -618,7 +633,7 @@ const MessageList = () => {
             <span className="font-bold text-[15px]">Bình chọn</span>
           </div>
           {isMe && (
-            <div className="flex items-center gap-1 opacity-0 group-hover/poll:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button onClick={handleEditPoll} className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[#0068FF]" title="Chỉnh sửa">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
               </button>
@@ -649,7 +664,7 @@ const MessageList = () => {
                 >
                   {/* Progress Bar Background */}
                   <div 
-                    className="absolute left-0 top-0 bottom-0 bg-[#0068FF]/10 transition-all duration-500" 
+                    className="absolute left-0 top-0 bottom-0 bg-[#0068FF]/15 transition-all duration-500 ease-out" 
                     style={{ width: `${percentage}%` }}
                   />
                   
@@ -695,20 +710,21 @@ const MessageList = () => {
 
     return (
       <div 
-        className="absolute -bottom-2.5 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white shadow-sm border border-[#e6e8eb] cursor-pointer hover:bg-gray-50 transition-colors z-10 select-none scale-[0.85] origin-bottom-right"
+        className="absolute -bottom-2.5 right-1 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white shadow-sm border border-[#e6e8eb] cursor-pointer hover:bg-gray-50 transition-colors z-20 select-none scale-[0.9] origin-bottom-right"
+        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
         onClick={(e) => { e.stopPropagation(); setReactionTooltipId(reactionTooltipId === messageId ? null : messageId); }}
       >
         <div className="flex -space-x-1.5 items-center">
           {uniqueTypes.slice(0, 3).map(type => {
             const emoji = REACTION_EMOJIS.find(e => e.type === type);
             return (
-              <div key={type} className="flex items-center justify-center w-4 h-4 rounded-full bg-white">
+              <div key={type} className="flex items-center justify-center w-4 h-4 rounded-full bg-white ring-1 ring-white">
                 <span className="text-[12px] leading-none">{emoji?.icon}</span>
               </div>
             );
           })}
         </div>
-        <span className="text-[11px] font-medium ml-0.5 text-[#666]">
+        <span className="text-[11px] font-bold ml-0.5 text-[#4a5568]">
           {totalCount}
         </span>
       </div>
@@ -737,19 +753,28 @@ const MessageList = () => {
   return (
     <>
       <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
-        <div className="max-w-3xl mx-auto space-y-1">
+        <div className="w-full space-y-1">
           {messages.map((msg, idx) => {
-            const isMe = msg.senderId === user?.id?.toString();
+            const currentUserId = user?._id?.toString() || user?.id?.toString();
+            const isMe = String(msg.senderId) === currentUserId;
             const msgTime = msg.createdAt ? new Date(msg.createdAt) : (msg.timestamp ? new Date(msg.timestamp) : new Date());
             const prevMsg = idx > 0 ? messages[idx - 1] : null;
+            const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null;
             const prevTime = prevMsg
               ? (prevMsg.createdAt ? new Date(prevMsg.createdAt) : (prevMsg.timestamp ? new Date(prevMsg.timestamp) : null))
+              : null;
+            const nextTime = nextMsg
+              ? (nextMsg.createdAt ? new Date(nextMsg.createdAt) : (nextMsg.timestamp ? new Date(nextMsg.timestamp) : null))
               : null;
 
             // Show date separator if different day
             const showDateSeparator = idx === 0 || (prevTime && !isSameDay(msgTime, prevTime));
 
-            // Check if this is an image inside a cluster
+            // Clustering logic for Zalo-style bubbles
+            const isFirstInCluster = !prevMsg || prevMsg.senderId !== msg.senderId || (prevTime && Math.abs(msgTime.getTime() - prevTime.getTime()) > 60000) || prevMsg.messageType === 'system' || showDateSeparator;
+            const isLastInCluster = !nextMsg || nextMsg.senderId !== msg.senderId || (nextTime && Math.abs(nextTime.getTime() - msgTime.getTime()) > 60000) || nextMsg.messageType === 'system';
+
+            // Check if this is an image inside a cluster (for grid rendering)
             const isImage = msg.messageType === 'image' && !msg.isRevoked && !msg.replyTo;
             let clusterMessages = [msg];
 
@@ -958,12 +983,15 @@ const MessageList = () => {
                   </div>
                 ) : (
                   /* Message Bubble container */
-                  <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-0.5 group relative`}>
+                  <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isLastInCluster ? 'mb-4' : 'mb-1'} group relative`}>
                   
                   {/* Received: Avatar */}
                   {!isMe && (
                     <div className="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto mb-0.5 flex items-center justify-center font-bold text-xs text-white overflow-hidden"
-                      style={{ background: msgSenderAvatar ? 'transparent' : '#0068FF' }}
+                      style={{ 
+                        background: msgSenderAvatar ? 'transparent' : '#0068FF',
+                        visibility: isLastInCluster ? 'visible' : 'hidden'
+                      }}
                       title={msgSenderName}
                     >
                       {msgSenderAvatar ? (
@@ -977,12 +1005,35 @@ const MessageList = () => {
                   {/* Actions Menu Left (if isMe) */}
                   {isMe && actionMenu}
 
-                  <div className={`max-w-[60%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     {/* Sender Name in Group Chat */}
-                    {!isMe && activeConversation.isGroup && (
-                      <span className="text-[11px] mb-0.5 ml-1 opacity-70" style={{ color: 'var(--text-secondary)' }}>
-                        {msgSenderName}
-                      </span>
+                    {!isMe && activeConversation.isGroup && isFirstInCluster && (
+                      <div className="flex items-center gap-2 mb-1 ml-1">
+                        <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+                          {msgSenderName}
+                        </span>
+                        {(() => {
+                          const participant = activeConversation.participants?.find(
+                            (p: any) => String(p.userId || p.id || p) === String(msg.senderId)
+                          );
+                          const role = (participant as any)?.role;
+                          if (role === 'leader') {
+                            return (
+                              <span className="text-[9px] px-1 rounded bg-[#fff7ed] text-[#f59e0b] font-bold border border-[#f59e0b40] uppercase">
+                                Trưởng nhóm
+                              </span>
+                            );
+                          }
+                          if (role === 'deputy') {
+                            return (
+                              <span className="text-[9px] px-1 rounded bg-[#f0fdf4] text-[#10b981] font-bold border border-[#10b98140] uppercase">
+                                Phó nhóm
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     )}
 
                     {msg.isRevoked ? (
@@ -1041,7 +1092,7 @@ const MessageList = () => {
                                   const cTime = cMsg.createdAt ? new Date(cMsg.createdAt) : (cMsg.timestamp ? new Date(cMsg.timestamp) : new Date());
                                   return (
                                     <div key={cMsg._id || cMsg.id || cIdx} className={`relative group/cmsg w-full h-full ${cIdx === 2 && clusterMessages.length === 3 ? 'col-span-2' : ''}`}>
-                                      {renderImageMessage(cMsg, isMe, cTime, true)}
+                                      {renderImageMessage(cMsg, isMe, cTime, true, isLastInCluster)}
                                       {renderReactions(cMsg)}
                                     </div>
                                   )
@@ -1049,7 +1100,7 @@ const MessageList = () => {
                               </div>
                             ) : (
                               <div className="relative">
-                                {renderImageMessage(msg, isMe, msgTime, false)}
+                                {renderImageMessage(msg, isMe, msgTime, false, isLastInCluster)}
                                 {renderReactions(msg)}
                               </div>
                             )
@@ -1057,28 +1108,28 @@ const MessageList = () => {
                         /* Video */
                         ) : msg.messageType === 'video' && msg.fileUrl ? (
                           <div className="relative">
-                            {renderVideoMessage(msg, isMe, msgTime)}
+                            {renderVideoMessage(msg, isMe, msgTime, isLastInCluster)}
                             {renderReactions(msg)}
                           </div>
 
                         /* File */
                         ) : msg.messageType === 'file' && msg.fileUrl ? (
                           <div className="relative">
-                            {renderFileMessage(msg, isMe, msgTime)}
+                            {renderFileMessage(msg, isMe, msgTime, isLastInCluster)}
                             {renderReactions(msg)}
                           </div>
 
                         /* Audio */
                         ) : msg.messageType === 'audio' && msg.fileUrl ? (
                           <div className="relative">
-                            {renderAudioMessage(msg, isMe, msgTime)}
+                            {renderAudioMessage(msg, isMe, msgTime, isLastInCluster)}
                             {renderReactions(msg)}
                           </div>
 
                         /* Contact */
                         ) : msg.messageType === 'contact' ? (
                           <div className="relative">
-                            {renderContactMessage(msg, isMe, msgTime)}
+                            {renderContactMessage(msg, isMe, msgTime, isLastInCluster)}
                             {renderReactions(msg)}
                           </div>
 
@@ -1141,18 +1192,19 @@ const MessageList = () => {
 
                         /* Text (default) */
                         ) : (
-                          <div className="px-3 py-[7px] relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-md"
+                          <div className="px-3 py-[7px] relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-sm"
                             style={{
                               background: settings.bubbleStyle === 'minimal'
                                 ? 'transparent'
                                 : (isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)'),
                               color: 'var(--text-primary)',
-                              borderRadius: bubbleR.normal,
-                              borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
-                              borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+                              borderRadius: isLastInCluster 
+                                ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px')
+                                : '18px',
+                              boxShadow: !isMe && settings.bubbleStyle !== 'minimal' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
                               border: settings.bubbleStyle === 'minimal'
                                 ? '1px solid var(--border-primary)'
-                                : 'none',
+                                : undefined,
                             }}>
 
                             <div className="pr-12">
@@ -1240,14 +1292,15 @@ const MessageList = () => {
         onClose={() => setIsProfileModalOpen(false)}
         user={activeProfile}
       />
-      {editingPoll && (
+      {editingPoll && createPortal(
         <CreatePollModal
           isOpen={editingPoll.isOpen}
           onClose={() => setEditingPoll(null)}
           conversationId={activeConversation.conversationId}
           initialData={editingPoll.initialData}
           messageId={editingPoll.msgId}
-        />
+        />,
+        document.body
       )}
     </>
   );

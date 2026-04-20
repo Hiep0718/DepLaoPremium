@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
   ScreenShare, Code, Type, X, FileText, Film, Loader2,
@@ -653,11 +654,14 @@ const MessageInput = () => {
         onSelect={sendContact}
       />
 
-      <CreatePollModal
-        isOpen={isPollModalOpen}
-        onClose={() => setIsPollModalOpen(false)}
-        conversationId={activeConversation.conversationId}
-      />
+      {isPollModalOpen && createPortal(
+        <CreatePollModal
+          isOpen={isPollModalOpen}
+          onClose={() => setIsPollModalOpen(false)}
+          conversationId={activeConversation.conversationId}
+        />,
+        document.body
+      )}
     </div>
   );
 };

@@ -19,7 +19,7 @@ export default function ChatOptionsScreen() {
   const [isHidden, setIsHidden] = useState(false);
   const [isCallNotifEnabled, setIsCallNotifEnabled] = useState(true);
   const [isAddMemberVisible, setIsAddMemberVisible] = useState(false);
-  const { currentUserId } = useSocket();
+  const { currentUserId, socket } = useSocket();
 
   // Group management states
   const [participants, setParticipants] = useState<any[]>([]);
@@ -27,12 +27,15 @@ export default function ChatOptionsScreen() {
   const [expandedMembers, setExpandedMembers] = useState(true);
   const [menuOpenUid, setMenuOpenUid] = useState<string | null>(null);
   const [isLoadingGroup, setIsLoadingGroup] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [pendingMembers, setPendingMembers] = useState<any[]>([]);
+  const [pendingMemberMap, setPendingMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
 
   // Get current user's role
   const myRole = useMemo(() => {
-    if (isGroup !== 'true' || !currentUserId) return 'member';
-    const me = participants.find(p => String(p.userId) === String(currentUserId));
-    console.log('[GroupOptions] myRole check: currentUserId=', currentUserId, 'participants userIds=', participants.map(p => p.userId), 'foundMe=', !!me, 'role=', me?.role);
+    if (isGroup !== 'true' || !currentUserId || !participants.length) return 'member';
+    const me = participants.find(p => String(p.userId || p.id) === String(currentUserId));
+    console.log('[GroupOptions] myRole check: currentUserId=', currentUserId, 'foundMe=', !!me, 'role=', me?.role);
     return me?.role || 'member';
   }, [participants, currentUserId, isGroup]);
 
@@ -57,6 +60,8 @@ export default function ChatOptionsScreen() {
         
         if (thisConv?.participants) {
           setParticipants(thisConv.participants);
+          setRequireApproval(thisConv.requireApproval || false);
+          setPendingMembers(thisConv.pendingMembers || []);
           
           // Fetch member info
           const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
@@ -95,6 +100,8 @@ export default function ChatOptionsScreen() {
       const thisConv = conversations.find((c: any) => c.conversationId === id);
       if (thisConv?.participants) {
         setParticipants(thisConv.participants);
+        setRequireApproval(thisConv.requireApproval || false);
+        setPendingMembers(thisConv.pendingMembers || []);
         // Fetch any new member info
         const newIds = thisConv.participants
           .map((p: any) => String(p.userId))
@@ -232,6 +239,94 @@ export default function ChatOptionsScreen() {
       ]
     );
   };
+
+  // Toggle require approval
+  const handleToggleApproval = async () => {
+    const newValue = !requireApproval;
+    try {
+      await chatApiClient.put(`/conversations/${id}/approval-setting`, {
+        requesterId: currentUserId,
+        requireApproval: newValue,
+      });
+      setRequireApproval(newValue);
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể thay đổi cài đặt');
+    }
+  };
+
+  // Approve pending member
+  const handleApprovePending = async (userId: string) => {
+    try {
+      await chatApiClient.post(`/conversations/${id}/pending/approve`, {
+        requesterId: currentUserId,
+        targetUserIds: [userId],
+      });
+      await reloadConversation();
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể duyệt thành viên');
+    }
+  };
+
+  // Reject pending member
+  const handleRejectPending = async (userId: string) => {
+    try {
+      await chatApiClient.post(`/conversations/${id}/pending/reject`, {
+        requesterId: currentUserId,
+        targetUserIds: [userId],
+      });
+      await reloadConversation();
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể từ chối thành viên');
+    }
+  };
+
+  // Fetch pending member info
+  useEffect(() => {
+    if (!pendingMembers.length) {
+      setPendingMemberMap({});
+      return;
+    }
+    const fetchPendingInfo = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+      for (const pm of pendingMembers) {
+        const uid = String(pm.userId);
+        if (!uid || pendingMemberMap[uid]) continue;
+        try {
+          const res = await apiClient.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName || 'Thành viên', avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+      if (Object.keys(map).length > 0) {
+        setPendingMemberMap(prev => ({ ...prev, ...map }));
+      }
+    };
+    fetchPendingInfo();
+  }, [pendingMembers.length]);
+
+  // Listen for socket events
+  useEffect(() => {
+    if (!socket) return;
+    const handleSettingsUpdate = (data: any) => {
+      if (data.conversationId === id) {
+        if (data.settings?.requireApproval !== undefined) {
+          setRequireApproval(data.settings.requireApproval);
+        }
+      }
+    };
+    const handlePendingUpdate = (data: any) => {
+      if (data.conversationId === id) {
+        setPendingMembers(data.pendingMembers || []);
+      }
+    };
+    socket.on('group_settings_updated', handleSettingsUpdate);
+    socket.on('pending_members_updated', handlePendingUpdate);
+    return () => {
+      socket.off('group_settings_updated', handleSettingsUpdate);
+      socket.off('pending_members_updated', handlePendingUpdate);
+    };
+  }, [socket, id]);
 
   // Grouped item component
   const OptionItem = ({ icon, color, label, showArrow, toggle, toggleValue, onToggle, dangerous, onPress }: any) => (
@@ -448,6 +543,9 @@ export default function ChatOptionsScreen() {
                       const memberAvatar = info?.avatarUrl;
                       const role = p.role || 'member';
                       const badge = roleBadge[role];
+                      
+                      // Debug role
+                      console.log(`Member ${memberName} has role: ${role}`);
 
                       // Build menu items
                       const menuItems: { label: string; icon: string; action: () => void; color?: string }[] = [];
@@ -498,39 +596,40 @@ export default function ChatOptionsScreen() {
                               }
                             }}
                           >
-                            {/* Avatar */}
-                            <View style={[
-                              styles.memberAvatar,
-                              { backgroundColor: memberAvatar ? 'transparent' : (isMe ? '#10b981' : ZaloColors.blue) }
-                            ]}>
-                              {memberAvatar ? (
-                                <Image source={{ uri: memberAvatar }} style={styles.memberAvatarImg} />
-                              ) : (
-                                <Text style={styles.memberAvatarText}>
-                                  {memberName.charAt(0).toUpperCase()}
-                                </Text>
-                              )}
-                            </View>
-
-                            {/* Name + Role Badge */}
-                            <View style={styles.memberInfo}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={styles.memberName} numberOfLines={1}>{memberName}</Text>
-                                {role === 'leader' && (
-                                  <Ionicons name="shield-checkmark" size={16} color="#e67e00" style={{ marginLeft: 6 }} />
-                                )}
-                                {role === 'deputy' && (
-                                  <Ionicons name="star" size={14} color="#10b981" style={{ marginLeft: 6 }} />
-                                )}
-                              </View>
-                              {badge && (
-                                <View style={[styles.roleBadge, { backgroundColor: badge.bg }]}>
-                                  <Text style={[styles.roleBadgeText, { color: badge.color }]}>
-                                    {badge.label}
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
+                             {/* Avatar */}
+                             <View style={[
+                               styles.memberAvatar,
+                               { backgroundColor: memberAvatar ? 'transparent' : (role === 'leader' ? '#f59e0b' : role === 'deputy' ? '#10b981' : ZaloColors.blue) }
+                             ]}>
+                               {memberAvatar ? (
+                                 <Image source={{ uri: memberAvatar }} style={styles.memberAvatarImg} />
+                               ) : (
+                                 <Text style={styles.memberAvatarText}>
+                                   {memberName.charAt(0).toUpperCase()}
+                                 </Text>
+                               )}
+                             </View>
+ 
+                             {/* Name + Role Badge */}
+                             <View style={styles.memberInfo}>
+                               <Text style={[styles.memberName, isMe && { color: ZaloColors.blue, fontWeight: '700' }]} numberOfLines={1}>
+                                 {memberName}
+                               </Text>
+                               
+                               <View style={{ marginTop: 2 }}>
+                                 {role === 'leader' ? (
+                                   <View style={{ backgroundColor: '#fff7ed', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 0.5, borderColor: '#f59e0b' }}>
+                                     <Text style={{ fontSize: 9, color: '#f59e0b', fontWeight: '700' }}>TRƯỞNG NHÓM</Text>
+                                   </View>
+                                 ) : role === 'deputy' ? (
+                                   <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, alignSelf: 'flex-start', borderWidth: 0.5, borderColor: '#10b981' }}>
+                                     <Text style={{ fontSize: 9, color: '#10b981', fontWeight: '700' }}>PHÓ NHÓM</Text>
+                                   </View>
+                                 ) : (
+                                   <Text style={{ fontSize: 11, color: '#999' }}>Thành viên</Text>
+                                 )}
+                               </View>
+                             </View>
 
                             {/* 3-dot indicator */}
                             {menuItems.length > 0 && (
@@ -576,6 +675,85 @@ export default function ChatOptionsScreen() {
                 </View>
               </TouchableOpacity>
             </View>
+
+            {/* ═══ MEMBER APPROVAL SETTINGS ═══ */}
+            {(myRole === 'leader' || myRole === 'deputy') && (
+              <View style={styles.section}>
+                <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={handleToggleApproval}>
+                  <View style={styles.optionLeft}>
+                    <Ionicons name="shield-checkmark-outline" size={22} color={ZaloColors.blue} style={styles.optionIcon} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionLabel}>Duyệt thành viên mới</Text>
+                      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                        {requireApproval ? 'Thành viên thêm người cần Admin duyệt' : 'Mọi thành viên đều có thể thêm người'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={requireApproval}
+                    onValueChange={handleToggleApproval}
+                    trackColor={{ false: '#d1d1d1', true: ZaloColors.blue }}
+                    thumbColor={'#fff'}
+                  />
+                </TouchableOpacity>
+
+                {/* Pending Members List */}
+                {pendingMembers.length > 0 && (
+                  <>
+                    <View style={[styles.optionRow, { paddingVertical: 10 }]}>
+                      <View style={styles.optionLeft}>
+                        <Ionicons name="hourglass-outline" size={22} color="#f59e0b" style={styles.optionIcon} />
+                        <Text style={[styles.optionLabel, { fontWeight: '600' }]}>
+                          Chờ duyệt ({pendingMembers.length})
+                        </Text>
+                      </View>
+                    </View>
+                    {pendingMembers.map((pm: any) => {
+                      const uid = String(pm.userId);
+                      const info = pendingMemberMap[uid];
+                      const pmName = info?.fullName || `User ${uid}`;
+                      const pmAvatar = info?.avatarUrl;
+                      const addedByName = memberMap[String(pm.addedBy)]?.fullName || `User ${pm.addedBy}`;
+
+                      return (
+                        <View key={uid} style={[styles.memberRow, { paddingLeft: 16 }]}>
+                          <View style={[
+                            styles.memberAvatar,
+                            { backgroundColor: pmAvatar ? 'transparent' : '#f59e0b' }
+                          ]}>
+                            {pmAvatar ? (
+                              <Image source={{ uri: pmAvatar }} style={styles.memberAvatarImg} />
+                            ) : (
+                              <Text style={styles.memberAvatarText}>
+                                {pmName.charAt(0).toUpperCase()}
+                              </Text>
+                            )}
+                          </View>
+                          <View style={styles.memberInfo}>
+                            <Text style={styles.memberName} numberOfLines={1}>{pmName}</Text>
+                            <Text style={{ fontSize: 10, color: '#999' }}>Được mời bởi {addedByName}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <TouchableOpacity
+                              onPress={() => handleApprovePending(uid)}
+                              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center' }}
+                            >
+                              <Ionicons name="checkmark" size={18} color="#fff" />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => handleRejectPending(uid)}
+                              style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: '#ef4444', justifyContent: 'center', alignItems: 'center' }}
+                            >
+                              <Ionicons name="close" size={18} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </>
+                )}
+              </View>
+            )}
 
             {/* Settings */}
             <View style={styles.section}>

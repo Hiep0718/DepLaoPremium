@@ -55,6 +55,7 @@ export default function ChatScreen() {
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
+  const [editingPoll, setEditingPoll] = useState<Message | null>(null);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderText, setReminderText] = useState('');
   const [reminderDate, setReminderDate] = useState<Date>(new Date(Date.now() + 3600000));
@@ -64,7 +65,7 @@ export default function ChatScreen() {
   const moreActionsPanelHeight = useRef(new RNAnimated.Value(0)).current;
 
   // Custom Hooks
-  const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap } = useChatMessages(id, currentUserId, socket);
+  const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles } = useChatMessages(id, currentUserId, socket);
   const { isOtherTyping, lastSeenMessageId } = useChatSocket({ socket, id, currentUserId, setMessages, setPinnedMessage });
   const { isRecording, recordingTime, startRecording, cancelRecording, stopAndSendRecording } = useVoiceRecording({ socket, currentUserId, id, recipientId, setMessages });
   const { pendingMedia, setPendingMedia, uploadingMedia, uploadProgress, uploadingFile, handlePickImage, handleRemovePendingMedia, handleSendMedia, handlePickDocument } = useMediaHandling({ socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage });
@@ -208,7 +209,7 @@ export default function ChatScreen() {
                     item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}
                     avatar={avatar} name={name} playingAudioId={playingAudioId} audioProgress={audioProgress}
                     translatedMessages={translatedMessages} translatingId={translatingId}
-                    memberMap={memberMap}
+                    memberMap={memberMap} isGroup={isGroup} participantRoles={participantRoles}
                     handleMessageLongPress={(msg) => {
                       setActionSheetMessage(msg);
                       setReactionTooltipId(null);
@@ -456,10 +457,25 @@ export default function ChatScreen() {
             )}
 
             {actionSheetMessage && actionSheetMessage.messageType === 'poll' && String(actionSheetMessage.senderId) === String(currentUserId) && (
-              <TouchableOpacity style={styles.actionSheetItem} onPress={() => { setShowPollModal(true); }}>
-                <Ionicons name="create-outline" size={22} color="#333" />
-                <Text style={styles.actionSheetItemText}>Chỉnh sửa bình chọn</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={styles.actionSheetItem} onPress={() => { 
+                  setEditingPoll(actionSheetMessage);
+                  setActionSheetMessage(null);
+                  setShowPollModal(true); 
+                }}>
+                  <Ionicons name="create-outline" size={22} color="#333" />
+                  <Text style={styles.actionSheetItemText}>Chỉnh sửa bình chọn</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionSheetItem} onPress={() => { 
+                  const msg = actionSheetMessage;
+                  setActionSheetMessage(null); 
+                  if (msg) handleRevoke(msg); 
+                }}>
+                  <Ionicons name="trash-outline" size={22} color="#FF4757" />
+                  <Text style={[styles.actionSheetItemText, { color: '#FF4757' }]}>Xóa bình chọn (Thu hồi)</Text>
+                </TouchableOpacity>
+              </>
             )}
 
             <View style={styles.actionSheetSeparator} />
@@ -484,16 +500,16 @@ export default function ChatScreen() {
       </Modal>
       <CreatePollModal 
         visible={showPollModal} 
-        onClose={() => { setShowPollModal(false); setActionSheetMessage(null); }}
+        onClose={() => { setShowPollModal(false); setEditingPoll(null); }}
         onCreate={handleCreatePoll}
         onUpdate={(q, o) => {
-          if (actionSheetMessage) {
-            handleCreatePoll(q, o, actionSheetMessage._id);
+          if (editingPoll) {
+            handleCreatePoll(q, o, editingPoll._id);
           }
         }}
-        initialData={actionSheetMessage?.messageType === 'poll' ? (() => {
+        initialData={editingPoll?.messageType === 'poll' ? (() => {
           try {
-            return typeof actionSheetMessage.content === 'string' ? JSON.parse(actionSheetMessage.content) : actionSheetMessage.content;
+            return typeof editingPoll.content === 'string' ? JSON.parse(editingPoll.content) : editingPoll.content;
           } catch(e) { return null; }
         })() : null}
       />
