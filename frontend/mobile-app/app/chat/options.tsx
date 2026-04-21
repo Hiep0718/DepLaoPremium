@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Alert, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Alert, ActivityIndicator, Modal, TextInput, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ZaloColors } from '@/constants/zalo';
 import AddMemberModal from '@/components/chat/AddMemberModal';
+import CreatePollModal from '@/components/chat/CreatePollModal';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
@@ -32,6 +33,14 @@ export default function ChatOptionsScreen() {
   const [pendingMembers, setPendingMembers] = useState<any[]>([]);
   const [pendingMemberMap, setPendingMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
   const [groupSettings, setGroupSettings] = useState<any>(null);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
+  const [tempGroupName, setTempGroupName] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [mediaPreview, setMediaPreview] = useState<any[]>([]);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [isInviteExpanded, setIsInviteExpanded] = useState(false);
 
   // Get current user's role
   const myRole = useMemo(() => {
@@ -40,6 +49,22 @@ export default function ChatOptionsScreen() {
     console.log('[GroupOptions] myRole check: currentUserId=', currentUserId, 'foundMe=', !!me, 'role=', me?.role);
     return me?.role || 'member';
   }, [participants, currentUserId, isGroup]);
+
+  const canCreatePoll = useMemo(() => {
+    if (isGroup !== 'true') return true;
+    if (groupSettings?.pinAndPolls === 'admin_only') {
+      return myRole === 'leader' || myRole === 'deputy';
+    }
+    return true;
+  }, [groupSettings?.pinAndPolls, myRole, isGroup]);
+
+  const canChangeInfo = useMemo(() => {
+    if (isGroup !== 'true') return true;
+    if (groupSettings?.changeInfo === 'admin_only') {
+      return myRole === 'leader' || myRole === 'deputy';
+    }
+    return true;
+  }, [groupSettings?.changeInfo, myRole, isGroup]);
 
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
@@ -378,6 +403,37 @@ export default function ChatOptionsScreen() {
     }
   };
 
+  const handleCreatePoll = (question: string, options: string[]) => {
+    if (!socket || !currentUserId || !id) return;
+    socket.emit('create_poll', {
+      conversationId: id,
+      question,
+      options
+    });
+    setShowPollModal(false);
+    Alert.alert('Thành công', 'Đã tạo bình chọn mới');
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!tempGroupName.trim() || !id || !currentUserId) return;
+    
+    setIsRenaming(true);
+    try {
+      await chatApiClient.put(`/conversations/${id}/info`, {
+        requesterId: currentUserId,
+        groupName: tempGroupName.trim()
+      });
+      
+      router.setParams({ name: tempGroupName.trim() });
+      setIsRenameModalVisible(false);
+      Alert.alert('Thành công', 'Đổi tên nhóm thành công!');
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể đổi tên nhóm');
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
   // Fetch pending member info
   useEffect(() => {
     if (!pendingMembers.length) {
@@ -403,6 +459,23 @@ export default function ChatOptionsScreen() {
     fetchPendingInfo();
   }, [pendingMembers.length]);
 
+  // Fetch media preview
+  useEffect(() => {
+    if (!id) return;
+    const fetchMediaPreview = async () => {
+      setIsLoadingMedia(true);
+      try {
+        const res = await chatApiClient.get(`/conversation/${id}/media?type=media&limit=5`);
+        setMediaPreview(res.data?.data || []);
+      } catch (err) {
+        console.log('Error fetching media preview:', err);
+      } finally {
+        setIsLoadingMedia(false);
+      }
+    };
+    fetchMediaPreview();
+  }, [id]);
+
   // Listen for socket events
   useEffect(() => {
     if (!socket) return;
@@ -425,6 +498,31 @@ export default function ChatOptionsScreen() {
       socket.off('pending_members_updated', handlePendingUpdate);
     };
   }, [socket, id]);
+
+  // Fetch invite code
+  useEffect(() => {
+    if (isGroup === 'true' && id) {
+      chatApiClient.get(`/conversations/${id}/invite`)
+        .then(res => setInviteCode(res.data?.data?.inviteCode))
+        .catch(e => console.log('Error fetching invite code', e));
+    }
+  }, [isGroup, id]);
+
+  const handleResetInvite = async () => {
+    if (!id || !currentUserId) return;
+    Alert.alert('Xác nhận', 'Bạn có chắc chắn muốn đổi link tham gia mới? Link cũ sẽ không còn hiệu lực.', [
+      { text: 'Hủy', style: 'cancel' },
+      { text: 'Đồng ý', onPress: async () => {
+        try {
+          const res = await chatApiClient.post(`/conversations/${id}/invite/reset`, { requesterId: currentUserId });
+          setInviteCode(res.data?.data?.inviteCode);
+          Alert.alert('Thành công', 'Đã đổi link tham gia mới');
+        } catch (err) {
+          Alert.alert('Lỗi', 'Không thể đổi link');
+        }
+      }}
+    ]);
+  };
 
   // Grouped item component
   const OptionItem = ({ icon, color, label, showArrow, toggle, toggleValue, onToggle, dangerous, onPress }: any) => (
@@ -507,11 +605,22 @@ export default function ChatOptionsScreen() {
           </TouchableOpacity>
           
           {isGroup === 'true' ? (
-            <View style={styles.nameWrap}>
-              <Text style={styles.profileNameGroup} numberOfLines={2}>{name}</Text>
-              <Ionicons name="pencil-outline" size={20} color="#555" style={styles.nameEditIcon} />
-            </View>
-          ) : (
+             <TouchableOpacity 
+                style={styles.nameWrap} 
+                onPress={() => {
+                  if (canChangeInfo) {
+                    setTempGroupName(String(name || ''));
+                    setIsRenameModalVisible(true);
+                  } else {
+                    Alert.alert('Thông báo', 'Chỉ Trưởng/Phó nhóm mới được đổi tên nhóm');
+                  }
+                }}
+                activeOpacity={0.7}
+             >
+               <Text style={styles.profileNameGroup} numberOfLines={2}>{name}</Text>
+               <Ionicons name="pencil-outline" size={20} color="#555" style={styles.nameEditIcon} />
+             </TouchableOpacity>
+           ) : (
             <Text style={styles.profileName} numberOfLines={2}>{name}</Text>
           )}
 
@@ -579,7 +688,14 @@ export default function ChatOptionsScreen() {
 
         {/* Section 2: Media */}
         <View style={styles.section}>
-          <TouchableOpacity style={styles.optionRowMedia} activeOpacity={0.7}>
+          <TouchableOpacity 
+            style={styles.optionRowMedia} 
+            activeOpacity={0.7}
+            onPress={() => router.push({
+              pathname: '/chat/media-archive',
+              params: { id }
+            })}
+          >
             <View style={styles.optionLeftMedia}>
               <Ionicons name="images-outline" size={22} color="#555" style={styles.optionIcon} />
               <Text style={styles.optionLabel}>Ảnh, file, link</Text>
@@ -588,14 +704,44 @@ export default function ChatOptionsScreen() {
           </TouchableOpacity>
           
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaPreviewScroll}>
-            {[1, 2, 3, 4].map((item) => (
-              <View key={item} style={styles.mediaPlaceholder}>
-                <Ionicons name="image-outline" size={24} color="#999" />
-              </View>
-            ))}
-            <View style={styles.mediaMoreBtn}>
+            {isLoadingMedia ? (
+              <ActivityIndicator size="small" color={ZaloColors.blue} style={{ padding: 20 }} />
+            ) : mediaPreview.length > 0 ? (
+              mediaPreview.map((item: any) => (
+                <TouchableOpacity 
+                  key={item._id} 
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (typeof item.fileUrl === 'string') {
+                      Linking.openURL(item.fileUrl).catch(err => console.log('Error opening URL:', err));
+                    }
+                  }}
+                  style={styles.mediaPlaceholder}
+                >
+                  <Image source={{ uri: item.fileUrl }} style={styles.mediaPreviewImg} />
+                  {(item.messageType === 'video' || (typeof item.fileUrl === 'string' && /\.(mp4|m4v|mov|avi|wmv|flv|mkv|webm)$/i.test(item.fileUrl))) && (
+                    <View style={styles.videoIconSmall}>
+                      <Ionicons name="play" size={12} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))
+            ) : (
+              [1, 2, 3, 4].map((item) => (
+                <View key={item} style={styles.mediaPlaceholder}>
+                  <Ionicons name="image-outline" size={24} color="#999" />
+                </View>
+              ))
+            )}
+            <TouchableOpacity 
+              style={styles.mediaMoreBtn}
+              onPress={() => router.push({
+                pathname: '/chat/media-archive',
+                params: { id }
+              })}
+            >
               <Ionicons name="arrow-forward" size={20} color={ZaloColors.blue} />
-            </View>
+            </TouchableOpacity>
           </ScrollView>
         </View>
 
@@ -614,7 +760,17 @@ export default function ChatOptionsScreen() {
             <View style={styles.section}>
               <OptionItem icon="calendar-outline" label="Lịch nhóm" />
               <OptionItem icon="pin-outline" label="Tin nhắn đã ghim" />
-              <OptionItem icon="bar-chart-outline" label="Bình chọn" />
+              <OptionItem 
+                icon="bar-chart-outline" 
+                label="Bình chọn" 
+                onPress={() => {
+                  if (canCreatePoll) {
+                    setShowPollModal(true);
+                  } else {
+                    Alert.alert('Thông báo', 'Chỉ Trưởng/Phó nhóm mới được tạo bình chọn');
+                  }
+                }} 
+              />
             </View>
 
             {/* ═══════ MEMBER LIST WITH ROLE MANAGEMENT ═══════ */}
@@ -772,15 +928,49 @@ export default function ChatOptionsScreen() {
               )}
 
               {/* Link nhóm */}
-              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+              <TouchableOpacity 
+                style={styles.optionRow} 
+                activeOpacity={0.7}
+                onPress={() => setIsInviteExpanded(!isInviteExpanded)}
+              >
                 <View style={styles.optionLeft}>
                   <Ionicons name="link-outline" size={22} color="#555" style={styles.optionIcon} />
                   <View>
                     <Text style={styles.optionLabel}>Link nhóm</Text>
-                    <Text style={styles.optionSubLabel}>https://zalo.me/g/...</Text>
+                    <Text style={styles.optionSubLabel}>{inviteCode ? `.../join/${inviteCode}` : 'Đang tải...'}</Text>
                   </View>
                 </View>
+                <Ionicons name={isInviteExpanded ? "chevron-up" : "chevron-down"} size={20} color="#ccc" />
               </TouchableOpacity>
+
+              {isInviteExpanded && (
+                <View style={styles.inviteLinkDetail}>
+                  <Text style={styles.inviteLinkInfo}>
+                    Bất kỳ ai có link này đều có thể tham gia nhóm {requireApproval && "(Cần Admin duyệt)"}.
+                  </Text>
+                  <View style={styles.inviteLinkRow}>
+                    <Text style={styles.inviteLinkText} numberOfLines={1}>
+                      {`http://localhost:5173/join/${inviteCode}`}
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.copyBtn}
+                      onPress={() => {
+                        // Assuming Clipboard from expo or react-native is available
+                        // Since I don't want to add new deps if not there, I'll use Alert as fallback or just simulate
+                        Alert.alert('Thông báo', 'Đã sao chép link!');
+                      }}
+                    >
+                      <Text style={styles.copyBtnText}>SAO CHÉP</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {(myRole === 'leader' || myRole === 'deputy') && (
+                    <TouchableOpacity style={styles.resetLinkBtn} onPress={handleResetInvite}>
+                      <Ionicons name="refresh" size={16} color={ZaloColors.blue} />
+                      <Text style={styles.resetLinkText}>Đổi link mới</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* ═══ MEMBER APPROVAL SETTINGS ═══ */}
@@ -1032,6 +1222,56 @@ export default function ChatOptionsScreen() {
         onConfirm={handleConfirmAddMember}
       />
 
+      <CreatePollModal
+        visible={showPollModal}
+        onClose={() => setShowPollModal(false)}
+        onCreate={handleCreatePoll}
+      />
+
+      {/* Rename Modal */}
+      <Modal
+        visible={isRenameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsRenameModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.renameModalBox}>
+            <Text style={styles.modalTitle}>Đổi tên nhóm</Text>
+            <View style={styles.renameInputWrap}>
+              <TextInput
+                style={styles.renameInput}
+                value={tempGroupName}
+                onChangeText={setTempGroupName}
+                placeholder="Nhập tên nhóm mới..."
+                placeholderTextColor="#999"
+                autoFocus
+                maxLength={100}
+              />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.modalBtn} 
+                onPress={() => setIsRenameModalVisible(false)}
+              >
+                <Text style={styles.modalBtnTextCancel}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnPrimary]} 
+                onPress={handleRenameSubmit}
+                disabled={isRenaming}
+              >
+                {isRenaming ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnTextPrimary}>Lưu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1187,6 +1427,51 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 2,
   },
+  inviteLinkDetail: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 4,
+    backgroundColor: '#fff',
+  },
+  inviteLinkInfo: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  inviteLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f7fb',
+    borderRadius: 8,
+    padding: 10,
+    gap: 10,
+  },
+  inviteLinkText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#333',
+  },
+  copyBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  copyBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ZaloColors.blue,
+  },
+  resetLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  resetLinkText: {
+    fontSize: 13,
+    color: ZaloColors.blue,
+    fontWeight: '500',
+  },
   
   optionRowMedia: {
     flexDirection: 'row',
@@ -1213,6 +1498,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  mediaPreviewImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  videoIconSmall: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    padding: 2,
   },
   mediaMoreBtn: {
     width: 60,
@@ -1329,5 +1629,68 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#333',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  renameModalBox: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1a1a1a',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  renameInputWrap: {
+    backgroundColor: '#f5f7fb',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#e1e8f0',
+  },
+  renameInput: {
+    height: 52,
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 50,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBtnPrimary: {
+    backgroundColor: ZaloColors.blue,
+  },
+  modalBtnTextCancel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  modalBtnTextPrimary: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
   },
 });

@@ -107,6 +107,7 @@ export const useSocketSetup = () => {
           msgContent.startsWith('group_disbanded:') ||
           msgContent.startsWith('role_') ||
           msgContent.startsWith('group_updated:') ||
+          msgContent.startsWith('member_joined_via_link:') ||
           msgContent === 'Nhóm đã được tạo'
         );
 

@@ -160,4 +160,16 @@ export const updateGroupPermissions = async (
     requesterId,
     settings,
   });
-};
+};
+
+export const getInviteCode = async (conversationId: string) => {
+  return messagingApi.get(`/conversations/${conversationId}/invite`);
+};
+
+export const resetInviteCode = async (conversationId: string, requesterId: string) => {
+  return messagingApi.post(`/conversations/${conversationId}/invite/reset`, { requesterId });
+};
+
+export const joinGroupByInviteCode = async (inviteCode: string, userId: string) => {
+  return messagingApi.post(`/join/${inviteCode}`, { userId });
+};

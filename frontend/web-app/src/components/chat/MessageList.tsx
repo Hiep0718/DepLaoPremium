@@ -179,6 +179,8 @@ const MessageList = () => {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
+  const [addingOptionToId, setAddingOptionToId] = useState<string | null>(null);
+  const [newOptionText, setNewOptionText] = useState("");
 
   // AI streaming state (must be before any early return)
   const isAiStreaming = useChatStore((s) => s.isAiStreaming);
@@ -799,6 +801,17 @@ const MessageList = () => {
       });
     };
 
+    const handleAddPollOption = () => {
+      if (!newOptionText.trim() || !addingOptionToId) return;
+      socket.emit('add_poll_option', {
+        messageId: addingOptionToId,
+        conversationId: activeConversation.conversationId,
+        optionText: newOptionText.trim()
+      });
+      setAddingOptionToId(null);
+      setNewOptionText("");
+    };
+
     return (
       <div className="p-4 min-w-[280px] max-w-[350px] shadow-sm relative group"
         style={{
@@ -859,6 +872,49 @@ const MessageList = () => {
             );
           })}
         </div>
+
+        {addingOptionToId === (msg._id || msg.id) ? (
+          <div className="mb-4 animate-fadeIn">
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                autoFocus
+                value={newOptionText}
+                onChange={(e) => setNewOptionText(e.target.value)}
+                placeholder="Nhập phương án mới..."
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[#0068FF] bg-white focus:outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddPollOption();
+                  if (e.key === 'Escape') setAddingOptionToId(null);
+                }}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAddPollOption}
+                  disabled={!newOptionText.trim()}
+                  className="flex-1 py-1.5 bg-[#0068FF] text-white text-xs font-bold rounded-lg disabled:opacity-50"
+                >
+                  Thêm
+                </button>
+                <button
+                  onClick={() => setAddingOptionToId(null)}
+                  className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200"
+                >
+                  Hủy
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); setAddingOptionToId(msg._id || msg.id); }}
+            className="w-full mb-4 py-2 border border-dashed border-[#0068FF]/50 rounded-xl text-[#0068FF] text-sm font-medium hover:bg-[#0068FF]/5 transition-colors flex items-center justify-center gap-2"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Thêm phương án
+          </button>
+        )}
 
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--border-light)]">
           <span className="text-[12px] text-[var(--text-secondary)]">
@@ -1257,6 +1313,10 @@ const MessageList = () => {
                               return `${actorName} đã đổi tên đoạn chat thành "${newName}"`;
                             }
                             return `${actorName} đã thay đổi ${updatesString}`;
+                          } else if (content.startsWith('member_joined_via_link:')) {
+                            const joinedId = content.split(':')[1];
+                            const joinedName = joinedId === user?.id?.toString() ? 'Bạn' : (memberMap[joinedId]?.fullName || 'Thành viên');
+                            return `${joinedName} đã tham gia nhóm qua link mời`;
                           }
                           return content;
                         })()}

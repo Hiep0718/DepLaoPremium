@@ -362,8 +362,17 @@ export function useChatActions({
   const handleVotePoll = useCallback((msg: Message, optionId: number) => {
     if (!socket || !currentUserId) return;
     socket.emit('vote_poll', {
-      messageId: msg._id || msg.id,
+      messageId: msg._id,
       optionId,
+      conversationId: id
+    });
+  }, [socket, id, currentUserId]);
+
+  const handleAddPollOption = useCallback((msg: Message, optionText: string) => {
+    if (!socket || !currentUserId || !optionText.trim()) return;
+    socket.emit('add_poll_option', {
+      messageId: msg._id,
+      optionText: optionText.trim(),
       conversationId: id
     });
   }, [socket, id, currentUserId]);
@@ -381,6 +390,7 @@ export function useChatActions({
     handleReactMessage,
     handleCreatePoll,
     handleVotePoll,
+    handleAddPollOption,
     lastReaction,
     translatingId,
     translatedMessages,

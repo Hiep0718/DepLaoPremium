@@ -78,55 +78,74 @@ export default function CreatePollModal({ visible, onClose, onCreate, onUpdate, 
         >
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={24} color="#333" />
+              <Ionicons name="close" size={24} color="#666" />
             </TouchableOpacity>
-            <Text style={styles.title}>{initialData ? 'Chỉnh sửa bình chọn' : 'Tạo bình chọn'}</Text>
-            <TouchableOpacity onPress={handleCreate}>
+            <View style={styles.headerTitleWrap}>
+              <Ionicons name="stats-chart" size={20} color={ZaloColors.blue} style={{ marginRight: 8 }} />
+              <Text style={styles.title}>{initialData ? 'Chỉnh sửa bình chọn' : 'Tạo bình chọn'}</Text>
+            </View>
+            <TouchableOpacity onPress={handleCreate} style={styles.headerCreateBtn}>
               <Text style={styles.createBtnText}>{initialData ? 'Lưu' : 'Tạo'}</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
-            <Text style={styles.label}>CÂU HỎI BÌNH CHỌN</Text>
-            <TextInput
-              style={styles.questionInput}
-              placeholder="Nhập câu hỏi..."
-              value={question}
-              onChangeText={setQuestion}
-              multiline
-            />
+          <ScrollView style={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={styles.inputSection}>
+              <Text style={styles.label}>CÂU HỎI BÌNH CHỌN</Text>
+              <TextInput
+                style={styles.questionInput}
+                placeholder="Đặt câu hỏi bình chọn..."
+                placeholderTextColor="#999"
+                value={question}
+                onChangeText={setQuestion}
+                multiline
+                autoFocus={!initialData}
+              />
+            </View>
 
-            <Text style={[styles.label, { marginTop: 20 }]}>CÁC PHƯƠNG ÁN</Text>
-            {options.map((opt, idx) => (
-              <View key={idx} style={styles.optionRow}>
-                <View style={styles.optionInputWrap}>
-                  <TextInput
-                    style={styles.optionInput}
-                    placeholder={`Phương án ${idx + 1}`}
-                    value={opt}
-                    onChangeText={(val) => handleOptionChange(idx, val)}
-                  />
+            <View style={[styles.inputSection, { marginTop: 24 }]}>
+              <Text style={styles.label}>CÁC PHƯƠNG ÁN</Text>
+              {options.map((opt, idx) => (
+                <View key={idx} style={styles.optionRow}>
+                  <View style={styles.optionNumberWrap}>
+                    <Text style={styles.optionNumber}>{idx + 1}</Text>
+                  </View>
+                  <View style={styles.optionInputWrap}>
+                    <TextInput
+                      style={styles.optionInput}
+                      placeholder={`Phương án ${idx + 1}`}
+                      placeholderTextColor="#bbb"
+                      value={opt}
+                      onChangeText={(val) => handleOptionChange(idx, val)}
+                    />
+                  </View>
+                  {options.length > 2 && (
+                    <TouchableOpacity 
+                      onPress={() => handleRemoveOption(idx)}
+                      style={styles.removeBtn}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#FF4757" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                {options.length > 2 && (
-                  <TouchableOpacity 
-                    onPress={() => handleRemoveOption(idx)}
-                    style={styles.removeBtn}
-                  >
-                    <Ionicons name="remove-circle" size={20} color="#FF4757" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
+              ))}
 
-            {options.length < 10 && (
-              <TouchableOpacity style={styles.addOptionBtn} onPress={handleAddOption}>
-                <Ionicons name="add" size={20} color={ZaloColors.blue} />
-                <Text style={styles.addOptionText}>Thêm phương án</Text>
-              </TouchableOpacity>
-            )}
+              {options.length < 10 && (
+                <TouchableOpacity style={styles.addOptionBtn} onPress={handleAddOption}>
+                  <Ionicons name="add-circle-outline" size={22} color={ZaloColors.blue} />
+                  <Text style={styles.addOptionText}>Thêm phương án</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             
-            <View style={{ height: 40 }} />
+            <View style={{ height: 100 }} />
           </ScrollView>
+
+          <View style={styles.footer}>
+             <TouchableOpacity style={styles.submitBtn} onPress={handleCreate}>
+               <Text style={styles.submitBtnText}>{initialData ? 'Cập nhật bình chọn' : 'Tạo bình chọn'}</Text>
+             </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -153,14 +172,23 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    backgroundColor: '#f9f9f9',
   },
   closeBtn: {
     padding: 4,
   },
+  headerTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#333',
+  },
+  headerCreateBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   createBtnText: {
     fontSize: 16,
@@ -169,58 +197,97 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 16,
+    padding: 20,
+  },
+  inputSection: {
+    marginBottom: 10,
   },
   label: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#888',
-    marginBottom: 8,
+    color: '#777',
+    marginBottom: 10,
+    letterSpacing: 0.5,
   },
   questionInput: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#000',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingVertical: 8,
-    minHeight: 40,
+    borderBottomWidth: 1.5,
+    borderBottomColor: ZaloColors.blue,
+    paddingVertical: 12,
+    minHeight: 50,
+    fontWeight: '500',
   },
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
+  },
+  optionNumberWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  optionNumber: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#888',
   },
   optionInputWrap: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    height: 44,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 48,
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#eee',
   },
   optionInput: {
     fontSize: 15,
-    color: '#000',
+    color: '#333',
+    fontWeight: '500',
   },
   removeBtn: {
-    marginLeft: 10,
+    marginLeft: 12,
     padding: 4,
   },
   addOptionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 12,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderStyle: 'dashed',
-    borderRadius: 8,
+    marginTop: 10,
   },
   addOptionText: {
     fontSize: 15,
     color: ZaloColors.blue,
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: 10,
+  },
+  footer: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  submitBtn: {
+    backgroundColor: ZaloColors.blue,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    shadowColor: ZaloColors.blue,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

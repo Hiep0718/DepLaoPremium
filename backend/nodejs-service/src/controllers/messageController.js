@@ -1,5 +1,10 @@
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
+import crypto from 'crypto';
+
+const generateInviteCode = () => {
+  return crypto.randomBytes(4).toString('hex').toUpperCase();
+};
 
 export const sendMessage = async (req, res) => {
   try {
@@ -227,6 +232,7 @@ export const createConversation = async (req, res) => {
       isGroup,
       groupName: isGroup ? groupName : null,
       groupAvatar: isGroup ? groupAvatar : null,
+      inviteCode: isGroup ? generateInviteCode() : null,
     });
 
     await conversation.save();
@@ -1024,6 +1030,11 @@ export const updateGroupInfo = async (req, res) => {
 
           conversation.participants.forEach(p => {
             req.io.to(`user_${p.userId}`).emit('message_received', payload);
+            req.io.to(`user_${p.userId}`).emit('group_updated', {
+              conversationId,
+              groupName: conversation.groupName,
+              groupAvatar: conversation.groupAvatar
+            });
           });
         } catch (err) {
           console.error('Failed to emit system message for group update:', err);
@@ -1283,5 +1294,224 @@ export const rejectPendingMember = async (req, res) => {
   } catch (error) {
     console.error('Reject member error:', error);
     res.status(500).json({ success: false, message: 'Failed to reject member', error: error.message });
+  }
+};
+
+export const getConversationMedia = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { type, senderId, startDate, endDate } = req.query;
+
+    let query = { conversationId, isRevoked: { $ne: true } };
+
+    if (senderId) {
+      query.senderId = senderId;
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+
+    // Filter by type
+    if (type === 'media') {
+      query.messageType = { $in: ['image', 'video'] };
+    } else if (type === 'file') {
+      query.messageType = 'file';
+    } else if (type === 'audio') {
+      query.messageType = 'audio';
+    } else if (type === 'link') {
+      query.messageType = 'text';
+      query.content = { $regex: /https?:\/\/[^\s]+/i };
+    }
+
+
+    const limitNum = parseInt(req.query.limit) || 0;
+    let queryExec = Message.find(query).sort({ createdAt: -1 });
+    if (limitNum > 0) {
+      queryExec = queryExec.limit(limitNum);
+    }
+    const messages = await queryExec;
+
+    res.status(200).json({
+      success: true,
+      data: messages,
+    });
+  } catch (error) {
+    console.error('Get conversation media error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch conversation media',
+      error: error.message,
+    });
+  }
+};
+
+export const getInviteCode = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    let conversation = await Conversation.findOne({ conversationId });
+
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if (!conversation.inviteCode) {
+      conversation.inviteCode = generateInviteCode();
+      await conversation.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { inviteCode: conversation.inviteCode }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const resetInviteCode = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId } = req.body;
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || (requester.role !== 'leader' && requester.role !== 'deputy')) {
+      return res.status(403).json({ success: false, message: 'Only admins can reset invite link' });
+    }
+
+    conversation.inviteCode = generateInviteCode();
+    await conversation.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Invite link reset successfully',
+      data: { inviteCode: conversation.inviteCode }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const joinGroupByInviteCode = async (req, res) => {
+  try {
+    const { inviteCode } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'UserId is required' });
+    }
+
+    const conversation = await Conversation.findOne({ inviteCode });
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Invalid invite link' });
+    }
+
+    // Check if already a member
+    const isMember = conversation.participants.some(p => p.userId === userId);
+    if (isMember) {
+      return res.status(200).json({
+        success: true,
+        message: 'Already a member',
+        data: conversation
+      });
+    }
+
+    // Handle require approval
+    if (conversation.requireApproval) {
+      const isPending = conversation.pendingMembers?.some(pm => pm.userId === userId);
+      if (!isPending) {
+        if (!conversation.pendingMembers) conversation.pendingMembers = [];
+        conversation.pendingMembers.push({
+          userId,
+          addedBy: 'link', // Joined via link
+          timestamp: new Date()
+        });
+        await conversation.save();
+        
+        // Notify admins about pending request if needed
+        if (req.io) {
+          const admins = conversation.participants.filter(p => p.role === 'leader' || p.role === 'deputy');
+          admins.forEach(admin => {
+            req.io.to(`user_${admin.userId}`).emit('pending_members_updated', {
+              conversationId: conversation.conversationId,
+              pendingMembers: conversation.pendingMembers
+            });
+          });
+        }
+      }
+      return res.status(202).json({
+        success: true,
+        message: 'Approval required to join this group',
+        approvalRequired: true
+      });
+    }
+
+    // Join directly
+    conversation.participants.push({
+      userId,
+      role: 'member',
+      joinedAt: new Date()
+    });
+
+    // Clear leftMembers if re-joining
+    if (conversation.leftMembers && conversation.leftMembers.get(userId)) {
+      conversation.leftMembers.delete(userId);
+    }
+
+    await conversation.save();
+
+    // Emit system message
+    if (req.io) {
+      try {
+        const sysMsg = new Message({
+          conversationId: conversation.conversationId,
+          senderId: userId,
+          receiverId: conversation.conversationId,
+          messageType: 'system',
+          content: `member_joined_via_link:${userId}`,
+          status: 'sent',
+        });
+        await sysMsg.save();
+
+        conversation.lastMessage = {
+          content: sysMsg.content,
+          senderId: userId,
+          messageType: 'system',
+          timestamp: new Date(),
+        };
+        await conversation.save();
+
+        const payload = {
+          messageId: sysMsg._id,
+          conversationId: conversation.conversationId,
+          senderId: userId,
+          messageType: 'system',
+          content: sysMsg.content,
+          timestamp: sysMsg.createdAt,
+          status: 'received',
+        };
+
+        conversation.participants.forEach(p => {
+          req.io.to(`user_${p.userId}`).emit('message_received', payload);
+        });
+      } catch (err) {
+        console.error('Failed to emit system message for link join:', err);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Joined group successfully',
+      data: conversation
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

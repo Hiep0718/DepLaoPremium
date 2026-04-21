@@ -17,6 +17,10 @@ import {
   approvePendingMember,
   rejectPendingMember,
   updateGroupPermissions,
+  getConversationMedia,
+  getInviteCode,
+  resetInviteCode,
+  joinGroupByInviteCode,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -30,6 +34,7 @@ router.post('/send', sendMessage);
 router.get('/conversation/:conversationId', getMessages);
 router.get('/search/:conversationId', searchMessages);
 router.put('/status/:messageId', updateMessageStatus);
+router.get('/conversation/:conversationId/media', getConversationMedia);
 
 // Conversation endpoints
 router.post('/conversation', createConversation);
@@ -45,5 +50,8 @@ router.put('/conversations/:conversationId/approval-setting', toggleRequireAppro
 router.post('/conversations/:conversationId/pending/approve', approvePendingMember);
 router.post('/conversations/:conversationId/pending/reject', rejectPendingMember);
 router.put('/conversations/:conversationId/permissions', updateGroupPermissions);
+router.get('/conversations/:conversationId/invite', getInviteCode);
+router.post('/conversations/:conversationId/invite/reset', resetInviteCode);
+router.post('/join/:inviteCode', joinGroupByInviteCode);
 
 export default router;

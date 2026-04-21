@@ -5,6 +5,7 @@ import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ChatDesk from './pages/ChatDesk';
+import JoinGroup from './pages/JoinGroup';
 import ProtectedRoute from './components/ProtectedRoute';
 import ToastContainer from './components/chat/ToastContainer';
 import { useThemeStore } from './stores/themeStore';
@@ -45,7 +46,9 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
               <Route path="/" element={<ChatDesk />} />
+              <Route path="/chat" element={<ChatDesk />} />
               <Route path="/contacts" element={<ChatDesk />} />
+              <Route path="/join/:inviteCode" element={<JoinGroup />} />
             </Route>
           </Route>
           

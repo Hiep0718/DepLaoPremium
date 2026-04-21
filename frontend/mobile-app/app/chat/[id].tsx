@@ -120,7 +120,7 @@ export default function ChatScreen() {
   const { isRecording, recordingTime, startRecording, cancelRecording, stopAndSendRecording } = useVoiceRecording({ socket, currentUserId, id, recipientId, setMessages });
   const { pendingMedia, setPendingMedia, uploadingMedia, uploadProgress, uploadingFile, handlePickImage, handleRemovePendingMedia, handleSendMedia, handlePickDocument } = useMediaHandling({ socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage });
   const { playingAudioId, audioProgress, playAudio } = useAudioPlayback(messages);
-  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, handleReactMessage, handleCreatePoll, handleVotePoll, lastReaction, translatingId, translatedMessages } = useChatActions({
+  const { handleSend: _handleSend, sendSticker, handleRevoke, handleDeleteMessage, handleTogglePinMessage, handleTranslate, handleSendLocation, handleSendContact, handleSendReminder, handleReactMessage, handleCreatePoll, handleVotePoll, handleAddPollOption, lastReaction, translatingId, translatedMessages } = useChatActions({
     socket, currentUserId, id, recipientId, setMessages, replyingMessage, setReplyingMessage, pinnedMessage, toggleStickerPanel: (s) => toggleStickerPanel(s), setShowReminderModal, reminderText, setReminderText, reminderDate, setReminderDate
   });
 
@@ -587,6 +587,7 @@ export default function ChatScreen() {
                       closeReactionTooltip={() => setReactionTooltipId(null)}
                       lastReactionType={lastReaction}
                       onVotePoll={handleVotePoll}
+                      onAddPollOption={handleAddPollOption}
                     />
                   )}
                   inverted
@@ -647,6 +648,7 @@ export default function ChatScreen() {
                   showMoreActions={showMoreActions} moreActionsPanelHeight={moreActionsPanelHeight} toggleMoreActions={toggleMoreActions}
                   handleSendLocation={handleSendLocation} handlePickDocument={handlePickDocument} setShowReminderModal={setShowReminderModal}
                   setShowContactModal={setShowContactModal} handlePickImage={handlePickImage}
+                  setShowPollModal={setShowPollModal} canCreatePoll={canCreatePoll}
                 />
               </>
             ) : (

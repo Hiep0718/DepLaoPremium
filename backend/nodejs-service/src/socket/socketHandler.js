@@ -588,6 +588,52 @@ const setupSocketEvents = (io) => {
       }
     });
 
+    // Add an option to a poll
+    socket.on('add_poll_option', async (data) => {
+      const { messageId, optionText, conversationId } = data;
+      const userId = socket.userId;
+
+      try {
+        const message = await Message.findById(messageId);
+        if (!message || message.messageType !== 'poll') return;
+
+        let pollData = JSON.parse(message.content);
+        
+        // Check if option already exists
+        const exists = pollData.options.some((opt) => opt.text.toLowerCase() === optionText.toLowerCase());
+        if (exists) {
+          return socket.emit('error', { message: 'Phương án này đã tồn tại' });
+        }
+
+        // Add new option
+        const newOption = {
+          id: Date.now(),
+          text: optionText,
+          votes: []
+        };
+        pollData.options.push(newOption);
+
+        message.content = JSON.stringify(pollData);
+        await message.save();
+
+        // Broadcast update
+        const conversation = await Conversation.findOne({ conversationId });
+        if (conversation) {
+          conversation.participants.forEach(p => {
+            io.to(`user_${p.userId}`).emit('message_reacted', { 
+              messageId: message._id,
+              conversationId,
+              content: message.content, 
+              reactions: message.reactions 
+            });
+          });
+        }
+        console.log(`[Socket] New option "${optionText}" added to poll ${messageId} by ${userId}`);
+      } catch (err) {
+        console.error("[Socket] add_poll_option error:", err);
+      }
+    });
+
     // Edit a poll
     socket.on('update_poll', async (data) => {
       const { messageId, question, options, conversationId } = data;

@@ -18,6 +18,8 @@ interface ActionPanelsProps {
   setShowReminderModal: (show: boolean) => void;
   setShowContactModal: (show: boolean) => void;
   handlePickImage: () => void;
+  setShowPollModal: (show: boolean) => void;
+  canCreatePoll: boolean;
 }
 
 export default function ActionPanels({
@@ -35,6 +37,8 @@ export default function ActionPanels({
   setShowReminderModal,
   setShowContactModal,
   handlePickImage,
+  setShowPollModal,
+  canCreatePoll,
 }: ActionPanelsProps) {
   return (
     <>
@@ -158,6 +162,15 @@ export default function ActionPanels({
                 </View>
                 <Text style={styles.moreActionLabel}>Kiểu chữ</Text>
               </TouchableOpacity>
+
+              {canCreatePoll && (
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); setShowPollModal(true); }}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#0068FF' }]}>
+                    <Ionicons name="stats-chart" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Bình chọn</Text>
+                </TouchableOpacity>
+              )}
 
             </ScrollView>
           </View>

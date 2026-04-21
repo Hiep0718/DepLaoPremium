@@ -5,8 +5,9 @@ import { clearAiHistory } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
 import { contactService } from '../../services/contactService';
-import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember, updateGroupPermissions } from '../../services/message.service';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember, updateGroupPermissions, getInviteCode, resetInviteCode } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
+import MediaArchiveModal from './MediaArchiveModal';
 
 const ConversationInfoPanel = () => {
   const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations } = useChatStore();
@@ -20,10 +21,14 @@ const ConversationInfoPanel = () => {
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [isGroupManagementModalOpen, setIsGroupManagementModalOpen] = useState(false);
+  const [isMediaArchiveOpen, setIsMediaArchiveOpen] = useState(false);
+  const [initialArchiveTab, setInitialArchiveTab] = useState<'media' | 'file' | 'link' | 'audio'>('media');
   const [newGroupName, setNewGroupName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [expandedPending, setExpandedPending] = useState(false);
   const [pendingMemberMap, setPendingMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [isInviteExpanded, setIsInviteExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -357,6 +362,25 @@ const ConversationInfoPanel = () => {
       alert('Không thể đổi tên nhóm. Vui lòng thử lại.');
     }
   };
+
+  const handleResetInvite = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    if (!window.confirm("Bạn có chắc chắn muốn đổi link tham gia mới? Link cũ sẽ không còn hiệu lực.")) return;
+    try {
+      const res = await resetInviteCode(activeConversation.conversationId, String(user.id));
+      setInviteCode(res.data?.data?.inviteCode);
+    } catch (err) {
+      alert("Lỗi khi reset link");
+    }
+  };
+
+  useEffect(() => {
+    if (activeConversation?.isGroup && isInviteExpanded && activeConversation.conversationId) {
+      getInviteCode(activeConversation.conversationId).then(res => {
+        setInviteCode(res.data?.data?.inviteCode);
+      });
+    }
+  }, [activeConversation?.conversationId, isInviteExpanded]);
 
   if (!activeConversation) return null;
 
@@ -734,6 +758,73 @@ const ConversationInfoPanel = () => {
                 )}
               </div>
 
+              {/* Link tham gia nhóm */}
+              {activeConversation.isGroup && (
+                <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                  <button
+                    className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                    onClick={() => setIsInviteExpanded(!isInviteExpanded)}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Link size={18} style={{ color: 'var(--text-secondary)' }} />
+                      <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Link tham gia nhóm
+                      </span>
+                    </div>
+                    <ChevronDown size={16} style={{
+                      color: 'var(--text-secondary)',
+                      transform: isInviteExpanded ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.2s'
+                    }} />
+                  </button>
+                  {isInviteExpanded && (
+                    <div className="px-4 pb-3 flex flex-col gap-3">
+                      <div className="p-3 rounded-xl flex flex-col gap-2" style={{ background: 'var(--bg-input)' }}>
+                        <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                          Bất kỳ ai có link này đều có thể tham gia nhóm {activeConversation.requireApproval && "(Cần Admin duyệt)"}.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            readOnly
+                            value={inviteCode ? `${window.location.origin}/join/${inviteCode}` : 'Đang tải...'}
+                            className="flex-1 bg-transparent border-none text-xs outline-none truncate"
+                            style={{ color: 'var(--text-primary)' }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (inviteCode) {
+                                navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`);
+                                alert('Đã sao chép link!');
+                              }
+                            }}
+                            className="text-[11px] font-bold text-blue-500 hover:underline"
+                          >
+                            SAO CHÉP
+                          </button>
+                        </div>
+                      </div>
+                      {(myRole === 'leader' || myRole === 'deputy') && (
+                        <button
+                          onClick={handleResetInvite}
+                          className="flex items-center gap-2 text-xs font-medium px-2 py-1 transition-colors hover:text-blue-500"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                            <path d="M16 16h5v5" />
+                          </svg>
+                          Đổi link mới
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Danh sách chờ duyệt */}
               {activeConversation.isGroup && (myRole === 'leader' || myRole === 'deputy') && (
                 <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
@@ -857,7 +948,11 @@ const ConversationInfoPanel = () => {
                           <button className="w-full py-2 mt-2 rounded-lg text-sm font-medium transition-colors text-center"
                             style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
                             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            onClick={() => {
+                              setInitialArchiveTab('media');
+                              setIsMediaArchiveOpen(true);
+                            }}>
                             Xem tất cả ({mediaMessages.length})
                           </button>
                         )}
@@ -911,7 +1006,11 @@ const ConversationInfoPanel = () => {
                           <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
                             style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
                             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            onClick={() => {
+                              setInitialArchiveTab('file');
+                              setIsMediaArchiveOpen(true);
+                            }}>
                             Xem tất cả ({fileMessages.length})
                           </button>
                         )}
@@ -965,7 +1064,11 @@ const ConversationInfoPanel = () => {
                           <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
                             style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
                             onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            onClick={() => {
+                              setInitialArchiveTab('link');
+                              setIsMediaArchiveOpen(true);
+                            }}>
                             Xem tất cả ({linkMessages.length})
                           </button>
                         )}
@@ -1243,6 +1346,13 @@ const ConversationInfoPanel = () => {
           </div>
         </div>
       )}
+
+      <MediaArchiveModal
+        isOpen={isMediaArchiveOpen}
+        onClose={() => setIsMediaArchiveOpen(false)}
+        conversationId={activeConversation.conversationId}
+        initialTab={initialArchiveTab}
+      />
     </div>
   );
 };

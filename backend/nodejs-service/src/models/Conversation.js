@@ -43,6 +43,11 @@ const conversationSchema = new mongoose.Schema(
       pinAndPolls: { type: String, enum: ['all', 'admin_only'], default: 'all' },
       changeInfo: { type: String, enum: ['all', 'admin_only'], default: 'all' },
     },
+    inviteCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
     pendingMembers: [
       {
         userId: String,

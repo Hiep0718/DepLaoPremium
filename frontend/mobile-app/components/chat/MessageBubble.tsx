@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { ZaloColors } from '@/constants/zalo';
@@ -29,9 +29,51 @@ interface MessageBubbleProps {
   lastReactionType?: string;
   memberMap?: Record<string, { fullName: string; avatarUrl?: string }>;
   onVotePoll?: (msg: Message, optionId: number) => void;
+  onAddPollOption?: (msg: Message, optionText: string) => void;
   isGroup?: boolean;
   participantRoles?: Record<string, string>;
 }
+
+const VideoMessage = ({ item, handleMessageLongPress }: { item: Message; handleMessageLongPress: (msg: Message) => void }) => {
+  const [isPlaying, setIsPlaying] = React.useState(false);
+
+  return (
+    <View style={styles.videoBubble}>
+      <Video
+        source={{ 
+          uri: item.fileUrl!,
+          overrideFileExtensionAndroid: 'mp4'
+        }}
+        useNativeControls={isPlaying}
+        shouldPlay={isPlaying}
+        isMuted={false}
+        resizeMode={ResizeMode.CONTAIN}
+        style={styles.msgVideo}
+        onPlaybackStatusUpdate={(status: any) => {
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+          }
+          if (status.error) {
+            console.log('Playback status error:', status.error);
+          }
+        }}
+        onError={(e) => {
+          console.log('Video error object:', e);
+        }}
+      />
+      {!isPlaying && (
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={styles.videoPlayOverlay}
+          onPress={() => setIsPlaying(true)}
+          onLongPress={() => handleMessageLongPress(item)}
+        >
+          <Ionicons name="play-circle" size={50} color="rgba(255,255,255,0.9)" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+};
 
 export default function MessageBubble({
   item,
@@ -56,6 +98,7 @@ export default function MessageBubble({
   lastReactionType = 'love',
   memberMap,
   onVotePoll,
+  onAddPollOption,
   isGroup,
   participantRoles,
 }: MessageBubbleProps) {
@@ -64,7 +107,10 @@ export default function MessageBubble({
 
   const isSticker = !item.isRevoked && item.messageType === 'sticker' && item.fileUrl;
   const isAudio = !item.isRevoked && item.messageType === 'audio' && item.fileUrl;
-  const isVideo = !item.isRevoked && item.messageType === 'video' && item.fileUrl;
+  const isVideo = !item.isRevoked && (
+    item.messageType === 'video' ||
+    (typeof item.fileUrl === 'string' && /\.(mp4|m4v|mov|avi|wmv|flv|mkv|webm)$/i.test(item.fileUrl))
+  ) && item.fileUrl;
   const isFile = !item.isRevoked && item.messageType === 'file' && item.fileUrl;
   const isLocation = !item.isRevoked && item.messageType === 'location';
   const isReminder = !item.isRevoked && item.messageType === 'reminder';
@@ -182,6 +228,10 @@ export default function MessageBubble({
       } else {
         text = `${actor} đã cập nhật thông tin nhóm`;
       }
+    } else if (text.startsWith('member_joined_via_link:')) {
+      const joinedId = text.split(':')[1];
+      const joinedName = getName(joinedId);
+      text = `${joinedName} đã tham gia nhóm qua link mời`;
     }
 
     return (
@@ -297,9 +347,7 @@ export default function MessageBubble({
                   {imgSrc ? <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" /> : <View style={[styles.msgImage, { backgroundColor: '#ddd' }]} />}
                 </TouchableOpacity>
               ) : isVideo ? (
-                <View style={styles.videoBubble}>
-                  <Video source={{ uri: item.fileUrl! }} useNativeControls shouldPlay={false} isMuted={false} resizeMode={ResizeMode.CONTAIN} style={styles.msgVideo} onError={(e) => console.log('Video error:', e)} />
-                </View>
+                <VideoMessage item={item} handleMessageLongPress={handleMessageLongPress} />
               ) : isFile ? (
                 (() => {
                   const displayName = item.fileName || (typeof item.content === 'string' && item.content.startsWith('[Tệp]') ? item.content.replace('[Tệp] ', '').replace('[Tệp]', '') : null) || (item.fileUrl ? decodeURIComponent(item.fileUrl.split('/').pop()?.split('?')[0] || '') : null) || 'Tệp đính kèm';
@@ -396,6 +444,16 @@ export default function MessageBubble({
                   const pollData = parsePoll(item.content);
                   if (!pollData) return null;
                   const totalVotes = pollData.options.reduce((sum: number, opt: any) => sum + (opt.votes?.length || 0), 0);
+                  const [isAdding, setIsAdding] = React.useState(false);
+                  const [newText, setNewText] = React.useState('');
+
+                  const onSubmitOption = () => {
+                    if (newText.trim() && onAddPollOption) {
+                      onAddPollOption(item, newText.trim());
+                      setNewText('');
+                      setIsAdding(false);
+                    }
+                  };
 
                   return (
                     <TouchableOpacity activeOpacity={0.9} onLongPress={() => handleMessageLongPress(item)}>
@@ -418,6 +476,32 @@ export default function MessageBubble({
                             );
                           })}
                         </View>
+
+                        {isAdding ? (
+                          <View style={{ marginTop: 12, gap: 8 }}>
+                            <TextInput
+                              value={newText}
+                              onChangeText={setNewText}
+                              placeholder="Nhập phương án mới..."
+                              style={{ borderBottomWidth: 1, borderBottomColor: ZaloColors.blue, paddingVertical: 4, fontSize: 14 }}
+                              autoFocus
+                            />
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                              <TouchableOpacity onPress={onSubmitOption} disabled={!newText.trim()} style={{ flex: 1, backgroundColor: ZaloColors.blue, paddingVertical: 8, borderRadius: 8, alignItems: 'center', opacity: newText.trim() ? 1 : 0.5 }}>
+                                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Thêm</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => setIsAdding(false)} style={{ flex: 1, backgroundColor: '#f0f0f0', paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}>
+                                <Text style={{ color: '#666', fontWeight: 'bold', fontSize: 13 }}>Hủy</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ) : (
+                          <TouchableOpacity onPress={() => setIsAdding(true)} style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderStyle: 'dashed', borderWidth: 1, borderColor: ZaloColors.blue, borderRadius: 10 }}>
+                            <Ionicons name="add" size={18} color={ZaloColors.blue} />
+                            <Text style={{ color: ZaloColors.blue, fontWeight: '600', marginLeft: 4, fontSize: 13 }}>Thêm phương án</Text>
+                          </TouchableOpacity>
+                        )}
+
                         <View style={styles.pollFooter}><Text style={styles.pollFooterText}>{totalVotes} lượt bình chọn</Text></View>
                       </View>
                     </TouchableOpacity>
@@ -538,8 +622,9 @@ const styles = StyleSheet.create({
   stickerImage: { width: 120, height: 120 },
   msgImage: { width: 220, height: 220, borderRadius: 12 },
 
-  videoBubble: { width: 220, height: 220, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' },
-  msgVideo: { flex: 1 },
+  videoBubble: { width: 240, height: 160, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000', position: 'relative' },
+  msgVideo: { width: 240, height: 160 },
+  videoPlayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.1)' },
 
   audioBubble: { flexDirection: 'row', alignItems: 'center', maxWidth: SCREEN_WIDTH * 0.75, minWidth: SCREEN_WIDTH * 0.55, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, gap: 8 },
   audioTimeText: { fontSize: 13, color: '#333', fontVariant: ['tabular-nums'], minWidth: 70 },

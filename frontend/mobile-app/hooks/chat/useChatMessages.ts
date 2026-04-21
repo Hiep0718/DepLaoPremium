@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
 import { Message } from '@/types/chat';
@@ -18,31 +18,32 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
   const [groupSettings, setGroupSettings] = useState<any>(null);
 
   // Fetch group info
-  useEffect(() => {
+  const fetchGroupInfo = useCallback(async () => {
     if (!isGroup || !id || !currentUserId) return;
-    const fetchGroupInfo = async () => {
-      try {
-        const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
-        const allConvs = convRes.data?.data || [];
-        const thisConv = allConvs.find((c: any) => c.conversationId === id);
-        if (thisConv) {
-          setGroupName(thisConv.groupName || '');
-          setGroupAvatar(thisConv.groupAvatar || '');
-          setGroupSettings(thisConv.groupSettings || null);
-        }
-        if (thisConv?.participants) {
-          setGroupMemberCount(thisConv.participants.length);
-          const roles: Record<string, string> = {};
-          thisConv.participants.forEach((p: any) => {
-            const uid = String(p.userId || p.id);
-            if (uid) roles[uid] = p.role || 'member';
-          });
-          setParticipantRoles(roles);
-        }
-      } catch (err) {
-        console.log('Error fetching group info:', err);
+    try {
+      const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
+      const allConvs = convRes.data?.data || [];
+      const thisConv = allConvs.find((c: any) => c.conversationId === id);
+      if (thisConv) {
+        setGroupName(thisConv.groupName || '');
+        setGroupAvatar(thisConv.groupAvatar || '');
+        setGroupSettings(thisConv.groupSettings || null);
       }
-    };
+      if (thisConv?.participants) {
+        setGroupMemberCount(thisConv.participants.length);
+        const roles: Record<string, string> = {};
+        thisConv.participants.forEach((p: any) => {
+          const uid = String(p.userId || p.id);
+          if (uid) roles[uid] = p.role || 'member';
+        });
+        setParticipantRoles(roles);
+      }
+    } catch (err) {
+      console.log('Error fetching group info:', err);
+    }
+  }, [isGroup, id, currentUserId]);
+
+  useEffect(() => {
     fetchGroupInfo();
 
     if (!socket) return;
@@ -59,11 +60,28 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     };
     socket.on('group_updated', handleGroupUpdated);
     socket.on('group_settings_updated', handleSettingsUpdated);
+
+    const handleMessageReceived = (data: any) => {
+      if (data.conversationId !== id) return;
+      const msgContent = data.content || '';
+      if (data.messageType === 'system' && (
+        msgContent.startsWith('group_updated:') || 
+        msgContent.startsWith('role_') ||
+        msgContent.startsWith('added_members:') ||
+        msgContent.startsWith('member_left:') ||
+        msgContent.startsWith('member_removed:')
+      )) {
+        fetchGroupInfo();
+      }
+    };
+    socket.on('message_received', handleMessageReceived);
+
     return () => {
       socket.off('group_updated', handleGroupUpdated);
       socket.off('group_settings_updated', handleSettingsUpdated);
+      socket.off('message_received', handleMessageReceived);
     };
-  }, [isGroup, id, currentUserId, socket]);
+  }, [isGroup, id, currentUserId, socket, fetchGroupInfo]);
 
   // Fetch history
   useEffect(() => {
