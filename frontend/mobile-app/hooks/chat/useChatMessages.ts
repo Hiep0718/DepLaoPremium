@@ -12,6 +12,11 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
   const [participantRoles, setParticipantRoles] = useState<Record<string, string>>({});
   const isGroup = id?.startsWith('group_');
 
+  // Dynamic group info state
+  const [groupName, setGroupName] = useState<string>('');
+  const [groupAvatar, setGroupAvatar] = useState<string>('');
+  const [groupSettings, setGroupSettings] = useState<any>(null);
+
   // Fetch group info
   useEffect(() => {
     if (!isGroup || !id || !currentUserId) return;
@@ -20,6 +25,11 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
         const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
         const allConvs = convRes.data?.data || [];
         const thisConv = allConvs.find((c: any) => c.conversationId === id);
+        if (thisConv) {
+          setGroupName(thisConv.groupName || '');
+          setGroupAvatar(thisConv.groupAvatar || '');
+          setGroupSettings(thisConv.groupSettings || null);
+        }
         if (thisConv?.participants) {
           setGroupMemberCount(thisConv.participants.length);
           const roles: Record<string, string> = {};
@@ -34,47 +44,82 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
       }
     };
     fetchGroupInfo();
-  }, [isGroup, id, currentUserId]);
+
+    if (!socket) return;
+    const handleGroupUpdated = (data: any) => {
+      if (data.conversationId === id) {
+        if (data.groupName) setGroupName(data.groupName);
+        if (data.groupAvatar) setGroupAvatar(data.groupAvatar);
+      }
+    };
+    const handleSettingsUpdated = (data: any) => {
+      if (data.conversationId === id && data.settings) {
+        setGroupSettings(data.settings);
+      }
+    };
+    socket.on('group_updated', handleGroupUpdated);
+    socket.on('group_settings_updated', handleSettingsUpdated);
+    return () => {
+      socket.off('group_updated', handleGroupUpdated);
+      socket.off('group_settings_updated', handleSettingsUpdated);
+    };
+  }, [isGroup, id, currentUserId, socket]);
 
   // Fetch history
   useEffect(() => {
     const fetchHistory = async () => {
       if (!currentUserId || !id) return;
       try {
-        const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
-        const history: any[] = res.data?.data || [];
-        
-        if (res.data?.pinnedMessage) {
-          setPinnedMessage(res.data.pinnedMessage);
-        }
+        if (id.startsWith('ai_')) {
+          const { fetchAiMessages } = await import('@/services/aiChat.service');
+          const aiHistory = await fetchAiMessages(currentUserId);
+          const mapped: Message[] = aiHistory.reverse().map((m: any) => ({
+            _id: m._id,
+            senderId: m.role === 'user' ? currentUserId : 'ai_food_bot',
+            recipientId: m.role === 'user' ? 'ai_food_bot' : currentUserId,
+            content: m.content,
+            messageType: 'text',
+            createdAt: m.createdAt,
+            status: 'seen',
+          }));
+          setMessages(mapped);
+          setPinnedMessage(null);
+        } else {
+          const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
+          const history: any[] = res.data?.data || [];
 
-        const mapped: Message[] = history.reverse().map((m: any) => ({
-          _id: m._id,
-          senderId: String(m.senderId),
-          recipientId: String(m.recipientId || ''),
-          content: m.content,
-          messageType: m.messageType || 'text',
-          fileUrl: m.fileUrl,
-          fileName: m.fileName,
-          fileSize: m.fileSize,
-          isRevoked: m.isRevoked || false,
-          createdAt: m.createdAt || m.timestamp,
-          status: m.status || 'sent',
-          replyTo: m.replyTo,
-          reactions: m.reactions || [],
-        }));
+          if (res.data?.pinnedMessage) {
+            setPinnedMessage(res.data.pinnedMessage);
+          }
 
-        setMessages(mapped);
+          const mapped: Message[] = history.reverse().map((m: any) => ({
+            _id: m._id,
+            senderId: String(m.senderId),
+            recipientId: String(m.recipientId || ''),
+            content: m.content,
+            messageType: m.messageType || 'text',
+            fileUrl: m.fileUrl,
+            fileName: m.fileName,
+            fileSize: m.fileSize,
+            isRevoked: m.isRevoked || false,
+            createdAt: m.createdAt || m.timestamp,
+            status: m.status || 'sent',
+            replyTo: m.replyTo,
+            reactions: m.reactions || [],
+          }));
 
-        // Đánh dấu đã đọc tin nhắn mới nhất của đối phương
-        if (socket) {
-          const lastReceived = [...mapped].find(m => String(m.senderId) !== String(currentUserId));
-          if (lastReceived) {
-            socket.emit('mark_as_seen', {
-              messageId: lastReceived._id,
-              conversationId: id,
-              userId: currentUserId,
-            });
+          setMessages(mapped);
+
+          // Đánh dấu đã đọc tin nhắn mới nhất của đối phương
+          if (socket) {
+            const lastReceived = [...mapped].find(m => String(m.senderId) !== String(currentUserId));
+            if (lastReceived) {
+              socket.emit('mark_as_seen', {
+                messageId: lastReceived._id,
+                conversationId: id,
+                userId: currentUserId,
+              });
+            }
           }
         }
       } catch (err) {
@@ -92,13 +137,18 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
   useEffect(() => {
     const fetchMissingMembers = async () => {
       if (!messages || messages.length === 0) return;
-      
+
       const allIds = new Set<string>();
-      
+
       for (const msg of messages) {
+        // Thu thập senderId của TẤT CẢ tin nhắn (không chỉ system)
+        if (msg.senderId && String(msg.senderId) !== String(currentUserId)) {
+          allIds.add(String(msg.senderId));
+        }
+
         if (msg.messageType !== 'system') continue;
         const text = msg.content || '';
-        
+
         if (text.startsWith('member_left:')) {
           allIds.add(text.split(':')[1]);
         } else if (text.startsWith('member_removed:')) {
@@ -115,22 +165,19 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
           if (parts[1]) allIds.add(parts[1]);
           if (parts[2]) allIds.add(parts[2]);
         }
-        if (msg.senderId) {
-          allIds.add(String(msg.senderId));
-        }
       }
-      
+
       const newIds = Array.from(allIds).filter(uid => !memberMap[uid]);
       if (newIds.length === 0) return;
-      
+
       const newMap = { ...memberMap };
       let updated = false;
-      
+
       for (const uid of newIds) {
         try {
           const res = await apiClient.get(`/users/${uid}`);
           if (res.data?.data) {
-            newMap[uid] = { 
+            newMap[uid] = {
               fullName: res.data.data.fullName || res.data.data.nickname || 'Thành viên',
               avatarUrl: res.data.data.avatarUrl
             };
@@ -140,12 +187,12 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
           // ignore
         }
       }
-      
+
       if (updated) {
         setMemberMap(newMap);
       }
     };
-    
+
     fetchMissingMembers();
   }, [messages]);
 
@@ -159,5 +206,8 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     isGroup,
     memberMap,
     participantRoles,
+    groupName,
+    groupAvatar,
+    groupSettings,
   };
 }

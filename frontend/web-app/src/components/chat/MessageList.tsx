@@ -1,13 +1,17 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2, Copy, Check, RefreshCw } from 'lucide-react';
 
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
-import { fetchAiMessages } from '../../services/aiChat.service';
+import { fetchAiMessages, streamAiChat } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { socket } from '../../services/socket';
@@ -22,12 +26,12 @@ const BUBBLE_RADIUS = {
 };
 
 const REACTION_EMOJIS = [
-  { type: 'love', icon: 'â¤ï¸' },
-  { type: 'like', icon: 'ðŸ‘' },
-  { type: 'haha', icon: 'ðŸ˜†' },
-  { type: 'wow', icon: 'ðŸ˜¯' },
-  { type: 'sad', icon: 'ðŸ˜¢' },
-  { type: 'angry', icon: 'ðŸ˜¡' },
+  { type: 'love', icon: '❤️' },
+  { type: 'like', icon: '👍' },
+  { type: 'haha', icon: '😆' },
+  { type: 'wow', icon: '😯' },
+  { type: 'sad', icon: '😢' },
+  { type: 'angry', icon: '😡' },
 ];
 
 // Helper: detect URLs in text and render as clickable links
@@ -91,6 +95,78 @@ const getFileExtension = (url: string): string => {
   }
 };
 
+// ── Markdown components for AI messages ──
+const MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || '');
+  const lang = match ? match[1] : '';
+  const codeString = String(children).replace(/\n$/, '');
+
+  if (inline) {
+    return (
+      <code className="px-1.5 py-0.5 rounded-md text-[13px] font-mono" style={{ background: 'var(--bg-hover)', color: '#e06c75' }} {...props}>
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <div className="relative my-2 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-light)' }}>
+      <div className="flex items-center justify-between px-3 py-1.5 text-[11px]" style={{ background: 'rgba(0,0,0,0.7)', color: '#abb2bf' }}>
+        <span className="uppercase font-bold tracking-wider">{lang || 'code'}</span>
+        <button
+          onClick={() => { navigator.clipboard.writeText(codeString); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+          className="flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors hover:bg-white/10"
+        >
+          {copied ? <><Check size={12} /> Đã sao chép</> : <><Copy size={12} /> Sao chép</>}
+        </button>
+      </div>
+      <SyntaxHighlighter style={oneDark} language={lang || 'text'} PreTag="div"
+        customStyle={{ margin: 0, borderRadius: 0, fontSize: '13px', padding: '12px 16px' }}>
+        {codeString}
+      </SyntaxHighlighter>
+    </div>
+  );
+};
+
+const markdownComponents: any = {
+  code: MarkdownCodeBlock,
+  p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+  ul: ({ children }: any) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
+  li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+  h1: ({ children }: any) => <h1 className="text-lg font-bold mb-2 mt-3">{children}</h1>,
+  h2: ({ children }: any) => <h2 className="text-base font-bold mb-1.5 mt-2.5">{children}</h2>,
+  h3: ({ children }: any) => <h3 className="text-sm font-bold mb-1 mt-2">{children}</h3>,
+  strong: ({ children }: any) => <strong className="font-bold">{children}</strong>,
+  em: ({ children }: any) => <em className="italic">{children}</em>,
+  blockquote: ({ children }: any) => (
+    <blockquote className="border-l-3 pl-3 my-2 italic opacity-80" style={{ borderColor: '#f97316' }}>
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: any) => (
+    <div className="overflow-x-auto my-2 rounded-lg" style={{ border: '1px solid var(--border-light)' }}>
+      <table className="w-full text-sm">{children}</table>
+    </div>
+  ),
+  th: ({ children }: any) => <th className="px-3 py-1.5 text-left font-bold text-xs" style={{ background: 'var(--bg-hover)', borderBottom: '1px solid var(--border-light)' }}>{children}</th>,
+  td: ({ children }: any) => <td className="px-3 py-1.5 text-sm" style={{ borderBottom: '1px solid var(--border-light)' }}>{children}</td>,
+  a: ({ href, children }: any) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline hover:text-blue-600">{children}</a>,
+  hr: () => <hr className="my-3" style={{ borderColor: 'var(--border-light)' }} />,
+};
+
+// AI welcome screen suggestion categories
+const AI_WELCOME_SUGGESTIONS = [
+  { emoji: '🍜', title: 'Công thức nấu ăn', prompt: 'Cho tôi công thức nấu phở bò tại nhà' },
+  { emoji: '🥗', title: 'Món ăn healthy', prompt: 'Gợi ý 3 món ăn healthy dễ làm cho bữa trưa' },
+  { emoji: '🍳', title: 'Nấu từ nguyên liệu', prompt: 'Tôi có trứng, cà chua và hành. Nấu được món gì?' },
+  { emoji: '🌶️', title: 'Ẩm thực vùng miền', prompt: 'Giới thiệu món ăn đặc trưng miền Trung' },
+  { emoji: '🧁', title: 'Món tráng miệng', prompt: 'Cách làm bánh flan caramel siêu mềm mịn' },
+  { emoji: '💡', title: 'Mẹo nấu ăn', prompt: 'Chia sẻ 5 mẹo nấu ăn giúp tiết kiệm thời gian' },
+];
+
+
 const MessageList = () => {
   const [editingPoll, setEditingPoll] = useState<{ isOpen: boolean, msgId: string, initialData?: any } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -113,7 +189,52 @@ const MessageList = () => {
   const [unreadCountToShow, setUnreadCountToShow] = useState<number>(0);
   const [reactionTooltipId, setReactionTooltipId] = useState<string | null>(null);
 
+  // AI action states
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
+
+  // Copy AI message to clipboard
+  const handleCopyAiMessage = useCallback((msgId: string, content: string) => {
+    navigator.clipboard.writeText(content);
+    setCopiedMsgId(msgId);
+    setTimeout(() => setCopiedMsgId(null), 2000);
+  }, []);
+
+  // Regenerate AI response
+  const handleRegenerateAi = useCallback(async (aiMsgId: string) => {
+    if (!user?.id || !activeConversation) return;
+    // Find the user message that preceded this AI response
+    const msgIdx = messages.findIndex(m => (m._id || m.id) === aiMsgId);
+    if (msgIdx <= 0) return;
+
+    // Walk backwards to find the last user message
+    let userContent = '';
+    for (let i = msgIdx - 1; i >= 0; i--) {
+      if (messages[i].senderId === user.id.toString()) {
+        userContent = messages[i].content || messages[i].text || '';
+        break;
+      }
+    }
+    if (!userContent) return;
+
+    setRegeneratingId(aiMsgId);
+
+    // Remove the old AI message from the UI
+    const { setMessages: setMsgs, setAiStreaming, appendAiToken, finishAiStream } = useChatStore.getState();
+    setMsgs(messages.filter(m => (m._id || m.id) !== aiMsgId));
+
+    // Re-stream
+    setAiStreaming(true);
+    await streamAiChat(
+      user.id.toString(),
+      userContent,
+      (token) => appendAiToken(token),
+      () => { finishAiStream(user.id.toString()); setRegeneratingId(null); },
+      () => { setAiStreaming(false); setRegeneratingId(null); }
+    );
+  }, [user, activeConversation, messages]);
 
   useEffect(() => {
     // Reset when switching conversations
@@ -148,17 +269,19 @@ const MessageList = () => {
           if (res.data && Array.isArray(res.data.data)) {
             setMessages(res.data.data);
             setPinnedMessage(res.data.pinnedMessage || null);
-          } catch (err) {
-            console.error('Error fetching messages', err);
           }
-        };
-
-        if (!activeConversation.conversationId.startsWith('new_') && !activeConversation.conversationId.startsWith('contact_')) {
-          fetchHistory();
-        } else {
-          setMessages([]);
-          setPinnedMessage(null);
         }
+      } catch (err) {
+        console.error('Error fetching messages', err);
+      }
+    };
+
+    if (!activeConversation.conversationId.startsWith('new_') && !activeConversation.conversationId.startsWith('contact_')) {
+      fetchHistory();
+    } else {
+      setMessages([]);
+      setPinnedMessage(null);
+    }
   }, [activeConversation, user, setMessages, setPinnedMessage]);
 
   useEffect(() => {
@@ -224,10 +347,11 @@ const MessageList = () => {
     };
     const handleReacted = (data: any) => {
       if (data.messageId) {
-        updateMessage(data.messageId, {
-          reactions: data.reactions,
-          content: data.content // This is important for real-time poll updates
-        });
+        const payload: any = { reactions: data.reactions };
+        if (data.content !== undefined) {
+          payload.content = data.content; // This is important for real-time poll updates
+        }
+        updateMessage(data.messageId, payload);
       }
     };
 
@@ -300,8 +424,8 @@ const MessageList = () => {
 
   // Helper: format date separator
   const getDateLabel = (date: Date): string => {
-    if (isToday(date)) return 'HÃ´m nay';
-    if (isYesterday(date)) return 'HÃ´m qua';
+    if (isToday(date)) return 'Hôm nay';
+    if (isYesterday(date)) return 'Hôm qua';
     return format(date, 'dd/MM/yyyy', { locale: vi });
   };
 
@@ -328,13 +452,13 @@ const MessageList = () => {
         <div className="text-center max-w-sm animate-fadeIn">
           <div className="w-20 h-20 mx-auto mb-5 rounded-full flex items-center justify-center"
             style={{ background: 'var(--bg-hover)' }}>
-            <span className="text-4xl">ðŸ’¬</span>
+            <span className="text-4xl">💬</span>
           </div>
           <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-            ChÃ o má»«ng Ä‘áº¿n vá»›i Zalo Clone!
+            Chào mừng đến với Zalo Clone!
           </h3>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Chá»n má»™t cuá»™c trÃ² chuyá»‡n tá»« danh sÃ¡ch bÃªn trÃ¡i Ä‘á»ƒ báº¯t Ä‘áº§u nháº¯n tin.
+            Chọn một cuộc trò chuyện từ danh sách bên trái để bắt đầu nhắn tin.
           </p>
         </div>
       </div>
@@ -345,9 +469,9 @@ const MessageList = () => {
   // Get contact info for received messages
   const isAiConversation = activeConversation.conversationId.startsWith('ai_');
   const conversationContact = activeConversation?.participants?.find((p: any) => p.userId !== user?.id?.toString() && p.id !== user?.id?.toString()) || activeConversation?.participants?.[0];
-  
+
   const contactAvatar = isAiConversation ? undefined : (activeContactInfo?.avatarUrl || conversationContact?.avatarUrl);
-  const contactName = isAiConversation ? 'Báº¿p AI ðŸœ' : (activeContactInfo?.name || conversationContact?.nickname || conversationContact?.fullName || '?');
+  const contactName = isAiConversation ? 'Bếp AI 🍜' : (activeContactInfo?.name || conversationContact?.nickname || conversationContact?.fullName || '?');
 
 
   // Render image message
@@ -364,7 +488,7 @@ const MessageList = () => {
       >
         <img
           src={msg.fileUrl}
-          alt="HÃ¬nh áº£nh"
+          alt="Hình ảnh"
           className={`w-full object-cover transition-all ${isUploading ? 'opacity-50 blur-[1px]' : 'hover:brightness-95'} ${isInGrid ? 'h-full absolute inset-0' : 'max-h-[300px]'}`}
           loading="lazy"
           onError={(e) => {
@@ -514,7 +638,7 @@ const MessageList = () => {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-            {typeof fileName === 'string' && fileName.startsWith('[Tá»‡p]') ? fileName.replace('[Tá»‡p] ', '') : fileName}
+            {typeof fileName === 'string' && fileName.startsWith('[Tệp]') ? fileName.replace('[Tệp] ', '') : fileName}
           </p>
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             {ext && <span className="mr-1">{ext}</span>}
@@ -559,7 +683,7 @@ const MessageList = () => {
     }
 
     const { fullName, avatarUrl, phone, contactUserId, id } = parsedContact || {};
-    const displayName = fullName || 'NgÆ°á»i dÃ¹ng';
+    const displayName = fullName || 'Người dùng';
     const avatar = avatarUrl;
     const targetUserId = contactUserId || id;
 
@@ -582,7 +706,7 @@ const MessageList = () => {
           <div className="flex flex-col min-w-0">
             <span className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{displayName}</span>
             <span className="text-xs truncate opacity-80" style={{ color: 'var(--text-secondary)' }}>
-              {phone || 'KhÃ´ng cÃ³ SÄT'}
+              {phone || 'Không có SĐT'}
             </span>
           </div>
         </div>
@@ -596,14 +720,14 @@ const MessageList = () => {
               if (phone) {
                 try {
                   await contactService.sendFriendRequest(phone);
-                  alert("ÄÃ£ gá»­i lá»i má»i káº¿t báº¡n");
+                  alert("Đã gửi lời mời kết bạn");
                 } catch (err: any) {
-                  alert(err?.response?.data?.message || "KhÃ´ng thá»ƒ gá»­i káº¿t báº¡n");
+                  alert(err?.response?.data?.message || "Không thể gửi kết bạn");
                 }
               }
             }}
           >
-            Káº¿t báº¡n
+            Kết bạn
           </button>
 
           <button
@@ -615,7 +739,7 @@ const MessageList = () => {
               setIsProfileModalOpen(true);
             }}
           >
-            Trang cÃ¡ nhÃ¢n
+            Trang cá nhân
           </button>
         </div>
 
@@ -642,7 +766,7 @@ const MessageList = () => {
     try {
       pollData = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
     } catch (e) {
-      return <div className="p-3 text-red-500 italic">Lá»—i hiá»ƒn thá»‹ bÃ¬nh chá»n</div>;
+      return <div className="p-3 text-red-500 italic">Lỗi hiển thị bình chọn</div>;
     }
 
     const totalVotes = pollData.options.reduce((sum: number, opt: any) => sum + (opt.votes?.length || 0), 0);
@@ -657,7 +781,7 @@ const MessageList = () => {
 
     const handleRevokePoll = (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (confirm('Báº¡n cÃ³ muá»‘n xÃ³a bÃ¬nh chá»n nÃ y?')) {
+      if (confirm('Bạn có muốn xóa bình chọn này?')) {
         socket.emit('revoke_message', {
           messageId: msg._id || msg.id,
           conversationId: activeConversation.conversationId,
@@ -686,14 +810,14 @@ const MessageList = () => {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2 text-[#0068FF]">
             <BarChart2 size={20} />
-            <span className="font-bold text-[15px]">BÃ¬nh chá»n</span>
+            <span className="font-bold text-[15px]">Bình chọn</span>
           </div>
           {isMe && (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={handleEditPoll} className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[#0068FF]" title="Chá»‰nh sá»­a">
+              <button onClick={handleEditPoll} className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[#0068FF]" title="Chỉnh sửa">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
               </button>
-              <button onClick={handleRevokePoll} className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-red-500" title="XÃ³a">
+              <button onClick={handleRevokePoll} className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-red-500" title="Xóa">
                 <Trash2 size={14} />
               </button>
             </div>
@@ -738,7 +862,7 @@ const MessageList = () => {
 
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--border-light)]">
           <span className="text-[12px] text-[var(--text-secondary)]">
-            {totalVotes} ngÆ°á»i Ä‘Ã£ bÃ¬nh chá»n
+            {totalVotes} người đã bình chọn
           </span>
           <span className="text-[10px] text-[var(--text-msg-time)]">
             {format(msgTime, 'HH:mm')}
@@ -792,13 +916,13 @@ const MessageList = () => {
         <div className="text-center max-w-sm animate-fadeIn">
           <div className="w-20 h-20 mx-auto mb-5 rounded-full flex items-center justify-center"
             style={{ background: 'var(--bg-hover)' }}>
-            <span className="text-4xl">ðŸ’¬</span>
+            <span className="text-4xl">💬</span>
           </div>
           <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-            ChÃ o má»«ng Ä‘áº¿n vá»›i Zalo Clone!
+            Chào mừng đến với Zalo Clone!
           </h3>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Chá»n má»™t cuá»™c trÃ² chuyá»‡n tá»« danh sÃ¡ch bÃªn trÃ¡i Ä‘á»ƒ báº¯t Ä‘áº§u nháº¯n tin.
+            Chọn một cuộc trò chuyện từ danh sách bên trái để bắt đầu nhắn tin.
           </p>
         </div>
       </div>
@@ -816,14 +940,14 @@ const MessageList = () => {
                 <Pin size={16} className="text-blue-600" />
               </div>
               <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-[var(--text-primary)]">Tin nháº¯n ghim</span>
+                <span className="text-xs font-semibold text-[var(--text-primary)]">Tin nhắn ghim</span>
                 <span className="text-sm truncate text-[var(--text-secondary)]">
-                  {pinnedMessage.messageType === 'image' ? '[HÃ¬nh áº£nh]' :
+                  {pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
                     pinnedMessage.messageType === 'video' ? '[Video]' :
-                      pinnedMessage.messageType === 'audio' ? '[Tin nháº¯n thoáº¡i]' :
-                        pinnedMessage.messageType === 'file' ? '[Tá»‡p]' :
-                          pinnedMessage.messageType === 'sticker' ? '[NhÃ£n dÃ¡n]' :
-                            pinnedMessage.messageType === 'contact' ? '[Danh thiáº¿p]' :
+                      pinnedMessage.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                        pinnedMessage.messageType === 'file' ? '[Tệp]' :
+                          pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                            pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
                               pinnedMessage.content}
                 </span>
               </div>
@@ -844,6 +968,63 @@ const MessageList = () => {
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+
+          {/* AI Welcome Screen */}
+          {isAiConversation && messages.length === 0 && !isAiStreaming && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] animate-fadeIn px-4">
+              {/* Hero */}
+              <div className="relative mb-6">
+                <div className="w-24 h-24 rounded-3xl flex items-center justify-center text-5xl shadow-lg"
+                  style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}>
+                  🍜
+                </div>
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-green-500 border-3 flex items-center justify-center"
+                  style={{ borderColor: 'var(--bg-chat)' }}>
+                  <span className="text-white text-xs">✓</span>
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
+                Bếp AI 🍜
+              </h2>
+              <p className="text-sm text-center max-w-md mb-8 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                Trợ lý ẩm thực thông minh — Hỏi tôi về công thức, mẹo nấu ăn, gợi ý món ăn, và mọi thứ về ẩm thực Việt Nam & thế giới!
+              </p>
+
+              {/* Suggestion Cards */}
+              <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
+                {AI_WELCOME_SUGGESTIONS.map((s) => (
+                  <button
+                    key={s.title}
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('ai_prompt_selected', { detail: s.prompt }));
+                    }}
+                    className="flex items-start gap-3 p-3.5 rounded-xl text-left transition-all duration-200 hover:scale-[1.02] group"
+                    style={{
+                      background: 'var(--bg-panel)',
+                      border: '1px solid var(--border-light)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(249,115,22,0.15)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
+                  >
+                    <span className="text-2xl flex-shrink-0 mt-0.5">{s.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold block" style={{ color: 'var(--text-primary)' }}>
+                        {s.title}
+                      </span>
+                      <span className="text-xs mt-0.5 block truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {s.prompt}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <p className="text-[11px] mt-6 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                Bếp AI có thể mắc lỗi. Hãy kiểm tra thông tin quan trọng.
+              </p>
+            </div>
+          )}
 
           <div className="w-full space-y-1">
             {messages.map((msg, idx) => {
@@ -902,7 +1083,7 @@ const MessageList = () => {
               const messageId = msg._id || msg.id;
 
               let msgSenderAvatar: string | undefined = undefined;
-              let msgSenderName = 'ThÃ nh viÃªn';
+              let msgSenderName = 'Thành viên';
 
 
               if (activeConversation.isGroup && !isMe) {
@@ -913,14 +1094,18 @@ const MessageList = () => {
                 const fetchedInfo = memberMap[msg.senderId];
                 if (fetchedInfo) {
                   msgSenderAvatar = fetchedInfo.avatarUrl;
-                  msgSenderName = fetchedInfo.fullName || 'ThÃ nh viÃªn';
+                  msgSenderName = fetchedInfo.fullName || 'Thành viên';
                 } else if (sender) {
                   msgSenderAvatar = sender.avatarUrl;
-                  msgSenderName = sender.nickname || sender.fullName || sender.name || 'ThÃ nh viÃªn';
+                  msgSenderName = sender.nickname || sender.fullName || sender.name || 'Thành viên';
                 } else {
-                  msgSenderName = 'ThÃ nh viÃªn';
+                  msgSenderName = 'Thành viên';
                   msgSenderAvatar = undefined;
                 }
+              } else if (!isMe && !isAiConversation) {
+                // Chat 1-1: dùng avatar và tên từ contactAvatar/contactName
+                msgSenderAvatar = contactAvatar;
+                msgSenderName = contactName;
               }
 
               const actionMenu = !msg.isRevoked && (
@@ -928,7 +1113,7 @@ const MessageList = () => {
                   <button
                     onClick={(e) => { e.stopPropagation(); setReactionTooltipId(reactionTooltipId === messageId ? null : messageId); setOpenMenuId(null); }}
                     className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
-                    title="BÃ y tá» cáº£m xÃºc"
+                    title="Bày tỏ cảm xúc"
                   >
                     <Smile size={18} />
                   </button>
@@ -961,28 +1146,28 @@ const MessageList = () => {
                       onClick={(e) => e.stopPropagation()}>
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
                         onClick={() => { setReplyingMessage(msg); setOpenMenuId(null); }}>
-                        Tráº£ lá»i
+                        Trả lời
                       </button>
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
                         onClick={() => { setForwardingMessage(msg); setOpenMenuId(null); }}>
-                        Chuyá»ƒn tiáº¿p
+                        Chuyển tiếp
                       </button>
                       {(!msg.messageType || msg.messageType === 'text') && (msg.content || msg.text) && (
                         <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
                           onClick={() => handleTranslate(msg)}
                           disabled={translatingId === messageId}
                         >
-                          {translatingId === messageId ? 'Äang dá»‹ch...' : 'Dá»‹ch sang Tiáº¿ng Viá»‡t'}
+                          {translatingId === messageId ? 'Đang dịch...' : 'Dịch sang Tiếng Việt'}
                         </button>
                       )}
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
                         onClick={() => handleTogglePinMessage(msg)}>
-                        {pinnedMessage?.messageId === messageId ? 'Bá» ghim' : 'Ghim tin nháº¯n'}
+                        {pinnedMessage?.messageId === messageId ? 'Bỏ ghim' : 'Ghim tin nhắn'}
                       </button>
                       {isMe && (
                         <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-red-500"
                           onClick={() => handleRevoke(msg)}>
-                          Thu há»“i
+                          Thu hồi
                         </button>
                       )}
                     </div>
@@ -1006,7 +1191,7 @@ const MessageList = () => {
                   {firstUnreadMessageId && messageId === firstUnreadMessageId && (
                     <div className="flex justify-center my-4">
                       <div className="text-[12px] py-1 px-4 rounded-full font-medium select-none bg-[rgba(255,59,48,0.1)] text-[#FF3B30] border border-[rgba(255,59,48,0.2)]">
-                        {unreadCountToShow} tin nháº¯n chÆ°a Ä‘á»c
+                        {unreadCountToShow} tin nhắn chưa đọc
                       </div>
                     </div>
                   )}
@@ -1017,61 +1202,61 @@ const MessageList = () => {
                       <div className="text-[12px] py-1 px-4 rounded-full font-medium select-none bg-[var(--bg-hover)] text-[var(--text-secondary)]">
                         {(() => {
                           const content = msg.content || msg.text || '';
-                          const actor = isMe ? 'Báº¡n' : msgSenderName;
-                          if (content === 'NhÃ³m Ä‘Ã£ Ä‘Æ°á»£c táº¡o') {
+                          const actor = isMe ? 'Bạn' : msgSenderName;
+                          if (content === 'Nhóm đã được tạo') {
                             if (activeConversation.groupName) {
-                              return `${actor} Ä‘Ã£ táº¡o nhÃ³m "${activeConversation.groupName}"`;
+                              return `${actor} đã tạo nhóm "${activeConversation.groupName}"`;
                             } else {
-                              return `${actor} Ä‘Ã£ táº¡o má»™t nhÃ³m má»›i`;
+                              return `${actor} đã tạo một nhóm mới`;
                             }
-                          } else if (content === 'ÄÃ£ thÃªm thÃ nh viÃªn má»›i vÃ o nhÃ³m') {
-                            return `${actor} Ä‘Ã£ thÃªm thÃ nh viÃªn má»›i vÃ o nhÃ³m`;
+                          } else if (content === 'Đã thêm thành viên mới vào nhóm') {
+                            return `${actor} đã thêm thành viên mới vào nhóm`;
                           } else if (content.startsWith('added_members:')) {
                             const addedIds = content.split(':')[1].split(',');
-                            const names = addedIds.map((id: string) => id === user?.id?.toString() ? 'Báº¡n' : (memberMap[id]?.fullName || 'ThÃ nh viÃªn')).join(', ');
-                            return `${actor} Ä‘Ã£ thÃªm ${names} vÃ o nhÃ³m`;
+                            const names = addedIds.map((id: string) => id === user?.id?.toString() ? 'Bạn' : (memberMap[id]?.fullName || 'Thành viên')).join(', ');
+                            return `${actor} đã thêm ${names} vào nhóm`;
                           } else if (content.startsWith('member_left:')) {
                             const leftId = content.split(':')[1];
-                            const leftName = leftId === user?.id?.toString() ? 'Báº¡n' : (memberMap[leftId]?.fullName || 'ThÃ nh viÃªn');
-                            return `${leftName} Ä‘Ã£ rá»i khá»i nhÃ³m`;
+                            const leftName = leftId === user?.id?.toString() ? 'Bạn' : (memberMap[leftId]?.fullName || 'Thành viên');
+                            return `${leftName} đã rời khỏi nhóm`;
                           } else if (content.startsWith('member_removed:')) {
                             const parts = content.split(':');
                             const removerId = parts[1];
                             const removedId = parts[2];
-                            const removerName = removerId === user?.id?.toString() ? 'Báº¡n' : (memberMap[removerId]?.fullName || 'ThÃ nh viÃªn');
-                            const removedName = removedId === user?.id?.toString() ? 'Báº¡n' : (memberMap[removedId]?.fullName || 'ThÃ nh viÃªn');
-                            return `${removerName} Ä‘Ã£ xÃ³a ${removedName} ra khá»i nhÃ³m`;
+                            const removerName = removerId === user?.id?.toString() ? 'Bạn' : (memberMap[removerId]?.fullName || 'Thành viên');
+                            const removedName = removedId === user?.id?.toString() ? 'Bạn' : (memberMap[removedId]?.fullName || 'Thành viên');
+                            return `${removerName} đã xóa ${removedName} ra khỏi nhóm`;
                           } else if (content.startsWith('group_disbanded:')) {
                             const disbanderId = content.split(':')[1];
-                            const disbanderName = disbanderId === user?.id?.toString() ? 'Báº¡n' : (memberMap[disbanderId]?.fullName || 'TrÆ°á»Ÿng nhÃ³m');
-                            return `${disbanderName} Ä‘Ã£ giáº£i tÃ¡n nhÃ³m`;
+                            const disbanderName = disbanderId === user?.id?.toString() ? 'Bạn' : (memberMap[disbanderId]?.fullName || 'Trưởng nhóm');
+                            return `${disbanderName} đã giải tán nhóm`;
                           } else if (content.startsWith('role_deputy:')) {
                             const parts = content.split(':');
-                            const actorName = parts[1] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[1]]?.fullName || 'TrÆ°á»Ÿng nhÃ³m');
-                            const targetName = parts[2] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[2]]?.fullName || 'ThÃ nh viÃªn');
-                            return `${actorName} Ä‘Ã£ Ä‘áº·t ${targetName} lÃ m phÃ³ nhÃ³m`;
+                            const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                            const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                            return `${actorName} đã đặt ${targetName} làm phó nhóm`;
                           } else if (content.startsWith('role_undeputy:')) {
                             const parts = content.split(':');
-                            const actorName = parts[1] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[1]]?.fullName || 'TrÆ°á»Ÿng nhÃ³m');
-                            const targetName = parts[2] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[2]]?.fullName || 'ThÃ nh viÃªn');
-                            return `${actorName} Ä‘Ã£ gá»¡ phÃ³ nhÃ³m cá»§a ${targetName}`;
+                            const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                            const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                            return `${actorName} đã gỡ phó nhóm của ${targetName}`;
                           } else if (content.startsWith('role_leader:')) {
                             const parts = content.split(':');
-                            const actorName = parts[1] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[1]]?.fullName || 'TrÆ°á»Ÿng nhÃ³m');
-                            const targetName = parts[2] === user?.id?.toString() ? 'Báº¡n' : (memberMap[parts[2]]?.fullName || 'ThÃ nh viÃªn');
-                            return `${actorName} Ä‘Ã£ Ä‘áº·t ${targetName} lÃ m trÆ°á»Ÿng nhÃ³m`;
+                            const actorName = parts[1] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[1]]?.fullName || 'Trưởng nhóm');
+                            const targetName = parts[2] === user?.id?.toString() ? 'Bạn' : (memberMap[parts[2]]?.fullName || 'Thành viên');
+                            return `${actorName} đã đặt ${targetName} làm trưởng nhóm`;
                           } else if (content.startsWith('group_updated:')) {
                             const parts = content.split(':');
                             const actorId = parts[1];
                             const updatesString = parts[2] || '';
-                            const actorName = actorId === user?.id?.toString() ? 'Báº¡n' : (memberMap[actorId]?.fullName || 'ThÃ nh viÃªn');
+                            const actorName = actorId === user?.id?.toString() ? 'Bạn' : (memberMap[actorId]?.fullName || 'Thành viên');
 
                             // Parse special formatting for name
-                            if (updatesString.includes('tÃªn nhÃ³m|')) {
-                              const newName = updatesString.split('tÃªn nhÃ³m|')[1].split(',')[0];
-                              return `${actorName} Ä‘Ã£ Ä‘á»•i tÃªn Ä‘oáº¡n chat thÃ nh "${newName}"`;
+                            if (updatesString.includes('tên nhóm|')) {
+                              const newName = updatesString.split('tên nhóm|')[1].split(',')[0];
+                              return `${actorName} đã đổi tên đoạn chat thành "${newName}"`;
                             }
-                            return `${actorName} Ä‘Ã£ thay Ä‘á»•i ${updatesString}`;
+                            return `${actorName} đã thay đổi ${updatesString}`;
                           }
                           return content;
                         })()}
@@ -1093,7 +1278,7 @@ const MessageList = () => {
                           title={msgSenderName}
                         >
                           {isAiConversation ? (
-                            <span className="text-base">ðŸœ</span>
+                            <span className="text-base">🍜</span>
                           ) : msgSenderAvatar ? (
                             <img src={msgSenderAvatar} alt={msgSenderName} className="w-full h-full object-cover" />
                           ) : (
@@ -1120,14 +1305,14 @@ const MessageList = () => {
                               if (role === 'leader') {
                                 return (
                                   <span className="text-[9px] px-1 rounded bg-[#fff7ed] text-[#f59e0b] font-bold border border-[#f59e0b40] uppercase">
-                                    TrÆ°á»Ÿng nhÃ³m
+                                    Trưởng nhóm
                                   </span>
                                 );
                               }
                               if (role === 'deputy') {
                                 return (
                                   <span className="text-[9px] px-1 rounded bg-[#f0fdf4] text-[#10b981] font-bold border border-[#10b98140] uppercase">
-                                    PhÃ³ nhÃ³m
+                                    Phó nhóm
                                   </span>
                                 );
                               }
@@ -1138,7 +1323,7 @@ const MessageList = () => {
 
                         {msg.isRevoked ? (
                           <div className="px-3 py-[7px] rounded-2xl border border-[var(--border-light)] text-[15px] italic text-[var(--text-secondary)] bg-transparent opacity-70">
-                            Tin nháº¯n Ä‘Ã£ bá»‹ thu há»“i
+                            Tin nhắn đã bị thu hồi
                           </div>
                         ) : (
                           <>
@@ -1146,15 +1331,15 @@ const MessageList = () => {
                             {msg.replyTo && (
                               <div className="text-xs p-1.5 mb-1 border-l-[3px] rounded opacity-90 max-w-full truncate"
                                 style={{ borderColor: '#0068FF', background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
-                                <span className="font-semibold">{msg.replyTo.senderId === user?.id?.toString() ? 'Báº¡n' : (activeConversation.isGroup ? (memberMap[msg.replyTo.senderId]?.fullName || 'ThÃ nh viÃªn') : defaultContactName)}</span>
+                                <span className="font-semibold">{msg.replyTo.senderId === user?.id?.toString() ? 'Bạn' : (activeConversation.isGroup ? (memberMap[msg.replyTo.senderId]?.fullName || 'Thành viên') : contactName)}</span>
                                 <br />
                                 <span className="opacity-80">
-                                  {msg.replyTo.messageType === 'sticker' ? '[NhÃ£n dÃ¡n]' :
-                                    msg.replyTo.messageType === 'image' ? '[HÃ¬nh áº£nh]' :
+                                  {msg.replyTo.messageType === 'sticker' ? '[Nhãn dán]' :
+                                    msg.replyTo.messageType === 'image' ? '[Hình ảnh]' :
                                       msg.replyTo.messageType === 'video' ? '[Video]' :
-                                        msg.replyTo.messageType === 'audio' ? '[Tin nháº¯n thoáº¡i]' :
-                                          msg.replyTo.messageType === 'contact' ? '[Danh thiáº¿p]' :
-                                            msg.replyTo.messageType === 'file' ? '[Tá»‡p]' :
+                                        msg.replyTo.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                                          msg.replyTo.messageType === 'contact' ? '[Danh thiếp]' :
+                                            msg.replyTo.messageType === 'file' ? '[Tệp]' :
                                               msg.replyTo.content}
                                 </span>
                               </div>
@@ -1250,7 +1435,7 @@ const MessageList = () => {
                                     {msg.content === 'video' ? <Video size={20} fill="currentColor" stroke="currentColor" /> : <Phone size={20} fill="currentColor" stroke="currentColor" />}
                                   </div>
                                   <span className="font-semibold text-[15px]" style={{ color: 'var(--text-primary)' }}>
-                                    Cuá»™c gá»i nhÃ³m
+                                    Cuộc gọi nhóm
                                   </span>
                                 </div>
                                 <button
@@ -1292,42 +1477,84 @@ const MessageList = () => {
 
                               /* Text (default) */
                             ) : (
-                              <div className="px-3 py-[7px] relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-sm"
-                                style={{
-                                  background: settings.bubbleStyle === 'minimal'
-                                    ? 'transparent'
-                                    : (isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)'),
-                                  color: 'var(--text-primary)',
-                                  borderRadius: isLastInCluster
-                                    ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px')
-                                    : '18px',
-                                  boxShadow: !isMe && settings.bubbleStyle !== 'minimal' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-                                  border: settings.bubbleStyle === 'minimal'
-                                    ? '1px solid var(--border-primary)'
-                                    : undefined,
-                                }}>
+                              <div className="flex flex-col">
+                                <div className={`px-3 py-[7px] relative text-[15px] leading-relaxed transition-shadow duration-150 hover:shadow-sm ${isAiConversation && !isMe ? 'ai-markdown-bubble' : ''}`}
+                                  style={{
+                                    background: settings.bubbleStyle === 'minimal'
+                                      ? 'transparent'
+                                      : (isMe ? 'var(--bg-msg-sent)' : 'var(--bg-msg-received)'),
+                                    color: 'var(--text-primary)',
+                                    borderRadius: isLastInCluster
+                                      ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px')
+                                      : '18px',
+                                    boxShadow: !isMe && settings.bubbleStyle !== 'minimal' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                                    border: settings.bubbleStyle === 'minimal'
+                                      ? '1px solid var(--border-primary)'
+                                      : undefined,
+                                  }}>
 
-                                <div className="pr-12">
-                                  <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '')}</div>
-                                  {translatedMessages[messageId] && (
-                                    <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>
-                                      {translatedMessages[messageId]}
-                                    </div>
-                                  )}
-                                </div>
-                                {settings.showMessageTime && (
-                                  <span className="absolute bottom-1.5 right-2.5 text-[10px] flex items-center gap-0.5 select-none whitespace-nowrap opacity-70"
-                                    style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
-                                    {format(msgTime, 'HH:mm')}
-                                    {isMe && (
-                                      <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <polyline points="20 6 9 17 4 12"></polyline>
-                                      </svg>
+                                  <div className={isAiConversation && !isMe ? '' : 'pr-12'}>
+                                    {isAiConversation && !isMe ? (
+                                      /* AI Message — Markdown rendering */
+                                      <div className="ai-markdown-content" style={{ wordBreak: 'break-word' }}>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                          {msg.content || msg.text || ''}
+                                        </ReactMarkdown>
+                                      </div>
+                                    ) : (
+                                      /* Regular Message — plain text with links */
+                                      <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '')}</div>
                                     )}
-                                  </span>
+                                    {translatedMessages[messageId] && (
+                                      <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>
+                                        {translatedMessages[messageId]}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {settings.showMessageTime && (
+                                    <span className={`${isAiConversation && !isMe ? 'mt-1 flex' : 'absolute bottom-1.5 right-2.5 flex'} text-[10px] items-center gap-0.5 select-none whitespace-nowrap opacity-70 justify-end`}
+                                      style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
+                                      {format(msgTime, 'HH:mm')}
+                                      {isMe && (
+                                        <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
+                                          stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                          <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                      )}
+                                    </span>
+                                  )}
+                                  {renderReactions(msg)}
+                                </div>
+
+                                {/* AI Action Bar — Copy / Regenerate */}
+                                {isAiConversation && !isMe && !isAiStreaming && (
+                                  <div className="flex items-center gap-1 mt-1 ml-1 animate-fadeIn">
+                                    <button
+                                      onClick={() => handleCopyAiMessage(messageId, msg.content || msg.text || '')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 hover:scale-105"
+                                      style={{
+                                        color: copiedMsgId === messageId ? '#10b981' : 'var(--text-secondary)',
+                                        background: copiedMsgId === messageId ? 'rgba(16,185,129,0.1)' : 'transparent',
+                                      }}
+                                      onMouseEnter={(e) => { if (copiedMsgId !== messageId) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                                      onMouseLeave={(e) => { if (copiedMsgId !== messageId) e.currentTarget.style.background = 'transparent'; }}
+                                      title="Sao chép"
+                                    >
+                                      {copiedMsgId === messageId ? <><Check size={13} /> Đã sao chép</> : <><Copy size={13} /> Sao chép</>}
+                                    </button>
+                                    <button
+                                      onClick={() => handleRegenerateAi(messageId)}
+                                      disabled={!!regeneratingId}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      style={{ color: 'var(--text-secondary)' }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                      title="Thử lại"
+                                    >
+                                      <RefreshCw size={13} className={regeneratingId === messageId ? 'animate-spin' : ''} /> Thử lại
+                                    </button>
+                                  </div>
                                 )}
-                                {renderReactions(msg)}
                               </div>
                             )}
                           </>
@@ -1346,23 +1573,35 @@ const MessageList = () => {
 
           {/* AI Streaming Bubble */}
           {isAiConversation && isAiStreaming && (
-            <div className="w-full">
+            <div className="w-full animate-fadeIn">
               <div className="flex justify-start mb-0.5 group relative">
                 <div className="w-8 h-8 rounded-full flex-shrink-0 mr-2 mt-auto mb-0.5 flex items-center justify-center text-base text-white"
                   style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)' }}>
-                  ðŸœ
+                  🍜
                 </div>
-                <div className="max-w-[60%]">
-                  <div className="px-3 py-[7px] text-[15px] leading-relaxed"
+                <div className="max-w-[70%]">
+                  <div className="px-3 py-[7px] text-[15px] leading-relaxed ai-markdown-bubble"
                     style={{
                       background: 'var(--bg-msg-received)',
                       color: 'var(--text-primary)',
                       borderRadius: '4px 18px 18px 18px',
-                      whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
                     }}>
-                    {aiStreamingText || ''}
-                    <span className="inline-block w-[2px] h-[1em] ml-[2px] align-text-bottom" style={{ background: '#f97316', animation: 'blink 1s step-end infinite' }} />
+                    {aiStreamingText ? (
+                      <div className="ai-markdown-content">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                          {aiStreamingText}
+                        </ReactMarkdown>
+                        <span className="inline-block w-[2px] h-[1em] ml-[2px] align-text-bottom" style={{ background: '#f97316', animation: 'blink 1s step-end infinite' }} />
+                      </div>
+                    ) : (
+                      /* Bouncing dots typing indicator */
+                      <div className="flex items-center gap-1.5 py-1.5 px-1">
+                        <span className="w-2 h-2 rounded-full" style={{ background: '#f97316', animation: 'aiBounce 1.4s ease-in-out infinite', animationDelay: '0s' }} />
+                        <span className="w-2 h-2 rounded-full" style={{ background: '#f97316', animation: 'aiBounce 1.4s ease-in-out infinite', animationDelay: '0.2s' }} />
+                        <span className="w-2 h-2 rounded-full" style={{ background: '#f97316', animation: 'aiBounce 1.4s ease-in-out infinite', animationDelay: '0.4s' }} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1371,7 +1610,17 @@ const MessageList = () => {
 
           <div ref={bottomRef} className="h-4" />
 
-          <style>{`@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }`}</style>
+          <style>{`
+            @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+            @keyframes aiBounce {
+              0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+              40% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+            .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+            .ai-markdown-content > *:first-child { margin-top: 0; }
+            .ai-markdown-content > *:last-child { margin-bottom: 0; }
+          `}</style>
         </div>
 
         {/* Image Lightbox - rendered via Portal to escape stacking context */}
@@ -1385,7 +1634,7 @@ const MessageList = () => {
             <button
               onClick={() => setLightboxUrl(null)}
               className="absolute top-6 left-6 p-3 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
-              title="ÄÃ³ng"
+              title="Đóng"
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1406,7 +1655,7 @@ const MessageList = () => {
               rel="noopener noreferrer"
               className="absolute top-6 right-6 p-3 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
               onClick={(e) => e.stopPropagation()}
-              title="Táº£i xuá»‘ng"
+              title="Tải xuống"
             >
               <Download size={22} />
             </a>
@@ -1430,9 +1679,9 @@ const MessageList = () => {
           />,
           document.body
         )}
-      </>
-      );
+      </div>
+    </>
+  );
 };
 
-      export default MessageList;
-
+export default MessageList;

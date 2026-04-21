@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
@@ -49,6 +49,31 @@ const MessageInput = () => {
   const { activeConversation, setActiveConversation, addMessage, replyingMessage, setReplyingMessage } = useChatStore();
   const { user } = useAuthStore();
 
+  const isGroup = activeConversation?.isGroup;
+  const myRole = useMemo(() => {
+    if (!isGroup || !user?.id) return 'member';
+    const me = activeConversation.participants?.find(
+      (p: any) => String(p.userId || p.id || p) === String(user.id)
+    );
+    return (me as any)?.role || 'member';
+  }, [activeConversation, user?.id, isGroup]);
+
+  const canSendMessage = useMemo(() => {
+    if (!isGroup) return true;
+    if (activeConversation.groupSettings?.sendMessages === 'admin_only') {
+      return myRole === 'leader' || myRole === 'deputy';
+    }
+    return true;
+  }, [activeConversation?.groupSettings?.sendMessages, myRole, isGroup]);
+
+  const canCreatePoll = useMemo(() => {
+    if (!isGroup) return true;
+    if (activeConversation.groupSettings?.pinAndPolls === 'admin_only') {
+      return myRole === 'leader' || myRole === 'deputy';
+    }
+    return true;
+  }, [activeConversation?.groupSettings?.pinAndPolls, myRole, isGroup]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (stickerRef.current && !stickerRef.current.contains(event.target as Node)) {
@@ -61,7 +86,7 @@ const MessageInput = () => {
 
   useEffect(() => {
     const handlePrompt = ((e: CustomEvent) => {
-      setMessageText(e.detail);
+      setText(e.detail);
       setTimeout(() => {
         const input = document.querySelector('textarea') as HTMLTextAreaElement;
         if (input) input.focus();
@@ -489,13 +514,49 @@ const MessageInput = () => {
   const contact = activeConversation.participants?.[0];
   const recipientName = isAiConversation ? 'Bếp AI' : (contact ? (contact.fullName || 'bạn bè') : 'bạn bè');
 
-  // AI suggestion chips
-  const aiSuggestions = [
-    '🍜 Công thức phở bò',
-    '🥗 Món ăn chay đơn giản',
-    '🍳 Nấu ăn từ trứng và rau',
-    '🌶️ Ẩm thực miền Trung',
-  ];
+  // AI suggestion chips — dynamic based on context
+  const messages = useChatStore.getState().messages;
+  const lastAiMsg = [...messages].reverse().find(m => m.senderId === 'ai_food_bot');
+  const lastUserMsg = [...messages].reverse().find(m => m.senderId === user?.id?.toString());
+
+  const getAiSuggestions = (): string[] => {
+    if (!lastAiMsg && !lastUserMsg) {
+      // First time - show starter suggestions
+      return [
+        '🍜 Công thức phở bò',
+        '🥗 Gợi ý món ăn healthy',
+        '🍳 Nấu gì từ trứng và rau?',
+        '🌶️ Món ngon miền Trung',
+      ];
+    }
+
+    const lastContent = (lastAiMsg?.content || lastAiMsg?.text || '').toLowerCase();
+
+    // Context-aware follow-up suggestions
+    if (lastContent.includes('phở') || lastContent.includes('bún') || lastContent.includes('mì')) {
+      return ['🥢 Cách nấu nước dùng đậm đà', '🌿 Rau ăn kèm phở', '🔥 Mẹo nấu phở ngon hơn'];
+    }
+    if (lastContent.includes('bánh') || lastContent.includes('tráng miệng') || lastContent.includes('ngọt')) {
+      return ['🎂 Thêm công thức bánh khác', '🍮 Món tráng miệng không cần lò', '🧊 Món chè mùa hè'];
+    }
+    if (lastContent.includes('rau') || lastContent.includes('chay') || lastContent.includes('healthy')) {
+      return ['🥑 Salad kiểu Việt', '🍲 Món chay đơn giản', '💪 Thực đơn giảm cân 1 tuần'];
+    }
+    if (lastContent.includes('gà') || lastContent.includes('thịt') || lastContent.includes('cá')) {
+      return ['🍗 Cách ướp thịt ngon', '🐟 Món cá kho tộ', '🥩 Thịt bò xào đơn giản'];
+    }
+
+    // Rotating default suggestions
+    const suggestionSets = [
+      ['🍜 Công thức phở bò', '🥗 Món ăn cho bữa sáng', '🍳 Nấu gì nhanh trong 15 phút?'],
+      ['🌶️ Ẩm thực miền Trung', '🧁 Món tráng miệng dễ làm', '💡 Mẹo nấu ăn hay'],
+      ['🍲 Món canh ngon cho gia đình', '🥘 Món hầm mùa đông', '🍚 Cơm rang đặc biệt'],
+    ];
+    const setIdx = messages.length % suggestionSets.length;
+    return suggestionSets[setIdx];
+  };
+
+  const aiSuggestions = isAiConversation ? getAiSuggestions() : [];
 
   // Zalo toolbar icons — matches real Zalo PC exactly
   const toolButtons = isAiConversation ? [] : [
@@ -507,8 +568,16 @@ const MessageInput = () => {
     { icon: Code, title: 'Code Snippet' },
     { icon: Type, title: 'Định dạng tin nhắn' },
     { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() },
-    ...(activeConversation.isGroup ? [{ icon: BarChart2, title: 'Tạo bình chọn', action: () => setIsPollModalOpen(true) }] : [])
+    ...(activeConversation.isGroup && canCreatePoll ? [{ icon: BarChart2, title: 'Tạo bình chọn', action: () => setIsPollModalOpen(true) }] : [])
   ];
+
+  if (!canSendMessage) {
+    return (
+      <div className="relative z-10 theme-transition flex items-center justify-center p-4 text-center h-[93px]" style={{ background: 'var(--bg-input)', borderTop: '1px solid var(--border-primary)' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Chỉ Trưởng/Phó nhóm mới được gửi tin nhắn vào nhóm này.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative z-10 theme-transition" style={{ background: 'var(--bg-input)', borderTop: '1px solid var(--border-primary)' }}>
@@ -576,16 +645,18 @@ const MessageInput = () => {
         )}
       </div>
 
-      {/* AI Suggestion Chips */}
-      {isAiConversation && !text.trim() && !isAiStreaming && (
+      {/* AI Suggestion Chips — Dynamic */}
+      {isAiConversation && !text.trim() && !isAiStreaming && aiSuggestions.length > 0 && (
         <div className="flex gap-2 px-3 py-2 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-light)' }}>
           {aiSuggestions.map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => setText(s.replace(/^[^\s]+\s/, ''))}
-              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all flex-shrink-0"
+              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all flex-shrink-0 hover:scale-105"
               style={{ background: 'rgba(249,115,22,0.12)', color: '#f97316', border: '1px solid rgba(249,115,22,0.25)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(249,115,22,0.2)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(249,115,22,0.12)'; e.currentTarget.style.transform = 'scale(1)'; }}
             >
               {s}
             </button>

@@ -9,6 +9,7 @@ import AddMemberModal from '@/components/chat/AddMemberModal';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function ChatOptionsScreen() {
   const router = useRouter();
@@ -30,6 +31,7 @@ export default function ChatOptionsScreen() {
   const [requireApproval, setRequireApproval] = useState(false);
   const [pendingMembers, setPendingMembers] = useState<any[]>([]);
   const [pendingMemberMap, setPendingMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+  const [groupSettings, setGroupSettings] = useState<any>(null);
 
   // Get current user's role
   const myRole = useMemo(() => {
@@ -38,6 +40,79 @@ export default function ChatOptionsScreen() {
     console.log('[GroupOptions] myRole check: currentUserId=', currentUserId, 'foundMe=', !!me, 'role=', me?.role);
     return me?.role || 'member';
   }, [participants, currentUserId, isGroup]);
+
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  const pickAndUploadGroupAvatar = async () => {
+    try {
+      Alert.alert('Đổi ảnh nhóm', '', [
+        { text: 'Chụp ảnh mới', onPress: () => _launchGroupAvatar('camera') },
+        { text: 'Chọn từ thư viện', onPress: () => _launchGroupAvatar('library') },
+        { text: 'Hủy', style: 'cancel' },
+      ]);
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  const _launchGroupAvatar = async (source: 'camera' | 'library') => {
+    try {
+      let result: ImagePicker.ImagePickerResult;
+      const options: ImagePicker.ImagePickerOptions = {
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      };
+
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Quyền truy cập', 'Cần cấp quyền sử dụng Máy ảnh');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Quyền truy cập', 'Cần cấp quyền truy cập Thư viện ảnh');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (result.canceled || !result.assets?.[0]) return;
+      
+      setIsUploadingAvatar(true);
+      const asset = result.assets[0];
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri: asset.uri,
+        name: `group-${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
+
+      const uploadRes = await apiClient.post(`/upload/avatar`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const newUrl: string = uploadRes.data?.data?.url;
+
+      if (!newUrl) throw new Error("Không lấy được URL ảnh");
+
+      await chatApiClient.put(`/conversations/${id}/info`, {
+        requesterId: currentUserId,
+        groupAvatar: newUrl
+      });
+
+      router.setParams({ avatar: newUrl });
+      Alert.alert('Thành công', 'Đổi ảnh nhóm thành công!');
+    } catch(err: any) {
+      Alert.alert('Lỗi', 'Không thể đổi ảnh nhóm: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   // Fetch group data
   useEffect(() => {
@@ -61,6 +136,7 @@ export default function ChatOptionsScreen() {
         if (thisConv?.participants) {
           setParticipants(thisConv.participants);
           setRequireApproval(thisConv.requireApproval || false);
+          setGroupSettings(thisConv.groupSettings || null);
           setPendingMembers(thisConv.pendingMembers || []);
           
           // Fetch member info
@@ -101,6 +177,7 @@ export default function ChatOptionsScreen() {
       if (thisConv?.participants) {
         setParticipants(thisConv.participants);
         setRequireApproval(thisConv.requireApproval || false);
+        setGroupSettings(thisConv.groupSettings || null);
         setPendingMembers(thisConv.pendingMembers || []);
         // Fetch any new member info
         const newIds = thisConv.participants
@@ -195,7 +272,11 @@ export default function ChatOptionsScreen() {
 
   // Leave group
   const handleLeaveGroup = () => {
-    Alert.alert('Rời nhóm', 'Bạn có chắc chắn muốn rời khỏi nhóm này?', [
+    const alertMessage = myRole === 'leader' 
+      ? 'Bạn là trưởng nhóm. Việc rời nhóm sẽ tự động giải tán nhóm này hoàn toàn. Bạn có chắc chắn muốn rời?'
+      : 'Bạn có chắc chắn muốn rời khỏi nhóm này?';
+      
+    Alert.alert('Rời nhóm', alertMessage, [
       { text: 'Hủy', style: 'cancel' },
       {
         text: 'Rời nhóm',
@@ -206,7 +287,7 @@ export default function ChatOptionsScreen() {
               data: { requesterId: currentUserId, targetUserId: currentUserId },
             });
             // Navigate back to messages list
-            router.replace('/(tabs)/messages');
+            router.replace('/(tabs)');
           } catch (err: any) {
             Alert.alert('Lỗi', err.response?.data?.message || 'Không thể rời nhóm');
           }
@@ -230,7 +311,7 @@ export default function ChatOptionsScreen() {
               await chatApiClient.delete(`/conversations/${id}/disband`, {
                 data: { requesterId: currentUserId },
               });
-              router.replace('/(tabs)/messages');
+              router.replace('/(tabs)');
             } catch (err: any) {
               Alert.alert('Lỗi', err.response?.data?.message || 'Không thể giải tán nhóm');
             }
@@ -251,6 +332,23 @@ export default function ChatOptionsScreen() {
       setRequireApproval(newValue);
     } catch (err: any) {
       Alert.alert('Lỗi', err.response?.data?.message || 'Không thể thay đổi cài đặt');
+    }
+  };
+
+  const handleTogglePermission = async (field: 'sendMessages' | 'pinAndPolls' | 'changeInfo') => {
+    if (!currentUserId || !id) return;
+    const currentSettings = groupSettings || { sendMessages: 'all', pinAndPolls: 'all', changeInfo: 'all' };
+    const currentValue = currentSettings[field];
+    const newValue = currentValue === 'all' ? 'admin_only' : 'all';
+    
+    try {
+      await chatApiClient.put(`/conversations/${id}/permissions`, {
+        requesterId: currentUserId,
+        settings: { [field]: newValue }
+      });
+      await reloadConversation();
+    } catch (err: any) {
+      Alert.alert('Lỗi', err.response?.data?.message || 'Không thể thay đổi quyền');
     }
   };
 
@@ -384,8 +482,17 @@ export default function ChatOptionsScreen() {
         
         {/* Top Profile Section */}
         <View style={styles.profileSection}>
-          <View style={styles.avatarWrap}>
-            {avatar ? (
+          <TouchableOpacity 
+             style={styles.avatarWrap}
+             onPress={isGroup === 'true' ? pickAndUploadGroupAvatar : undefined}
+             disabled={isUploadingAvatar}
+             activeOpacity={0.8}
+          >
+            {isUploadingAvatar ? (
+               <View style={[styles.avatar, styles.defaultAvatar, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                  <ActivityIndicator size="small" color="#fff" />
+               </View>
+            ) : avatar ? (
               <Image source={{ uri: avatar as string }} style={styles.avatar} />
             ) : (
               <View style={[styles.avatar, styles.defaultAvatar]}>
@@ -397,7 +504,7 @@ export default function ChatOptionsScreen() {
                 <Ionicons name="camera-outline" size={16} color="#000" />
               </View>
             )}
-          </View>
+          </TouchableOpacity>
           
           {isGroup === 'true' ? (
             <View style={styles.nameWrap}>
@@ -692,6 +799,61 @@ export default function ChatOptionsScreen() {
                   <Switch
                     value={requireApproval}
                     onValueChange={handleToggleApproval}
+                    trackColor={{ false: '#d1d1d1', true: ZaloColors.blue }}
+                    thumbColor={'#fff'}
+                  />
+                </TouchableOpacity>
+
+                {/* Permissions Toggles */}
+                <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={() => handleTogglePermission('sendMessages')}>
+                  <View style={styles.optionLeft}>
+                    <Ionicons name="chatbubbles-outline" size={22} color={ZaloColors.blue} style={styles.optionIcon} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionLabel}>Chỉ Admin được gửi tin</Text>
+                      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                        {groupSettings?.sendMessages === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được nhắn tin' : 'Tất cả mọi người đều được gửi tin'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={groupSettings?.sendMessages === 'admin_only'}
+                    onValueChange={() => handleTogglePermission('sendMessages')}
+                    trackColor={{ false: '#d1d1d1', true: ZaloColors.blue }}
+                    thumbColor={'#fff'}
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={() => handleTogglePermission('pinAndPolls')}>
+                  <View style={styles.optionLeft}>
+                    <Ionicons name="pin-outline" size={22} color={ZaloColors.blue} style={styles.optionIcon} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionLabel}>Chỉ Admin được ghim/bình chọn</Text>
+                      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                        {groupSettings?.pinAndPolls === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được ghim tin và bình chọn' : 'Tất cả mọi người đều có quyền'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={groupSettings?.pinAndPolls === 'admin_only'}
+                    onValueChange={() => handleTogglePermission('pinAndPolls')}
+                    trackColor={{ false: '#d1d1d1', true: ZaloColors.blue }}
+                    thumbColor={'#fff'}
+                  />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={() => handleTogglePermission('changeInfo')}>
+                  <View style={styles.optionLeft}>
+                    <Ionicons name="create-outline" size={22} color={ZaloColors.blue} style={styles.optionIcon} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.optionLabel}>Chỉ Admin được đổi Tên/Ảnh</Text>
+                      <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                        {groupSettings?.changeInfo === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được đổi Tên và Ảnh nhóm' : 'Tất cả mọi người đều có quyền'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={groupSettings?.changeInfo === 'admin_only'}
+                    onValueChange={() => handleTogglePermission('changeInfo')}
                     trackColor={{ false: '#d1d1d1', true: ZaloColors.blue }}
                     thumbColor={'#fff'}
                   />
@@ -1009,6 +1171,8 @@ const styles = StyleSheet.create({
   optionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    paddingRight: 10,
   },
   optionIcon: {
     width: 28,

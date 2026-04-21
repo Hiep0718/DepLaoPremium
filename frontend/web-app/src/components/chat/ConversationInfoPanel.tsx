@@ -1,13 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles } from 'lucide-react';
+import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { clearAiHistory } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
 import { contactService } from '../../services/contactService';
-import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember } from '../../services/message.service';
+import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember, updateGroupPermissions } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
-
 
 const ConversationInfoPanel = () => {
   const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations } = useChatStore();
@@ -20,6 +19,7 @@ const ConversationInfoPanel = () => {
   const [menuOpenUid, setMenuOpenUid] = useState<string | null>(null);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [isGroupManagementModalOpen, setIsGroupManagementModalOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [expandedPending, setExpandedPending] = useState(false);
@@ -46,6 +46,14 @@ const ConversationInfoPanel = () => {
     );
     return (me as any)?.role || 'member';
   }, [activeConversation, user?.id]);
+
+  const canChangeInfo = useMemo(() => {
+    if (!activeConversation?.isGroup) return true;
+    if (activeConversation.groupSettings?.changeInfo === 'admin_only') {
+      return myRole === 'leader' || myRole === 'deputy';
+    }
+    return true;
+  }, [activeConversation?.groupSettings?.changeInfo, myRole, activeConversation?.isGroup]);
 
   const handleRoleChange = async (targetUserId: string, newRole: 'leader' | 'deputy' | 'member') => {
     if (!activeConversation?.conversationId || !user?.id) return;
@@ -159,11 +167,25 @@ const ConversationInfoPanel = () => {
     }
   };
 
+  const handleTogglePermission = async (field: 'sendMessages' | 'pinAndPolls' | 'changeInfo') => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    const currentSettings = activeConversation.groupSettings || { sendMessages: 'all', pinAndPolls: 'all', changeInfo: 'all' };
+    const currentValue = currentSettings[field];
+    const newValue = currentValue === 'all' ? 'admin_only' : 'all';
+
+    try {
+      await updateGroupPermissions(activeConversation.conversationId, String(user.id), {
+        [field]: newValue
+      });
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Không thể thay đổi quyền');
+    }
+  };
+
   const handleApproveMember = async (userId: string) => {
     if (!activeConversation?.conversationId || !user?.id) return;
     try {
       await approvePendingMember(activeConversation.conversationId, String(user.id), [userId]);
-      // Reload conversation
       const res = await getConversationsList(String(user.id));
       const list = res.data?.data || res.data;
       if (Array.isArray(list)) {
@@ -180,7 +202,6 @@ const ConversationInfoPanel = () => {
     if (!activeConversation?.conversationId || !user?.id) return;
     try {
       await rejectPendingMember(activeConversation.conversationId, String(user.id), [userId]);
-      // Reload conversation
       const res = await getConversationsList(String(user.id));
       const list = res.data?.data || res.data;
       if (Array.isArray(list)) {
@@ -234,7 +255,12 @@ const ConversationInfoPanel = () => {
 
   const handleLeaveGroup = async () => {
     if (!activeConversation?.conversationId || !user?.id) return;
-    if (!window.confirm("Bạn có chắc chắn muốn rời khỏi nhóm này không?")) return;
+
+    const confirmMessage = myRole === 'leader'
+      ? "Bạn là trưởng nhóm. Việc rời nhóm sẽ tự động giải tán nhóm này hoàn toàn. Bạn có chắc chắn muốn rời?"
+      : "Bạn có chắc chắn muốn rời khỏi nhóm này không?";
+
+    if (!window.confirm(confirmMessage)) return;
 
     try {
       await removeMemberFromGroup(
@@ -243,13 +269,12 @@ const ConversationInfoPanel = () => {
         String(user.id)
       );
 
-      // Cập nhật sau khi rời nhóm
       const res = await getConversationsList(String(user.id));
       const list = res.data?.data || res.data;
       if (Array.isArray(list)) {
         setConversations(list);
-        setActiveConversation(null); // Đóng nhóm hiện tại
-        toggleInfoPanel(); // Đóng panel
+        setActiveConversation(null);
+        toggleInfoPanel();
       }
     } catch (err: any) {
       alert(err.response?.data?.message || 'Lỗi khi rời nhóm.');
@@ -336,8 +361,6 @@ const ConversationInfoPanel = () => {
   if (!activeConversation) return null;
 
   const isAiConversation = activeConversation.conversationId.startsWith('ai_');
-
-  // Use resolved contact info from store
   const displayName = activeConversation.isGroup ? (activeConversation.groupName || 'Nhóm trò chuyện') : (activeContactInfo?.name || 'Người dùng');
   const displayAvatar = activeConversation.isGroup ? activeConversation.groupAvatar : activeContactInfo?.avatarUrl;
   const avatarLetter = displayName.charAt(0).toUpperCase();
@@ -362,7 +385,6 @@ const ConversationInfoPanel = () => {
       </div>
 
       {/* Content */}
-
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {isAiConversation ? (
           <div className="flex flex-col">
@@ -444,633 +466,597 @@ const ConversationInfoPanel = () => {
         ) : (
           <div className="flex flex-col">
             <div className="flex-1 overflow-y-auto">
-              <div className="flex flex-col items-center py-5 px-4"
-            style={{ borderBottom: '6px solid var(--border-light)' }}>
-            {activeConversation.isGroup && (
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                accept="image/*"
-                onChange={handleAvatarChange}
-                disabled={uploadingAvatar}
-              />
-            )}
-            <div
-              className={`w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl text-white mb-3 relative overflow-hidden shadow-sm ${(activeConversation.isGroup && !uploadingAvatar) ? 'cursor-pointer group' : ''}`}
-              style={{ background: displayAvatar ? 'transparent' : '#0068FF' }}
-              onClick={() => {
-                if (activeConversation.isGroup && !uploadingAvatar) {
-                  fileInputRef.current?.click();
-                }
-              }}
-            >
-              {displayAvatar ? (
-                <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
-              ) : (
-                avatarLetter
-              )}
-
-              {uploadingAvatar && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[1px]">
-                  <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                </div>
-              )}
-              {activeConversation.isGroup && !uploadingAvatar && (
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[1px]">
-                  <ImageIcon size={20} className="text-white" />
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>
-                {displayName}
-              </span>
-              {activeConversation.isGroup && (
-                <button className="p-1 rounded-md transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              <div className="flex flex-col items-center py-5 px-4" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                {activeConversation.isGroup && (
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    className="hidden"
+                    accept="image/*"
+                    onChange={handleAvatarChange}
+                    disabled={uploadingAvatar}
+                  />
+                )}
+                <div
+                  className={`w-16 h-16 rounded-full flex items-center justify-center font-bold text-2xl text-white mb-3 relative overflow-hidden shadow-sm ${(activeConversation.isGroup && !uploadingAvatar && canChangeInfo) ? 'cursor-pointer group' : ''}`}
+                  style={{ background: displayAvatar ? 'transparent' : '#0068FF' }}
                   onClick={() => {
-                    setNewGroupName(activeConversation.groupName || '');
-                    setIsRenameModalOpen(true);
-                  }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex justify-center gap-6 py-4 px-4"
-            style={{ borderBottom: '6px solid var(--border-light)' }}>
-            {(activeConversation.isGroup ? [
-              { icon: Bell, label: 'Tắt thông\nbáo' },
-              { icon: Pin, label: 'Ghim hội\nthoại' },
-              { icon: UserPlus, label: 'Thêm thành\nviên', action: () => setIsAddMemberOpen(true) },
-              { icon: Settings, label: 'Quản lý\nnhóm' },
-            ] : [
-              { icon: Bell, label: 'Tắt thông\nbáo' },
-              { icon: Pin, label: 'Ghim hội\nthoại' },
-              { icon: UserPlus, label: 'Tạo nhóm\ntrò chuyện' },
-            ]).map(({ icon: Icon, label, action }, i) => (
-              <button key={i} className="flex flex-col items-center gap-1.5 group cursor-pointer" onClick={action}>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
-                  style={{ background: 'var(--bg-hover)' }}>
-                  <Icon size={18} style={{ color: 'var(--text-secondary)' }} />
-                </div>
-                <span className="text-[11px] text-center leading-tight whitespace-pre-line"
-                  style={{ color: 'var(--text-secondary)' }}>{label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Info Items / Thành viên nhóm */}
-          <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-            {activeConversation.isGroup ? (
-              <>
-                <button
-                  className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
-                  onClick={() => setExpandedMembers(!expandedMembers)}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    if (activeConversation.isGroup && !uploadingAvatar && canChangeInfo) {
+                      fileInputRef.current?.click();
+                    }
+                  }}
                 >
-                  <div className="flex items-center gap-3">
-                    <Users size={18} style={{ color: 'var(--text-secondary)' }} />
-                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                      Thành viên nhóm ({activeConversation.participants?.length || 0})
-                    </span>
-                  </div>
-                  <ChevronDown size={16} style={{
-                    color: 'var(--text-secondary)',
-                    transform: expandedMembers ? 'rotate(180deg)' : 'none',
-                    transition: 'transform 0.2s'
-                  }} />
-                </button>
-                {expandedMembers && (
-                  <div className="px-2 pb-2" ref={menuRef}>
-                    {[...(activeConversation.participants || [])]
-                      .sort((a: any, b: any) => {
-                        const order: Record<string, number> = { leader: 0, deputy: 1, member: 2 };
-                        return (order[a.role] ?? 2) - (order[b.role] ?? 2);
-                      })
-                      .map((p: any, idx: number) => {
-                        const uid = String(p.userId || p.id || p);
-                        const info = memberMap[uid];
-                        const isMe = uid === String(user?.id);
-                        const name = isMe ? 'Bạn' : (info?.fullName || `Thành viên ${idx + 1}`);
-                        const avatar = info?.avatarUrl;
-                        const role = p.role || 'member';
+                  {displayAvatar ? (
+                    <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
+                  ) : (
+                    avatarLetter
+                  )}
 
-                        const roleBadge: Record<string, { label: string; bg: string; color: string }> = {
-                          leader: { label: 'Trưởng nhóm', bg: '#fff7ed', color: '#f59e0b' },
-                          deputy: { label: 'Phó nhóm', bg: '#f0fdf4', color: '#10b981' },
-                          member: { label: 'Thành viên', bg: 'transparent', color: 'var(--text-secondary)' },
-                        };
+                  {uploadingAvatar && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-[1px]">
+                      <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                    </div>
+                  )}
+                  {activeConversation.isGroup && !uploadingAvatar && canChangeInfo && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[1px]">
+                      <ImageIcon size={20} className="text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>
+                    {displayName}
+                  </span>
+                  {activeConversation.isGroup && canChangeInfo && (
+                    <button className="p-1 rounded-md transition-colors"
+                      style={{ color: 'var(--text-secondary)' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      onClick={() => {
+                        setNewGroupName(activeConversation.groupName || '');
+                        setIsRenameModalOpen(true);
+                      }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              </div>
 
-                        // Xây dựng menu items cho quyền quản lý
-                        const menuItems: { label: string; icon: any; action: () => void; color?: string }[] = [];
+              {/* Quick Actions */}
+              <div className="flex justify-center gap-6 py-4 px-4" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                {(activeConversation.isGroup ? [
+                  { icon: Bell, label: 'Tắt thông\nbáo' },
+                  { icon: Pin, label: 'Ghim hội\nthoại' },
+                  { icon: UserPlus, label: 'Thêm thành\nviên', action: () => setIsAddMemberOpen(true) },
+                  { icon: Settings, label: 'Quản lý\nnhóm', action: () => setIsGroupManagementModalOpen(true) },
+                ] : [
+                  { icon: Bell, label: 'Tắt thông\nbáo' },
+                  { icon: Pin, label: 'Ghim hội\nthoại' },
+                  { icon: UserPlus, label: 'Tạo nhóm\ntrò chuyện' },
+                ]).map(({ icon: Icon, label, action }, i) => (
+                  <button key={i} className="flex flex-col items-center gap-1.5 group cursor-pointer" onClick={action}>
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
+                      style={{ background: 'var(--bg-hover)' }}>
+                      <Icon size={18} style={{ color: 'var(--text-secondary)' }} />
+                    </div>
+                    <span className="text-[11px] text-center leading-tight whitespace-pre-line"
+                      style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                  </button>
+                ))}
+              </div>
 
-                        if (myRole === 'leader' && !isMe) {
-                          menuItems.push({
-                            label: 'Chuyển quyền trưởng nhóm',
-                            icon: Crown,
-                            action: () => handleRoleChange(uid, 'leader'),
-                            color: '#f59e0b',
-                          });
-                          if (role !== 'deputy') {
-                            menuItems.push({
-                              label: 'Bổ nhiệm phó nhóm',
-                              icon: UserCheck,
-                              action: () => handleRoleChange(uid, 'deputy'),
-                              color: '#10b981',
-                            });
-                          }
-                          if (role === 'deputy') {
-                            menuItems.push({
-                              label: 'Gỡ phó nhóm',
-                              icon: UserMinus,
-                              action: () => handleRoleChange(uid, 'member'),
-                              color: '#ef4444',
-                            });
-                          }
-                        }
+              {/* Info Items / Thành viên nhóm */}
+              <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                {activeConversation.isGroup ? (
+                  <>
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                      onClick={() => setExpandedMembers(!expandedMembers)}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Users size={18} style={{ color: 'var(--text-secondary)' }} />
+                        <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                          Thành viên nhóm ({activeConversation.participants?.length || 0})
+                        </span>
+                      </div>
+                      <ChevronDown size={16} style={{
+                        color: 'var(--text-secondary)',
+                        transform: expandedMembers ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 0.2s'
+                      }} />
+                    </button>
+                    {expandedMembers && (
+                      <div className="px-2 pb-2" ref={menuRef}>
+                        {[...(activeConversation.participants || [])]
+                          .sort((a: any, b: any) => {
+                            const order: Record<string, number> = { leader: 0, deputy: 1, member: 2 };
+                            return (order[a.role] ?? 2) - (order[b.role] ?? 2);
+                          })
+                          .map((p: any, idx: number) => {
+                            const uid = String(p.userId || p.id || p);
+                            const info = memberMap[uid];
+                            const isMe = uid === String(user?.id);
+                            const name = isMe ? 'Bạn' : (info?.fullName || `Thành viên ${idx + 1}`);
+                            const avatar = info?.avatarUrl;
+                            const role = p.role || 'member';
 
-                        // Quyền xóa thành viên: leader xóa auth, deputy xóa member
-                        if (!isMe && (myRole === 'leader' || (myRole === 'deputy' && role === 'member'))) {
-                          menuItems.push({
-                            label: 'Xóa khỏi nhóm', // <--- MỚI THÊM
-                            icon: Trash2,
-                            action: () => handleRemoveMember(uid),
-                            color: '#ef4444',
-                          });
-                        }
+                            const roleBadge: Record<string, { label: string; bg: string; color: string }> = {
+                              leader: { label: 'Trưởng nhóm', bg: '#fff7ed', color: '#f59e0b' },
+                              deputy: { label: 'Phó nhóm', bg: '#f0fdf4', color: '#10b981' },
+                              member: { label: 'Thành viên', bg: 'transparent', color: 'var(--text-secondary)' },
+                            };
 
-                        return (
-                          <div
-                            key={uid}
-                            className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors relative"
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                          >
-                            {/* Avatar */}
-                            <div
-                              className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                              style={{ background: avatar ? 'transparent' : (isMe ? '#10b981' : '#0068FF') }}
-                            >
-                              {avatar ? (
-                                <img src={avatar} alt={name} className="w-full h-full object-cover" />
-                              ) : (
-                                name.charAt(0).toUpperCase()
-                              )}
-                            </div>
-                            {/* Name + role */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                {name}
-                              </p>
-                              {roleBadge[role] && (
-                                <div className="mt-0.5">
-                                  {role === 'member' ? (
-                                    <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                                      {roleBadge[role].label}
-                                    </span>
+                            const menuItems: { label: string; icon: any; action: () => void; color?: string }[] = [];
+
+                            if (myRole === 'leader' && !isMe) {
+                              menuItems.push({
+                                label: 'Chuyển quyền trưởng nhóm',
+                                icon: Crown,
+                                action: () => handleRoleChange(uid, 'leader'),
+                                color: '#f59e0b',
+                              });
+                              if (role !== 'deputy') {
+                                menuItems.push({
+                                  label: 'Bổ nhiệm phó nhóm',
+                                  icon: UserCheck,
+                                  action: () => handleRoleChange(uid, 'deputy'),
+                                  color: '#10b981',
+                                });
+                              }
+                              if (role === 'deputy') {
+                                menuItems.push({
+                                  label: 'Gỡ phó nhóm',
+                                  icon: UserMinus,
+                                  action: () => handleRoleChange(uid, 'member'),
+                                  color: '#ef4444',
+                                });
+                              }
+                            }
+
+                            if (!isMe && (myRole === 'leader' || (myRole === 'deputy' && role === 'member'))) {
+                              menuItems.push({
+                                label: 'Xóa khỏi nhóm',
+                                icon: Trash2,
+                                action: () => handleRemoveMember(uid),
+                                color: '#ef4444',
+                              });
+                            }
+
+                            return (
+                              <div
+                                key={uid}
+                                className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors relative"
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <div
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                                  style={{ background: avatar ? 'transparent' : (isMe ? '#10b981' : '#0068FF') }}
+                                >
+                                  {avatar ? (
+                                    <img src={avatar} alt={name} className="w-full h-full object-cover" />
                                   ) : (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase inline-block"
-                                      style={{
-                                        background: roleBadge[role].bg,
-                                        color: roleBadge[role].color,
-                                        border: `1px solid ${roleBadge[role].color}40`
-                                      }}>
-                                      {roleBadge[role].label}
-                                    </span>
+                                    name.charAt(0).toUpperCase()
                                   )}
                                 </div>
-                              )}
-                            </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                    {name}
+                                  </p>
+                                  {roleBadge[role] && (
+                                    <div className="mt-0.5">
+                                      {role === 'member' ? (
+                                        <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                                          {roleBadge[role].label}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase inline-block"
+                                          style={{
+                                            background: roleBadge[role].bg,
+                                            color: roleBadge[role].color,
+                                            border: `1px solid ${roleBadge[role].color}40`
+                                          }}>
+                                          {roleBadge[role].label}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
 
-                            {/* 3-dot menu */}
-                            {menuItems.length > 0 && (
-                              <div className="relative">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpenUid(menuOpenUid === uid ? null : uid);
-                                  }}
-                                  className="p-1 rounded-md transition-colors"
-                                  style={{ color: 'var(--text-secondary)' }}
-                                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-search, #e5e7eb)'}
-                                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                >
-                                  <MoreHorizontal size={16} />
-                                </button>
+                                {menuItems.length > 0 && (
+                                  <div className="relative">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setMenuOpenUid(menuOpenUid === uid ? null : uid);
+                                      }}
+                                      className="p-1 rounded-md transition-colors"
+                                      style={{ color: 'var(--text-secondary)' }}
+                                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-search, #e5e7eb)'}
+                                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                      <MoreHorizontal size={16} />
+                                    </button>
 
-                                {menuOpenUid === uid && (
-                                  <div
-                                    className="absolute right-0 top-8 z-50 min-w-[200px] py-1.5 rounded-xl shadow-lg border"
-                                    style={{
-                                      background: 'var(--bg-panel, #fff)',
-                                      borderColor: 'var(--border-primary, #e5e7eb)',
-                                      boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-                                    }}
-                                  >
-                                    {menuItems.map((item, mIdx) => (
-                                      <button
-                                        key={mIdx}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          item.action();
+                                    {menuOpenUid === uid && (
+                                      <div
+                                        className="absolute right-0 top-8 z-50 min-w-[200px] py-1.5 rounded-xl shadow-lg border"
+                                        style={{
+                                          background: 'var(--bg-panel, #fff)',
+                                          borderColor: 'var(--border-primary, #e5e7eb)',
+                                          boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
                                         }}
-                                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left"
-                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover, #f3f4f6)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                       >
-                                        <item.icon size={15} style={{ color: item.color || 'var(--text-secondary)' }} />
-                                        <span style={{ color: 'var(--text-primary, #111)' }}>{item.label}</span>
-                                      </button>
-                                    ))}
+                                        {menuItems.map((item, mIdx) => (
+                                          <button
+                                            key={mIdx}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              item.action();
+                                            }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors text-left"
+                                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover, #f3f4f6)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                          >
+                                            <item.icon size={15} style={{ color: item.color || 'var(--text-secondary)' }} />
+                                            <span style={{ color: 'var(--text-primary, #111)' }}>{item.label}</span>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <Clock size={18} style={{ color: 'var(--text-secondary)' }} />
-                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Danh sách nhắc hẹn</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <Users size={18} style={{ color: 'var(--text-secondary)' }} />
-                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>1 nhóm chung</span>
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Cài đặt duyệt thành viên - Chỉ hiện cho leader/deputy */}
-          {activeConversation.isGroup && (myRole === 'leader' || myRole === 'deputy') && (
-            <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-              <div className="px-4 py-2">
-                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  Quản lý thành viên
-                </span>
-              </div>
-              {/* Toggle duyệt thành viên */}
-              <button
-                className="w-full flex items-center justify-between px-4 py-2.5 transition-colors text-left"
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                onClick={handleToggleApproval}
-              >
-                <div className="flex items-center gap-3">
-                  <Shield size={18} style={{ color: '#0068FF' }} />
-                  <div>
-                    <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Duyệt thành viên mới</span>
-                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                      {activeConversation.requireApproval ? 'Thành viên thêm người cần được Admin duyệt' : 'Mọi thành viên đều có thể thêm người'}
-                    </p>
-                  </div>
-                </div>
-                <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
-                  style={{ background: activeConversation.requireApproval ? '#0068FF' : 'var(--bg-hover)' }}>
-                  <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
-                    style={{ left: activeConversation.requireApproval ? '21px' : '3px' }} />
-                </div>
-              </button>
-
-              {/* Danh sách chờ duyệt */}
-              {activeConversation.pendingMembers && activeConversation.pendingMembers.length > 0 && (
-                <>
-                  <button
-                    className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
-                    onClick={() => setExpandedPending(!expandedPending)}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <div className="flex items-center gap-3">
-                      <UserPlus size={18} style={{ color: '#f59e0b' }} />
-                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                        Chờ duyệt ({activeConversation.pendingMembers.length})
-                      </span>
-                    </div>
-                    <ChevronDown size={16} style={{
-                      color: 'var(--text-secondary)',
-                      transform: expandedPending ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 0.2s'
-                    }} />
-                  </button>
-                  {expandedPending && (
-                    <div className="px-2 pb-2">
-                      {activeConversation.pendingMembers.map((pm: any) => {
-                        const uid = String(pm.userId);
-                        const info = pendingMemberMap[uid];
-                        const name = info?.fullName || `User ${uid}`;
-                        const avatar = info?.avatarUrl;
-                        const addedByInfo = memberMap[String(pm.addedBy)];
-                        const addedByName = addedByInfo?.fullName || `User ${pm.addedBy}`;
-
-                        return (
-                          <div
-                            key={uid}
-                            className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors"
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                          >
-                            <div
-                              className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
-                              style={{ background: avatar ? 'transparent' : '#f59e0b' }}
-                            >
-                              {avatar ? (
-                                <img src={avatar} alt={name} className="w-full h-full object-cover" />
-                              ) : (
-                                name.charAt(0).toUpperCase()
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                {name}
-                              </p>
-                              <p className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                                Được mời bởi {addedByName}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                onClick={() => handleApproveMember(uid)}
-                                className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
-                                style={{ background: '#10b981' }}
-                                title="Duyệt"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={() => handleRejectMember(uid)}
-                                className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
-                                style={{ background: '#ef4444' }}
-                                title="Từ chối"
-                              >
-                                ✗
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Ảnh/Video Section */}
-          <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-            <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
-              onClick={() => setExpandedMedia(!expandedMedia)}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ảnh/Video</span>
-              <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedMedia ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-            </button>
-            {expandedMedia && (
-              <div className="px-4 py-2 transition-all">
-                {mediaMessages.length > 0 ? (
-                  <>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {mediaMessages.slice(0, 8).map((msg, idx) => (
-                        <div key={idx} className="aspect-square rounded-md overflow-hidden relative cursor-pointer group"
-                          onClick={() => window.open(msg.fileUrl, '_blank')}
-                          style={{ background: 'var(--bg-hover)' }}>
-                          {msg.messageType === 'video' ? (
-                            <>
-                              <video src={msg.fileUrl} className="w-full h-full object-cover" />
-                              <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/40 transition-colors">
-                                <div className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center backdrop-blur-sm">
-                                  <span className="text-white text-[10px] translate-x-[1px]">▶</span>
-                                </div>
-                              </div>
-                            </>
-                          ) : (
-                            <img src={msg.fileUrl} alt="media" className="w-full h-full object-cover group-hover:brightness-75 transition-all" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    {mediaMessages.length > 8 && (
-                      <button className="w-full py-2 mt-2 rounded-lg text-sm font-medium transition-colors text-center"
-                        style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
-                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
-                        Xem tất cả ({mediaMessages.length})
-                      </button>
+                            );
+                          })}
+                      </div>
                     )}
                   </>
                 ) : (
-                  <div className="text-center py-2">
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      Chưa có Ảnh/Video được chia sẻ trong hội thoại này
-                    </p>
-                  </div>
+                  <>
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                      <Clock size={18} style={{ color: 'var(--text-secondary)' }} />
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Danh sách nhắc hẹn</span>
+                    </button>
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                      <Users size={18} style={{ color: 'var(--text-secondary)' }} />
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>1 nhóm chung</span>
+                    </button>
+                  </>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* File Section */}
-          <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-            <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
-              onClick={() => setExpandedFiles(!expandedFiles)}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>File</span>
-              <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedFiles ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-            </button>
-            {expandedFiles && (
-              <div className="px-4 py-2">
-                {fileMessages.length > 0 ? (
-                  <div className="flex flex-col gap-2">
-                    {fileMessages.slice(0, 5).map((msg, idx) => {
-                      const ext = msg.fileUrl ? msg.fileUrl.split('.').pop()?.toUpperCase() : 'FILE';
-                      const fileName = msg.fileName || (msg.content && msg.content.replace('[Tệp] ', '')) || 'Tài liệu vô danh';
-                      return (
-                        <a key={idx} href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-[var(--bg-hover)] group">
-                          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ background: 'rgba(0,104,255,0.1)' }}>
-                            <FileText size={20} style={{ color: '#0068FF' }} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate group-hover:text-blue-500 transition-colors" style={{ color: 'var(--text-primary)' }}>
-                              {fileName}
-                            </p>
-                            <p className="text-[11px] mt-0.5 uppercase" style={{ color: 'var(--text-secondary)' }}>
-                              {ext && ext.length <= 5 ? ext : 'FILE'} {msg.fileSize ? `• ${(msg.fileSize / 1024 / 1024).toFixed(2)} MB` : ''}
-                            </p>
-                          </div>
-                        </a>
-                      );
-                    })}
-                    {fileMessages.length > 5 && (
-                      <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
-                        style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
-                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
-                        Xem tất cả ({fileMessages.length})
+              {/* Danh sách chờ duyệt */}
+              {activeConversation.isGroup && (myRole === 'leader' || myRole === 'deputy') && (
+                <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                  {activeConversation.pendingMembers && activeConversation.pendingMembers.length > 0 && (
+                    <>
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                        onClick={() => setExpandedPending(!expandedPending)}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <div className="flex items-center gap-3">
+                          <UserPlus size={18} style={{ color: '#f59e0b' }} />
+                          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                            Chờ duyệt ({activeConversation.pendingMembers.length})
+                          </span>
+                        </div>
+                        <ChevronDown size={16} style={{
+                          color: 'var(--text-secondary)',
+                          transform: expandedPending ? 'rotate(180deg)' : 'none',
+                          transition: 'transform 0.2s'
+                        }} />
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-2">
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      Chưa có File được chia sẻ trong hội thoại này
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                      {expandedPending && (
+                        <div className="px-2 pb-2">
+                          {activeConversation.pendingMembers.map((pm: any) => {
+                            const uid = String(pm.userId);
+                            const info = pendingMemberMap[uid];
+                            const name = info?.fullName || `User ${uid}`;
+                            const avatar = info?.avatarUrl;
+                            const addedByInfo = memberMap[String(pm.addedBy)];
+                            const addedByName = addedByInfo?.fullName || `User ${pm.addedBy}`;
 
-          {/* Link Section */}
-          <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
-            <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
-              onClick={() => setExpandedLinks(!expandedLinks)}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Link</span>
-              <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedLinks ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-            </button>
-            {expandedLinks && (
-              <div className="px-4 py-2">
-                {linkMessages.length > 0 ? (
-                  <div className="flex flex-col gap-2">
-                    {linkMessages.slice(0, 5).map((msg, idx) => (
-                      <div key={idx} className="flex flex-col gap-1.5 border-b pb-2 last:border-0 last:pb-0" style={{ borderColor: 'var(--border-light)' }}>
-                        {msg.extractedLinks.map((link: string, linkIdx: number) => (
-                          <a key={linkIdx} href={link} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-[var(--bg-hover)] group">
-                            <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                              style={{ background: 'rgba(0,104,255,0.1)' }}>
-                              <Link size={18} style={{ color: '#0068FF' }} />
+                            return (
+                              <div
+                                key={uid}
+                                className="flex items-center gap-3 px-3 py-2 rounded-xl transition-colors"
+                                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                              >
+                                <div
+                                  className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden"
+                                  style={{ background: avatar ? 'transparent' : '#f59e0b' }}
+                                >
+                                  {avatar ? (
+                                    <img src={avatar} alt={name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    name.charAt(0).toUpperCase()
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                    {name}
+                                  </p>
+                                  <p className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                                    Được mời bởi {addedByName}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => handleApproveMember(uid)}
+                                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
+                                    style={{ background: '#10b981' }}
+                                    title="Duyệt"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectMember(uid)}
+                                    className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold transition-all hover:scale-110"
+                                    style={{ background: '#ef4444' }}
+                                    title="Từ chối"
+                                  >
+                                    ✗
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Ảnh/Video Section */}
+              <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                  onClick={() => setExpandedMedia(!expandedMedia)}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ảnh/Video</span>
+                  <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedMedia ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+                {expandedMedia && (
+                  <div className="px-4 py-2 transition-all">
+                    {mediaMessages.length > 0 ? (
+                      <>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {mediaMessages.slice(0, 8).map((msg, idx) => (
+                            <div key={idx} className="aspect-square rounded-md overflow-hidden relative cursor-pointer group"
+                              onClick={() => window.open(msg.fileUrl, '_blank')}
+                              style={{ background: 'var(--bg-hover)' }}>
+                              {msg.messageType === 'video' ? (
+                                <>
+                                  <video src={msg.fileUrl} className="w-full h-full object-cover" />
+                                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/40 transition-colors">
+                                    <div className="w-6 h-6 rounded-full bg-white/30 flex items-center justify-center backdrop-blur-sm">
+                                      <span className="text-white text-[10px] translate-x-[1px]">▶</span>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <img src={msg.fileUrl} alt="media" className="w-full h-full object-cover group-hover:brightness-75 transition-all" />
+                              )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate text-[#0068FF] group-hover:underline">
-                                {link}
-                              </p>
-                              <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>
-                                {msg.content || msg.text}
-                              </p>
-                            </div>
-                          </a>
-                        ))}
+                          ))}
+                        </div>
+                        {mediaMessages.length > 8 && (
+                          <button className="w-full py-2 mt-2 rounded-lg text-sm font-medium transition-colors text-center"
+                            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            Xem tất cả ({mediaMessages.length})
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-center py-2">
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Chưa có Ảnh/Video được chia sẻ trong hội thoại này
+                        </p>
                       </div>
-                    ))}
-                    {linkMessages.length > 5 && (
-                      <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
-                        style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
-                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
-                        Xem tất cả ({linkMessages.length})
-                      </button>
                     )}
-                  </div>
-                ) : (
-                  <div className="text-center py-2">
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      Chưa có Link được chia sẻ trong hội thoại này
-                    </p>
                   </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Thiết lập bảo mật */}
-          <div className="py-2">
-            <div className="px-4 py-2">
-              <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Thiết lập bảo mật
-              </span>
-            </div>
-            <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <Shield size={18} style={{ color: 'var(--text-secondary)' }} />
-              <div className="flex-1">
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Tin nhắn tự xóa</span>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Không bao giờ</p>
+              {/* File Section */}
+              <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                  onClick={() => setExpandedFiles(!expandedFiles)}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>File</span>
+                  <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedFiles ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+                {expandedFiles && (
+                  <div className="px-4 py-2">
+                    {fileMessages.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        {fileMessages.slice(0, 5).map((msg, idx) => {
+                          const ext = msg.fileUrl ? msg.fileUrl.split('.').pop()?.toUpperCase() : 'FILE';
+                          const fileName = msg.fileName || (msg.content && msg.content.replace('[Tệp] ', '')) || 'Tài liệu vô danh';
+                          return (
+                            <a key={idx} href={msg.fileUrl} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-[var(--bg-hover)] group">
+                              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                                style={{ background: 'rgba(0,104,255,0.1)' }}>
+                                <FileText size={20} style={{ color: '#0068FF' }} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate group-hover:text-blue-500 transition-colors" style={{ color: 'var(--text-primary)' }}>
+                                  {fileName}
+                                </p>
+                                <p className="text-[11px] mt-0.5 uppercase" style={{ color: 'var(--text-secondary)' }}>
+                                  {ext && ext.length <= 5 ? ext : 'FILE'} {msg.fileSize ? `• ${(msg.fileSize / 1024 / 1024).toFixed(2)} MB` : ''}
+                                </p>
+                              </div>
+                            </a>
+                          );
+                        })}
+                        {fileMessages.length > 5 && (
+                          <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
+                            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            Xem tất cả ({fileMessages.length})
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-2">
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Chưa có File được chia sẻ trong hội thoại này
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </button>
-            <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors text-left"
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-              <div className="flex items-center gap-3">
-                <Eye size={18} style={{ color: 'var(--text-secondary)' }} />
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Ẩn trò chuyện</span>
-              </div>
-              <div className="w-9 h-5 rounded-full relative transition-colors" style={{ background: 'var(--bg-hover)' }}>
-                <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform" />
-              </div>
-            </button>
 
-            <div className="mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
-              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                <AlertTriangle size={18} style={{ color: 'var(--text-secondary)' }} />
-                <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Báo xấu</span>
-              </button>
-              {activeConversation.isGroup && (
+              {/* Link Section */}
+              <div className="py-2" style={{ borderBottom: '6px solid var(--border-light)' }}>
+                <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors"
+                  onClick={() => setExpandedLinks(!expandedLinks)}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Link</span>
+                  <ChevronDown size={16} style={{ color: 'var(--text-secondary)', transform: expandedLinks ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+                {expandedLinks && (
+                  <div className="px-4 py-2">
+                    {linkMessages.length > 0 ? (
+                      <div className="flex flex-col gap-2">
+                        {linkMessages.slice(0, 5).map((msg, idx) => (
+                          <div key={idx} className="flex flex-col gap-1.5 border-b pb-2 last:border-0 last:pb-0" style={{ borderColor: 'var(--border-light)' }}>
+                            {msg.extractedLinks.map((link: string, linkIdx: number) => (
+                              <a key={linkIdx} href={link} target="_blank" rel="noopener noreferrer"
+                                className="flex items-center gap-3 p-2 rounded-lg transition-colors hover:bg-[var(--bg-hover)] group">
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                                  style={{ background: 'rgba(0,104,255,0.1)' }}>
+                                  <Link size={18} style={{ color: '#0068FF' }} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate text-[#0068FF] group-hover:underline">
+                                    {link}
+                                  </p>
+                                  <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--text-secondary)' }}>
+                                    {msg.content || msg.text}
+                                  </p>
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        ))}
+                        {linkMessages.length > 5 && (
+                          <button className="w-full py-2 mt-1 rounded-lg text-sm font-medium transition-colors text-center"
+                            style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)' }}
+                            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}>
+                            Xem tất cả ({linkMessages.length})
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-2">
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Chưa có Link được chia sẻ trong hội thoại này
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Thiết lập bảo mật */}
+              <div className="py-2">
+                <div className="px-4 py-2">
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                    Thiết lập bảo mật
+                  </span>
+                </div>
                 <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
                   onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  onClick={handleLeaveGroup}>
-                  <LogOut size={18} style={{ color: '#ef4444' }} />
-                  <span className="text-sm" style={{ color: '#ef4444' }}>Rời nhóm</span>
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <Shield size={18} style={{ color: 'var(--text-secondary)' }} />
+                  <div className="flex-1">
+                    <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Tin nhắn tự xóa</span>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Không bao giờ</p>
+                  </div>
                 </button>
-              )}
-              {activeConversation.isGroup && myRole === 'leader' && (
-                <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                <button className="w-full flex items-center justify-between px-4 py-2.5 transition-colors text-left"
                   onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                  onClick={handleDisbandGroup}>
-                  <Trash2 size={18} style={{ color: '#ef4444' }} />
-                  <span className="text-sm" style={{ color: '#ef4444' }}>Giải tán nhóm</span>
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <div className="flex items-center gap-3">
+                    <Eye size={18} style={{ color: 'var(--text-secondary)' }} />
+                    <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Ẩn trò chuyện</span>
+                  </div>
+                  <div className="w-9 h-5 rounded-full relative transition-colors" style={{ background: 'var(--bg-hover)' }}>
+                    <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform" />
+                  </div>
                 </button>
-              )}
-              <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                onClick={async () => {
-                  if (window.confirm("Bạn có chắc chắn muốn xóa lịch sử trò chuyện này? Thao tác này sẽ xóa toàn bộ tin nhắn đối với bạn.")) {
-                    const { useAuthStore } = await import('../../stores/authStore');
-                    const userId = useAuthStore.getState().user?.id?.toString();
-                    if (userId) {
-                      useChatStore.getState().deleteActiveConversationHistory(userId);
-                    }
-                  }
-                }}>
-                <Trash2 size={18} style={{ color: '#ef4444' }} />
-                <span className="text-sm" style={{ color: '#ef4444' }}>Xoá lịch sử trò chuyện</span>
-              </button>
+
+                <div className="mt-2" style={{ borderTop: '1px solid var(--border-primary)' }}>
+                  <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                    <AlertTriangle size={18} style={{ color: 'var(--text-secondary)' }} />
+                    <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Báo xấu</span>
+                  </button>
+                  {activeConversation.isGroup && (
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      onClick={handleLeaveGroup}>
+                      <LogOut size={18} style={{ color: '#ef4444' }} />
+                      <span className="text-sm" style={{ color: '#ef4444' }}>Rời nhóm</span>
+                    </button>
+                  )}
+                  {activeConversation.isGroup && myRole === 'leader' && (
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      onClick={handleDisbandGroup}>
+                      <Trash2 size={18} style={{ color: '#ef4444' }} />
+                      <span className="text-sm" style={{ color: '#ef4444' }}>Giải tán nhóm</span>
+                    </button>
+                  )}
+                  <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={async () => {
+                      if (window.confirm("Bạn có chắc chắn muốn xóa lịch sử trò chuyện này? Thao tác này sẽ xóa toàn bộ tin nhắn đối với bạn.")) {
+                        const { useAuthStore } = await import('../../stores/authStore');
+                        const userId = useAuthStore.getState().user?.id?.toString();
+                        if (userId) {
+                          useChatStore.getState().deleteActiveConversationHistory(userId);
+                        }
+                      }
+                    }}>
+                    <Trash2 size={18} style={{ color: '#ef4444' }} />
+                    <span className="text-sm" style={{ color: '#ef4444' }}>Xoá lịch sử trò chuyện</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-
         )}
       </div>
 
-
+      {/* ─── MODALS ─── */}
       <AddMemberModal
         isOpen={isAddMemberOpen}
         onClose={() => setIsAddMemberOpen(false)}
@@ -1078,68 +1064,187 @@ const ConversationInfoPanel = () => {
         existingMemberIds={activeConversation?.participants?.map((p: any) => String(p.userId || p.id)) || []}
       />
 
-      {/* Rename Group Modal */}
-        {isRenameModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="w-[400px] rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in duration-200"
-              style={{ background: 'var(--bg-panel)' }}>
-              <div className="h-14 px-4 flex items-center justify-between border-b"
-                style={{ borderColor: 'var(--border-primary)' }}>
-                <h2 className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>Đổi tên nhóm</h2>
-                <button
-                  onClick={() => setIsRenameModalOpen(false)}
-                  className="p-1.5 rounded-xl transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                >
-                  <X size={20} />
-                </button>
+      {isRenameModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
+            style={{ background: 'var(--bg-panel)' }}>
+            <div className="p-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Đổi tên nhóm</h3>
+              <button
+                onClick={() => setIsRenameModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:rotate-90"
+                style={{ background: 'var(--bg-hover)' }}>
+                <X size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div className="p-4">
+              <input
+                type="text"
+                autoFocus
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                placeholder="Nhập tên nhóm mới..."
+                className="w-full px-4 py-2.5 rounded-xl text-sm transition-all outline-none border focus:ring-2 focus:ring-blue-500/20"
+                style={{
+                  background: 'var(--bg-search)',
+                  borderColor: 'var(--border-primary)',
+                  color: 'var(--text-primary)'
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameGroup();
+                }}
+              />
+            </div>
+
+            <div className="p-4 pt-2 flex justify-end gap-2 border-t"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <button
+                onClick={() => setIsRenameModalOpen(false)}
+                className="px-6 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-80"
+                style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleRenameGroup}
+                disabled={!newGroupName.trim() || newGroupName.trim() === activeConversation.groupName}
+                className="px-6 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: '#0068FF' }}
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isGroupManagementModalOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
+            style={{ background: 'var(--bg-panel)' }}>
+            <div className="p-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Quản lý nhóm</h3>
+              <button
+                onClick={() => setIsGroupManagementModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:rotate-90"
+                style={{ background: 'var(--bg-hover)' }}>
+                <X size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto" style={{ maxHeight: '80vh' }}>
+              <div className="mb-4">
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Quản lý thành viên & Quyền nhóm
+                </span>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Chỉ Trưởng/Phó nhóm mới có quyền thay đổi các quyền dưới đây.
+                </p>
               </div>
 
-              <div className="p-4">
-                <input
-                  type="text"
-                  autoFocus
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="Nhập tên nhóm mới..."
-                  className="w-full px-4 py-2.5 rounded-xl text-sm transition-all outline-none border focus:ring-2 focus:ring-blue-500/20"
-                  style={{
-                    background: 'var(--bg-search)',
-                    borderColor: 'var(--border-primary)',
-                    color: 'var(--text-primary)'
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRenameGroup();
-                  }}
-                />
-              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left border ${(myRole !== 'leader' && myRole !== 'deputy') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  style={{ borderColor: 'var(--border-light)', background: 'var(--bg-input)' }}
+                  onMouseEnter={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = '#0068FF'; }}
+                  onMouseLeave={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+                  onClick={() => { if (myRole === 'leader' || myRole === 'deputy') handleToggleApproval(); }}
+                >
+                  <div className="flex items-center gap-3">
+                    <Shield size={20} style={{ color: '#0068FF' }} />
+                    <div>
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Duyệt thành viên mới</span>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        {activeConversation.requireApproval ? 'Cần phê duyệt' : 'Ai cũng có thể thêm mới'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
+                    style={{ background: activeConversation.requireApproval ? '#0068FF' : 'var(--bg-hover)' }}>
+                    <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: activeConversation.requireApproval ? '21px' : '3px' }} />
+                  </div>
+                </button>
 
-              <div className="p-4 pt-2 flex justify-end gap-2 border-t"
-                style={{ borderColor: 'var(--border-primary)' }}>
                 <button
-                  onClick={() => setIsRenameModalOpen(false)}
-                  className="px-6 py-2 rounded-xl text-sm font-semibold transition-all hover:opacity-80"
-                  style={{ color: 'var(--text-secondary)', background: 'var(--bg-hover)' }}
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left border ${(myRole !== 'leader' && myRole !== 'deputy') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  style={{ borderColor: 'var(--border-light)', background: 'var(--bg-input)' }}
+                  onMouseEnter={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = '#0068FF'; }}
+                  onMouseLeave={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+                  onClick={() => { if (myRole === 'leader' || myRole === 'deputy') handleTogglePermission('sendMessages'); }}
                 >
-                  Hủy
+                  <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                    <MessageSquare size={20} style={{ color: '#0068FF' }} />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Gửi tin nhắn</span>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        {activeConversation.groupSettings?.sendMessages === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được gửi' : 'Tất cả mọi người đều được gửi'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
+                    style={{ background: activeConversation.groupSettings?.sendMessages === 'admin_only' ? '#0068FF' : 'var(--bg-hover)' }}>
+                    <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: activeConversation.groupSettings?.sendMessages === 'admin_only' ? '21px' : '3px' }} />
+                  </div>
                 </button>
+
                 <button
-                  onClick={handleRenameGroup}
-                  disabled={!newGroupName.trim() || newGroupName.trim() === activeConversation.groupName}
-                  className="px-6 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ background: '#0068FF' }}
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left border ${(myRole !== 'leader' && myRole !== 'deputy') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  style={{ borderColor: 'var(--border-light)', background: 'var(--bg-input)' }}
+                  onMouseEnter={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = '#0068FF'; }}
+                  onMouseLeave={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+                  onClick={() => { if (myRole === 'leader' || myRole === 'deputy') handleTogglePermission('pinAndPolls'); }}
                 >
-                  Xác nhận
+                  <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                    <Pin size={20} style={{ color: '#0068FF' }} />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Ghim / Bình chọn</span>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        {activeConversation.groupSettings?.pinAndPolls === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được làm' : 'Tất cả mọi người đều được làm'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
+                    style={{ background: activeConversation.groupSettings?.pinAndPolls === 'admin_only' ? '#0068FF' : 'var(--bg-hover)' }}>
+                    <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: activeConversation.groupSettings?.pinAndPolls === 'admin_only' ? '21px' : '3px' }} />
+                  </div>
                 </button>
+
+                <button
+                  className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-colors text-left border ${(myRole !== 'leader' && myRole !== 'deputy') ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  style={{ borderColor: 'var(--border-light)', background: 'var(--bg-input)' }}
+                  onMouseEnter={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = '#0068FF'; }}
+                  onMouseLeave={(e) => { if (myRole === 'leader' || myRole === 'deputy') e.currentTarget.style.borderColor = 'var(--border-light)'; }}
+                  onClick={() => { if (myRole === 'leader' || myRole === 'deputy') handleTogglePermission('changeInfo'); }}
+                >
+                  <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                    <Edit size={20} style={{ color: '#0068FF' }} />
+                    <div className="flex-1">
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Đổi Avatar / Tên</span>
+                      <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        {activeConversation.groupSettings?.changeInfo === 'admin_only' ? 'Chỉ Trưởng/Phó nhóm được đổi' : 'Tất cả mọi người đều được đổi'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-10 h-[22px] rounded-full relative transition-colors cursor-pointer flex-shrink-0"
+                    style={{ background: activeConversation.groupSettings?.changeInfo === 'admin_only' ? '#0068FF' : 'var(--bg-hover)' }}>
+                    <div className="absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: activeConversation.groupSettings?.changeInfo === 'admin_only' ? '21px' : '3px' }} />
+                  </div>
+                </button>
+
               </div>
             </div>
           </div>
-        )}
-
-      </div>
-    );
+        </div>
+      )}
+    </div>
+  );
 };
 
-      export default ConversationInfoPanel;
+export default ConversationInfoPanel;

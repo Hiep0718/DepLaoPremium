@@ -74,10 +74,19 @@ const setupSocketEvents = (io) => {
 
         const messageContent = content || text;
 
-        // Fetch conversation to determine if it's a group and get participants
         const conversation = await Conversation.findOne({ conversationId });
         const isGroup = conversation?.isGroup;
         const actualReceiverId = isGroup ? conversationId : recipientId;
+
+        // Group Permissions Check
+        if (isGroup) {
+          const requester = conversation.participants.find(p => String(p.userId || p.id || p) === String(senderId));
+          if (conversation.groupSettings?.sendMessages === 'admin_only' && senderId !== 'system') {
+            if (requester && requester.role !== 'leader' && requester.role !== 'deputy') {
+              return socket.emit('error', { message: 'Quyền gửi tin nhắn đã bị giới hạn cho Trưởng/Phó nhóm.' });
+            }
+          }
+        }
 
         // Save message to database
         const message = new Message({
@@ -262,6 +271,14 @@ const setupSocketEvents = (io) => {
         const conversation = await Conversation.findOne({ conversationId });
         
         if (!message || !conversation) return;
+
+        // Permissions check
+        if (conversation.isGroup && conversation.groupSettings?.pinAndPolls === 'admin_only') {
+          const requester = conversation.participants.find(p => String(p.userId) === String(userId));
+          if (requester && requester.role !== 'leader' && requester.role !== 'deputy') {
+            return socket.emit('error', { message: 'Chỉ Trưởng/Phó nhóm mới được ghim tin nhắn.' });
+          }
+        }
 
         conversation.pinnedMessage = {
           messageId: message._id.toString(),
@@ -467,6 +484,17 @@ const setupSocketEvents = (io) => {
       const userId = socket.userId;
 
       try {
+        const conversation = await Conversation.findOne({ conversationId });
+        if (!conversation) return;
+
+        // Permissions check
+        if (conversation.isGroup && conversation.groupSettings?.pinAndPolls === 'admin_only') {
+          const requester = conversation.participants.find(p => String(p.userId) === String(userId));
+          if (requester && requester.role !== 'leader' && requester.role !== 'deputy') {
+            return socket.emit('error', { message: 'Chỉ Trưởng/Phó nhóm mới được tạo bình chọn.' });
+          }
+        }
+
         const pollContent = JSON.stringify({
           question,
           options: options.map((opt, idx) => ({ id: idx, text: opt, votes: [] })),
@@ -498,9 +526,9 @@ const setupSocketEvents = (io) => {
         );
 
         // Broadcast to all participants
-        const conversation = await Conversation.findOne({ conversationId });
-        if (conversation) {
-          conversation.participants.forEach(p => {
+        const conv = await Conversation.findOne({ conversationId });
+        if (conv) {
+          conv.participants.forEach(p => {
             io.to(`user_${p.userId}`).emit('message_received', {
               messageId: pollMsg._id,
               conversationId,

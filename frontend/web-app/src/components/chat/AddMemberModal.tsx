@@ -40,8 +40,8 @@ const AddMemberModal = ({ isOpen, onClose, onConfirm, existingMemberIds }: AddMe
   const filtered = contacts.filter((c) => {
     const uid = String(c.contactUserId || c.id);
     if (existingMemberIds.includes(uid)) return false;
-    
-    return (c.nickname || c.fullName || '').toLowerCase().includes(searchText.toLowerCase()) || c.phone?.includes(searchText);
+
+    return (c.fullName || '').toLowerCase().includes(searchText.toLowerCase()) || c.phone?.includes(searchText);
   });
 
   const toggleSelect = (id: string) => {
@@ -60,7 +60,7 @@ const AddMemberModal = ({ isOpen, onClose, onConfirm, existingMemberIds }: AddMe
 
   const modalContent = (
     <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 animate-fadeIn" onClick={onClose}>
-      <div 
+      <div
         className="w-[400px] h-[550px] bg-[var(--bg-panel)] rounded-xl flex flex-col shadow-2xl relative overflow-hidden"
         onClick={(e) => e.stopPropagation()}
         style={{ animation: 'fadeIn 0.2s ease-out' }}
@@ -105,20 +105,18 @@ const AddMemberModal = ({ isOpen, onClose, onConfirm, existingMemberIds }: AddMe
             filtered.map((c) => {
               const uid = String(c.contactUserId || c.id);
               const isSelected = selectedIds.has(uid);
-              const name = c.nickname || c.fullName;
+              const name = c.fullName || '';
               const avatar = c.avatarUrl;
 
               return (
                 <div
                   key={uid}
-                  className={`flex items-center px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors ${
-                    isSelected ? 'bg-[rgba(0,104,255,0.05)]' : ''
-                  }`}
+                  className={`flex items-center px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors ${isSelected ? 'bg-[rgba(0,104,255,0.05)]' : ''
+                    }`}
                   onClick={() => toggleSelect(uid)}
                 >
-                  <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center transition-colors ${
-                    isSelected ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)]' : 'border-[#d1d5db]'
-                  }`}>
+                  <div className={`w-5 h-5 rounded-full border-2 mr-3 flex items-center justify-center transition-colors ${isSelected ? 'bg-[var(--accent-primary)] border-[var(--accent-primary)]' : 'border-[#d1d5db]'
+                    }`}>
                     {isSelected && <Check size={12} color="#fff" strokeWidth={3} />}
                   </div>
                   <div
@@ -128,7 +126,7 @@ const AddMemberModal = ({ isOpen, onClose, onConfirm, existingMemberIds }: AddMe
                     {avatar ? (
                       <img src={avatar} alt={name} className="w-full h-full object-cover" />
                     ) : (
-                      name.charAt(0).toUpperCase()
+                      name ? name.charAt(0).toUpperCase() : '?'
                     )}
                   </div>
                   <span className="ml-3 text-[var(--text-primary)] font-medium flex-1 truncate">{name}</span>
@@ -149,9 +147,8 @@ const AddMemberModal = ({ isOpen, onClose, onConfirm, existingMemberIds }: AddMe
           <button
             onClick={handleConfirm}
             disabled={selectedIds.size === 0}
-            className={`px-5 py-2 rounded-lg font-medium text-white transition-opacity ${
-              selectedIds.size === 0 ? 'bg-[var(--text-tertiary)] opacity-50 cursor-not-allowed' : 'bg-[var(--accent-primary)] hover:opacity-90'
-            }`}
+            className={`px-5 py-2 rounded-lg font-medium text-white transition-opacity ${selectedIds.size === 0 ? 'bg-[var(--text-tertiary)] opacity-50 cursor-not-allowed' : 'bg-[var(--accent-primary)] hover:opacity-90'
+              }`}
           >
             Thêm
           </button>

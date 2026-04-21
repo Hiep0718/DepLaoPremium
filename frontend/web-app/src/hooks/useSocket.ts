@@ -195,12 +195,13 @@ export const useSocketSetup = () => {
       socket.on('message_reacted', (data: any) => {
         const state = useChatStore.getState();
         const msgId = data.messageId;
-        const currentMsg = state.messages.find(m => m.id === msgId || m._id === msgId);
+        
+        const payload: any = { reactions: data.reactions };
+        if (data.content !== undefined) {
+          payload.content = data.content;
+        }
 
-        state.updateMessage(msgId, {
-          reactions: data.reactions,
-          content: data.content || currentMsg?.content
-        });
+        state.updateMessage(msgId, payload);
       });
 
       socket.on('message_revoked', (data: any) => {

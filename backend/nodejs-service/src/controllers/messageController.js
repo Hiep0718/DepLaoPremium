@@ -613,8 +613,33 @@ export const removeMemberFromGroup = async (req, res) => {
 
     // Cho phép tự rời nhóm, hoặc kiểm tra quyền nếu xoá người khác
     if (requesterId === targetUserId) {
-      if (requester.role === 'leader' && conversation.participants.length > 1) {
-        return res.status(400).json({ success: false, message: 'Vui lòng trao quyền trưởng nhóm cho người khác trước khi rời nhóm' });
+      if (requester.role === 'leader') {
+        // Tự động giải tán nhóm nếu người rời là nhóm trưởng
+        if (req.io) {
+          try {
+            const sysContent = `group_disbanded:${requesterId}`;
+            const payload = {
+              messageId: `disband_${conversationId}_${Date.now()}`,
+              conversationId,
+              senderId: requesterId,
+              messageType: 'system',
+              content: sysContent,
+              timestamp: new Date().toISOString(),
+              status: 'received',
+            };
+
+            conversation.participants.forEach(p => {
+              req.io.to(`user_${p.userId}`).emit('message_received', payload);
+            });
+          } catch (err) {
+            console.error('Failed to emit disband notification:', err);
+          }
+        }
+        await Conversation.deleteOne({ conversationId });
+        return res.status(200).json({
+          success: true,
+          message: 'Group disbanded successfully because the leader left',
+        });
       }
     } else {
       if (requester.role === 'member') {
@@ -935,6 +960,13 @@ export const updateGroupInfo = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Requester not in group' });
     }
 
+    // Role check for changeInfo
+    if (conversation.groupSettings?.changeInfo === 'admin_only') {
+      if (requester.role !== 'leader' && requester.role !== 'deputy') {
+        return res.status(403).json({ success: false, message: 'Only leader or deputy can change group info' });
+      }
+    }
+
     const updates = [];
     if (groupName !== undefined && groupName !== conversation.groupName) {
       conversation.groupName = groupName;
@@ -1159,6 +1191,54 @@ export const approvePendingMember = async (req, res) => {
   } catch (error) {
     console.error('Approve member error:', error);
     res.status(500).json({ success: false, message: 'Failed to approve member', error: error.message });
+  }
+};
+
+// API cập nhật cài đặt phân quyền nhóm (Group Permissions)
+export const updateGroupPermissions = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { requesterId, settings } = req.body;
+
+    if (!conversationId || !requesterId || !settings) {
+      return res.status(400).json({ success: false, message: 'Missing fields' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation || !conversation.isGroup) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const requester = conversation.participants.find(p => p.userId === requesterId);
+    if (!requester || (requester.role !== 'leader' && requester.role !== 'deputy')) {
+      return res.status(403).json({ success: false, message: 'Only leader or deputy can change group permissions' });
+    }
+
+    if (!conversation.groupSettings) {
+      conversation.groupSettings = { sendMessages: 'all', pinAndPolls: 'all', changeInfo: 'all' };
+    }
+
+    // Cập nhật các trường được truyền lên
+    if (settings.sendMessages) conversation.groupSettings.sendMessages = settings.sendMessages;
+    if (settings.pinAndPolls) conversation.groupSettings.pinAndPolls = settings.pinAndPolls;
+    if (settings.changeInfo) conversation.groupSettings.changeInfo = settings.changeInfo;
+
+    await conversation.save();
+
+    // Phát socket cho tất cả thành viên trong nhóm
+    if (req.io) {
+      conversation.participants.forEach(p => {
+        req.io.to(`user_${p.userId}`).emit('group_settings_updated', {
+          conversationId,
+          settings: { groupSettings: conversation.groupSettings }
+        });
+      });
+    }
+
+    res.status(200).json({ success: true, message: 'Group permissions updated', data: conversation });
+  } catch (error) {
+    console.error('Update group permissions error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update permissions', error: error.message });
   }
 };
 

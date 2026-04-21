@@ -38,6 +38,11 @@ const conversationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    groupSettings: {
+      sendMessages: { type: String, enum: ['all', 'admin_only'], default: 'all' },
+      pinAndPolls: { type: String, enum: ['all', 'admin_only'], default: 'all' },
+      changeInfo: { type: String, enum: ['all', 'admin_only'], default: 'all' },
+    },
     pendingMembers: [
       {
         userId: String,

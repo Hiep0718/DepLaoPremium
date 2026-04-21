@@ -13,7 +13,6 @@ interface Contact {
   id: string; // fallback
   contactUserId: string;
   fullName: string;
-  nickname?: string;
   avatarUrl?: string;
   phone: string;
 }
@@ -29,21 +28,21 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function AddMemberModal({ visible, onClose, conversationId, onConfirm }: AddMemberModalProps) {
   const { currentUserId } = useSocket();
-  
+
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
   const [existingMemberIds, setExistingMemberIds] = useState<Set<string>>(new Set());
-  
+
   const [isLoading, setIsLoading] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
-  
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
 
   // Initialization: load contacts and existing members
   useEffect(() => {
     if (!visible || !currentUserId) return;
-    
+
     // Reset state
     setSearchTerm('');
     setSelectedUserIds(new Set());
@@ -59,7 +58,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
         } catch (err) {
           console.log('Error loading contacts:', err);
         }
-        
+
         // 2. Load conversation to find existing members
         const existingIds = new Set<string>();
         try {
@@ -68,7 +67,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
           const conversationsRaw = resConversations.data?.data || resConversations.data;
           const conversations = Array.isArray(conversationsRaw) ? conversationsRaw : [];
           const currentConv = conversations.find((c: any) => c.conversationId === conversationId);
-          
+
           if (currentConv && currentConv.participants) {
             currentConv.participants.forEach((p: any) => {
               // participants are objects with { userId: "...", role: "..." }
@@ -97,7 +96,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
         setIsLoading(false);
       }
     };
-    
+
     initData();
   }, [visible, currentUserId, conversationId]);
 
@@ -109,7 +108,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
     }
     const lower = searchTerm.toLowerCase();
     const filtered = contacts.filter((c) => {
-      const name = (c.nickname || c.fullName || '').toLowerCase();
+      const name = (c.fullName || '').toLowerCase();
       const phone = (c.phone || '').toLowerCase();
       return name.includes(lower) || phone.includes(lower);
     });
@@ -119,7 +118,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
   const toggleSelectUser = (user: Contact) => {
     const uid = String(user.contactUserId || user.id);
     if (!uid) return;
-    
+
     setSelectedUserIds((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(uid)) {
@@ -133,7 +132,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
 
   const handleConfirm = async () => {
     if (!currentUserId || selectedUserIds.size === 0) return;
-    
+
     setIsAdding(true);
     try {
       await onConfirm(Array.from(selectedUserIds));
@@ -157,19 +156,19 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
             <Text style={{ fontSize: 16, color: '#000' }}>Hủy</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Thêm thành viên</Text>
-          <TouchableOpacity 
-            style={[styles.headerBtn, { alignItems: 'flex-end' }]} 
+          <TouchableOpacity
+            style={[styles.headerBtn, { alignItems: 'flex-end' }]}
             onPress={handleConfirm}
             disabled={selectedUserIds.size === 0 || isAdding}
           >
             {isAdding ? (
               <ActivityIndicator size="small" color={ZaloColors.blue} />
             ) : (
-              <Text 
-                style={{ 
-                  fontSize: 16, 
-                  fontWeight: '600', 
-                  color: selectedUserIds.size > 0 ? ZaloColors.blue : '#999' 
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: selectedUserIds.size > 0 ? ZaloColors.blue : '#999'
                 }}
               >
                 Xong
@@ -181,7 +180,7 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
         {/* SEARCH BOX */}
         <View style={styles.searchBox}>
           <Ionicons name="search" size={18} color="#888" style={{ marginRight: 8 }} />
-          <TextInput 
+          <TextInput
             style={styles.searchInput}
             placeholder="Tìm tên hoặc số điện thoại"
             placeholderTextColor="#888"
@@ -193,15 +192,15 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
         {/* SELECTED USERS PREVIEW BAR */}
         {selectedUsersList.length > 0 && (
           <View style={styles.selectedBar}>
-            <FlatList 
+            <FlatList
               horizontal
               data={selectedUsersList}
               keyExtractor={(item) => String(item.contactUserId || item.id)}
               showsHorizontalScrollIndicator={false}
               renderItem={({ item }) => {
-                const name = item.nickname || item.fullName || '?';
+                const name = item.fullName || '?';
                 return (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.selectedAvatarWrap}
                     onPress={() => toggleSelectUser(item)}
                   >
@@ -241,10 +240,10 @@ export default function AddMemberModal({ visible, onClose, conversationId, onCon
               renderItem={({ item }) => {
                 const uid = String(item.contactUserId || item.id);
                 const isSelected = selectedUserIds.has(uid);
-                const name = item.nickname || item.fullName || '?';
+                const name = item.fullName || '?';
 
                 return (
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.contactRow}
                     activeOpacity={0.7}
                     onPress={() => toggleSelectUser(item)}

@@ -145,4 +145,19 @@ export const rejectPendingMember = async (
     requesterId,
     targetUserIds,
   });
+};
+
+export const updateGroupPermissions = async (
+  conversationId: string,
+  requesterId: string,
+  settings: {
+    sendMessages?: 'all' | 'admin_only';
+    pinAndPolls?: 'all' | 'admin_only';
+    changeInfo?: 'all' | 'admin_only';
+  }
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/permissions`, {
+    requesterId,
+    settings,
+  });
 };

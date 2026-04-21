@@ -39,6 +39,11 @@ export interface Conversation {
   groupAvatar?: string;
   requireApproval?: boolean;
   pendingMembers?: any[];
+  groupSettings?: {
+    sendMessages?: string;
+    pinAndPolls?: string;
+    changeInfo?: string;
+  };
 
   lastMessage?: string | any;
   unreadCount?: number;

@@ -20,6 +20,7 @@ export interface Conversation {
   };
   isGroup: boolean;
   groupName?: string;
+  groupAvatar?: string;
   otherUser?: {
     id: string;
     fullName: string;
@@ -211,12 +212,29 @@ export function MessagesScreen() {
       }
     };
 
+    const handleGroupUpdated = (data: any) => {
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.conversationId === data.conversationId);
+        if (idx > -1) {
+          const updatedConv = { ...prev[idx] };
+          if (data.groupName) updatedConv.groupName = data.groupName;
+          if (data.groupAvatar) updatedConv.groupAvatar = data.groupAvatar;
+          const newList = [...prev];
+          newList[idx] = updatedConv;
+          return newList;
+        }
+        return prev;
+      });
+    };
+
     socket.on('message_received', handleNewMessage);
     socket.on('message_sent', handleNewMessage);
+    socket.on('group_updated', handleGroupUpdated);
 
     return () => {
       socket.off('message_received', handleNewMessage);
       socket.off('message_sent', handleNewMessage);
+      socket.off('group_updated', handleGroupUpdated);
     };
   }, [socket]);
 
@@ -316,13 +334,15 @@ export function MessagesScreen() {
             c.conversationId === item.conversationId ? { ...c, unreadCount: 0 } : c
           ));
 
-          // Gọi API đánh dấu đã đọc trên backend
-          try {
-            await chatApiClient.put(`/conversations/${item.conversationId}/read`, {
-              userId: currentUserId,
-            });
-          } catch (e) {
-            console.log('Failed to mark as read', e);
+          // Gọi API đánh dấu đã đọc trên backend (bỏ qua AI conversation)
+          if (!item.isAiBot && !item.conversationId.startsWith('ai_')) {
+            try {
+              await chatApiClient.put(`/conversations/${item.conversationId}/read`, {
+                userId: currentUserId,
+              });
+            } catch (e) {
+              console.log('Failed to mark as read', e);
+            }
           }
 
           router.push({
@@ -330,13 +350,21 @@ export function MessagesScreen() {
             params: {
               id: item.conversationId,
               name: name,
-              recipientId: item.otherUser?.id,
-              avatar: item.otherUser?.avatarUrl
+              recipientId: item.isGroup ? "" : (item.otherUser?.id || ""),
+              avatar: item.isGroup ? (item.groupAvatar || "") : (item.otherUser?.avatarUrl || "")
             }
           });
         }}
       >
-        {item.otherUser?.avatarUrl ? (
+        {item.isGroup ? (
+          item.groupAvatar ? (
+            <Image source={{ uri: item.groupAvatar }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#e1bee7' }]}>
+              <Ionicons name="people" size={24} color="#8e24aa" />
+            </View>
+          )
+        ) : item.otherUser?.avatarUrl ? (
           <Image source={{ uri: item.otherUser.avatarUrl }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center' }]}>
