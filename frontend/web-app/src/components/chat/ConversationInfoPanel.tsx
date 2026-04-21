@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { clearAiHistory } from '../../services/aiChat.service';
@@ -1167,7 +1168,7 @@ const ConversationInfoPanel = () => {
         existingMemberIds={activeConversation?.participants?.map((p: any) => String(p.userId || p.id)) || []}
       />
 
-      {isRenameModalOpen && (
+      {isRenameModalOpen && createPortal(
         <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
           <div className="w-full max-w-sm rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
             style={{ background: 'var(--bg-panel)' }}>
@@ -1220,10 +1221,10 @@ const ConversationInfoPanel = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
 
-      {isGroupManagementModalOpen && (
+      {isGroupManagementModalOpen && createPortal(
         <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
           <div className="w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
             style={{ background: 'var(--bg-panel)' }}>
@@ -1344,7 +1345,7 @@ const ConversationInfoPanel = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
 
       <MediaArchiveModal

@@ -75,7 +75,7 @@ const JoinGroup = () => {
             <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl w-full mb-6">
               <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
                 {groupData?.groupAvatar ? (
-                  <img src={groupData.groupAvatar} className="w-full h-full rounded-full object-cover" />
+                  <img src={groupData.groupAvatar} className="w-full h-full rounded-full object-cover" alt="Group Avatar" />
                 ) : (
                   <Users size={24} />
                 )}
@@ -125,11 +125,5 @@ const JoinGroup = () => {
     </div>
   );
 };
-
-const Clock = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-  </svg>
-);
 
 export default JoinGroup;

@@ -589,12 +589,12 @@ const MessageList = () => {
         )}
         {/* Time overlay */}
         <div className="flex justify-end mt-1 px-1">
-          <span className="text-[10px] flex items-center gap-0.5 select-none"
-            style={{ color: 'var(--text-msg-time)' }}>
+          <span className="text-[11px] flex items-center gap-0.5 select-none"
+            style={{ color: '#6b7b8d' }}>
             {format(msgTime, 'HH:mm')}
             {isMe && (
               <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             )}
@@ -661,12 +661,12 @@ const MessageList = () => {
           </a>
         )}
         {/* Time inside file bubble */}
-        <span className="text-[10px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
-          style={{ color: 'var(--text-msg-time)' }}>
+        <span className="text-[11px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
+          style={{ color: '#6b7b8d' }}>
           {format(msgTime, 'HH:mm')}
           {isMe && (
             <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
           )}
@@ -747,12 +747,12 @@ const MessageList = () => {
 
         {/* Time overlay */}
         <div className="flex justify-end mt-1 px-1">
-          <span className="text-[10px] flex items-center gap-0.5 select-none"
-            style={{ color: 'var(--text-msg-time)' }}>
+          <span className="text-[11px] flex items-center gap-0.5 select-none"
+            style={{ color: '#6b7b8d' }}>
             {format(msgTime, 'HH:mm')}
             {isMe && (
               <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
             )}
@@ -989,7 +989,7 @@ const MessageList = () => {
     <>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
-        {pinnedMessage && (
+        {pinnedMessage && pinnedMessage.messageId && (
           <div className="sticky top-0 z-40 bg-[var(--bg-panel)] shadow-sm border border-[var(--border-light)] rounded-lg p-2.5 flex items-center justify-between mb-3 w-full opacity-95">
             <div className="flex items-center gap-3 overflow-hidden">
               <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
@@ -1516,12 +1516,12 @@ const MessageList = () => {
                                   Tham gia
                                 </button>
                                 {/* Time overlay */}
-                                <span className="text-[10px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
-                                  style={{ color: 'var(--text-msg-time)', marginTop: '-2px' }}>
+                                <span className="text-[11px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
+                                  style={{ color: '#6b7b8d', marginTop: '-2px' }}>
                                   {format(msgTime, 'HH:mm')}
                                   {isMe && (
                                     <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                      stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                       <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
                                   )}
@@ -1572,12 +1572,12 @@ const MessageList = () => {
                                     )}
                                   </div>
                                   {settings.showMessageTime && (
-                                    <span className={`${isAiConversation && !isMe ? 'mt-1 flex' : 'absolute bottom-1.5 right-2.5 flex'} text-[10px] items-center gap-0.5 select-none whitespace-nowrap opacity-70 justify-end`}
-                                      style={{ color: isMe ? 'rgba(255,255,255,0.8)' : 'var(--text-msg-time)' }}>
+                                    <span className={`${isAiConversation && !isMe ? 'mt-1 flex' : 'absolute bottom-1.5 right-2.5 flex'} text-[11px] items-center gap-0.5 select-none whitespace-nowrap justify-end`}
+                                      style={{ color: '#6b7b8d' }}>
                                       {format(msgTime, 'HH:mm')}
                                       {isMe && (
                                         <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none"
-                                          stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                          stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                           <polyline points="20 6 9 17 4 12"></polyline>
                                         </svg>
                                       )}

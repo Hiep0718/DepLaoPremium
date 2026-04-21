@@ -116,7 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
   setConversations: (conversations) => set({ conversations }),
-  setActiveConversation: (activeConversation) => set({ activeConversation }),
+  setActiveConversation: (activeConversation) => set({ activeConversation, pinnedMessage: null }),
   updateActiveConversation: (updates) => set((state) => ({
     activeConversation: state.activeConversation
       ? { ...state.activeConversation, ...updates }

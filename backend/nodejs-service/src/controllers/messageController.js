@@ -84,7 +84,7 @@ export const getMessages = async (req, res) => {
         if (conversation.deletedAt && conversation.deletedAt.get(userId)) {
           query.createdAt = { $gt: conversation.deletedAt.get(userId) };
         }
-        pinnedMessage = conversation.pinnedMessage;
+        pinnedMessage = conversation.pinnedMessage && conversation.pinnedMessage.messageId ? conversation.pinnedMessage : null;
 
         // If user deleted the chat, only show messages after deletion
         if (conversation.deletedAt && conversation.deletedAt.get(userId)) {
