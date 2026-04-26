@@ -1,4 +1,4 @@
-import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Trash2, Loader2 } from 'lucide-react';
+import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Trash2, Loader2, Users, MoreHorizontal } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useCallStore } from '../../stores/callStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -130,6 +130,13 @@ const ChatHeader = () => {
                 <span className="text-xs" style={{ color: '#f97316' }}>Trợ lý ẩm thực • Online</span>
               )}
             </div>
+          ) : activeConversation?.isGroup ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Users size={12} style={{ color: 'var(--text-secondary)' }} />
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {activeConversation.participants?.length || 0} thành viên
+              </span>
+            </div>
           ) : contact && (
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -206,6 +213,22 @@ const ChatHeader = () => {
             title="Thông tin hội thoại"
           >
             {isInfoPanelOpen ? <PanelRightClose size={20} strokeWidth={1.5} /> : <PanelRightOpen size={20} strokeWidth={1.5} />}
+          </button>
+
+          {/* More menu button (Zalo style) */}
+          <button className="p-2.5 rounded-lg transition-all duration-150"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="Thêm"
+          >
+            <MoreHorizontal size={20} strokeWidth={1.5} />
           </button>
         </div>
       )}

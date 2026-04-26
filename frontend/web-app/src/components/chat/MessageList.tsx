@@ -170,6 +170,8 @@ const AI_WELCOME_SUGGESTIONS = [
 const MessageList = () => {
   const [editingPoll, setEditingPoll] = useState<{ isOpen: boolean, msgId: string, initialData?: any } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const { activeConversation, messages, setMessages, setReplyingMessage, setForwardingMessage, updateMessage, activeContactInfo, pinnedMessage, setPinnedMessage } = useChatStore();
   const { user } = useAuthStore();
   const { settings } = useSettingsStore();
@@ -339,6 +341,18 @@ const MessageList = () => {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Scroll-to-bottom tracking
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 200);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
   // Socket listener for revoke and reaction
   useEffect(() => {
@@ -988,38 +1002,41 @@ const MessageList = () => {
   return (
     <>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
         {pinnedMessage && pinnedMessage.messageId && (
-          <div className="sticky top-0 z-40 bg-[var(--bg-panel)] shadow-sm border border-[var(--border-light)] rounded-lg p-2.5 flex items-center justify-between mb-3 w-full opacity-95">
-            <div className="flex items-center gap-3 overflow-hidden">
-              <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                <Pin size={16} className="text-blue-600" />
-              </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-semibold text-[var(--text-primary)]">Tin nhắn ghim</span>
-                <span className="text-sm truncate text-[var(--text-secondary)]">
-                  {pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
-                    pinnedMessage.messageType === 'video' ? '[Video]' :
-                      pinnedMessage.messageType === 'audio' ? '[Tin nhắn thoại]' :
-                        pinnedMessage.messageType === 'file' ? '[Tệp]' :
-                          pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
-                            pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
-                              pinnedMessage.content}
-                </span>
-              </div>
+          <div className="sticky top-0 z-40 flex items-center justify-between px-4 py-2 mb-2 cursor-pointer"
+            style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-light)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+            <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
+              <Pin size={14} className="text-blue-600 shrink-0" />
+              <span className="text-[13px] truncate" style={{ color: 'var(--text-primary)' }}>
+                {pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
+                  pinnedMessage.messageType === 'video' ? '[Video]' :
+                    pinnedMessage.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                      pinnedMessage.messageType === 'file' ? '[Tệp]' :
+                        pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                          pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
+                            pinnedMessage.content}
+              </span>
             </div>
-            <button className="p-1 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
-              onClick={() => {
-                if (user) {
-                  socket.emit('unpin_message', { conversationId: activeConversation?.conversationId, userId: user.id.toString() });
-                }
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-secondary)' }}>
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
+            <div className="flex items-center gap-2 shrink-0 ml-3">
+              <span className="text-[12px] px-2 py-0.5 rounded font-medium whitespace-nowrap"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-secondary)' }}>
+                +1 ghim
+              </span>
+              <button className="p-1 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (user) {
+                    socket.emit('unpin_message', { conversationId: activeConversation?.conversationId, userId: user.id.toString() });
+                  }
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-secondary)' }}>
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 
@@ -1351,8 +1368,8 @@ const MessageList = () => {
                       {isMe && actionMenu}
 
                       <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                        {/* Sender Name in Group Chat */}
-                        {!isMe && activeConversation.isGroup && isFirstInCluster && (
+                        {/* Sender Name in Group Chat (for non-text types: show above bubble) */}
+                        {!isMe && activeConversation.isGroup && isFirstInCluster && !msg.isRevoked && msg.messageType && msg.messageType !== 'text' && (
                           <div className="flex items-center gap-2 mb-1 ml-1">
                             <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
                               {msgSenderName}
@@ -1552,6 +1569,23 @@ const MessageList = () => {
                                       ? '1px solid var(--border-primary)'
                                       : undefined,
                                   }}>
+                                  {/* Sender name INSIDE bubble (Zalo style) */}
+                                  {!isMe && activeConversation.isGroup && isFirstInCluster && (
+                                    <div className="flex items-center gap-2 mb-0.5">
+                                      <span className="text-[13px] font-semibold" style={{ color: '#0068FF' }}>
+                                        {msgSenderName}
+                                      </span>
+                                      {(() => {
+                                        const participant = activeConversation.participants?.find(
+                                          (p: any) => String(p.userId || p.id || p) === String(msg.senderId)
+                                        );
+                                        const role = (participant as any)?.role;
+                                        if (role === 'leader') return <span className="text-[9px] px-1 rounded bg-[#fff7ed] text-[#f59e0b] font-bold border border-[#f59e0b40] uppercase">Trưởng nhóm</span>;
+                                        if (role === 'deputy') return <span className="text-[9px] px-1 rounded bg-[#f0fdf4] text-[#10b981] font-bold border border-[#10b98140] uppercase">Phó nhóm</span>;
+                                        return null;
+                                      })()}
+                                    </div>
+                                  )}
 
                                   <div className={isAiConversation && !isMe ? '' : 'pr-12'}>
                                     {isAiConversation && !isMe ? (
@@ -1669,6 +1703,24 @@ const MessageList = () => {
           )}
 
           <div ref={bottomRef} className="h-4" />
+
+          {/* Scroll to bottom button (Zalo style) */}
+          {showScrollToBottom && (
+            <button
+              onClick={scrollToBottom}
+              className="fixed bottom-28 right-8 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 z-50"
+              style={{
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border-primary)',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+              }}
+              title="Cuộn xuống cuối"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+          )}
 
           <style>{`
             @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }

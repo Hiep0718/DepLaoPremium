@@ -14,11 +14,15 @@ import { useAuthStore } from './stores/authStore';
 
 import CallManager from './components/call/CallManager';
 import GroupCallManager from './components/call/GroupCallManager';
+import { useFaviconBadge } from './hooks/useFaviconBadge';
 
 function App() {
   const { isDark } = useThemeStore();
   const { user } = useAuthStore();
   const { loadSettings } = useSettingsStore();
+
+  // Dynamic favicon badge with unread count
+  useFaviconBadge();
 
   // Apply dark class
   useEffect(() => {

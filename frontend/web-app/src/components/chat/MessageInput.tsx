@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
   ScreenShare, Code, Type, X, FileText, Film, Loader2,
-  Mic, Trash2, Contact, BarChart2
+  Mic, Trash2, Contact, BarChart2, MoreHorizontal
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
 import CreatePollModal from './CreatePollModal';
@@ -618,6 +618,25 @@ const MessageInput = () => {
             <btn.icon size={19} strokeWidth={1.5} />
           </button>
         ))}
+
+        {/* More button (Zalo style) */}
+        {!isAiConversation && (
+          <button type="button"
+            className="p-2 rounded-md transition-all duration-150 hover:scale-105"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="Thêm"
+          >
+            <MoreHorizontal size={19} strokeWidth={1.5} />
+          </button>
+        )}
 
         {/* Sticker Picker Popover */}
         {showStickers && (
