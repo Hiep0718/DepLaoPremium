@@ -176,12 +176,21 @@ export function MessagesScreen() {
   useEffect(() => {
     if (!socket) return;
     const handleNewMessage = (data: any) => {
+      const msgContent = data.text || data.content || '';
+      const msgType = data.messageType || '';
+
+      // ═══ Giải tán nhóm: Xóa conversation khỏi danh sách ═══
+      if (msgType === 'system' && typeof msgContent === 'string' && msgContent.startsWith('group_disbanded:')) {
+        setConversations(prev => prev.filter(c => c.conversationId !== data.conversationId));
+        return;
+      }
+
       setConversations(prev => {
         const idx = prev.findIndex(c => c.conversationId === data.conversationId);
         if (idx > -1) {
           const updatedConv = { ...prev[idx] };
           updatedConv.lastMessage = {
-            content: data.text || data.content,
+            content: msgContent,
             senderId: data.senderId,
             timestamp: data.timestamp || new Date().toISOString(),
             ...(data.messageType ? { messageType: data.messageType } : {}),

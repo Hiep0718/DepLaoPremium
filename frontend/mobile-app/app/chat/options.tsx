@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Alert, ActivityIndicator, Modal, TextInput, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Alert, ActivityIndicator, Modal, TextInput, Linking, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -298,7 +299,7 @@ export default function ChatOptionsScreen() {
   // Leave group
   const handleLeaveGroup = () => {
     const alertMessage = myRole === 'leader' 
-      ? 'Bạn là trưởng nhóm. Việc rời nhóm sẽ tự động giải tán nhóm này hoàn toàn. Bạn có chắc chắn muốn rời?'
+      ? 'Bạn là trưởng nhóm. Nếu rời nhóm, quyền trưởng nhóm sẽ được tự động chuyển cho phó nhóm hoặc thành viên vào sớm nhất. Bạn có chắc chắn muốn rời?'
       : 'Bạn có chắc chắn muốn rời khỏi nhóm này?';
       
     Alert.alert('Rời nhóm', alertMessage, [
@@ -950,21 +951,55 @@ export default function ChatOptionsScreen() {
                   </Text>
                   <View style={styles.inviteLinkRow}>
                     <Text style={styles.inviteLinkText} numberOfLines={1}>
-                      {`http://localhost:5173/join/${inviteCode}`}
+                      {inviteCode ? `https://localhost:5173/join/${inviteCode}` : 'Đang tải...'}
                     </Text>
                     <TouchableOpacity 
                       style={styles.copyBtn}
-                      onPress={() => {
-                        // Assuming Clipboard from expo or react-native is available
-                        // Since I don't want to add new deps if not there, I'll use Alert as fallback or just simulate
-                        Alert.alert('Thông báo', 'Đã sao chép link!');
+                      onPress={async () => {
+                        if (!inviteCode) return;
+                        const link = `https://localhost:5173/join/${inviteCode}`;
+                        await Clipboard.setStringAsync(link);
+                        Alert.alert('Thành công', 'Đã sao chép link tham gia nhóm!');
                       }}
                     >
                       <Text style={styles.copyBtnText}>SAO CHÉP</Text>
                     </TouchableOpacity>
                   </View>
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                    <TouchableOpacity 
+                      style={[styles.resetLinkBtn, { flex: 1, justifyContent: 'center' }]}
+                      onPress={async () => {
+                        if (!inviteCode) return;
+                        const link = `https://localhost:5173/join/${inviteCode}`;
+                        try {
+                          await Share.share({
+                            message: `Tham gia nhóm chat: ${link}`,
+                            url: link,
+                          });
+                        } catch (err) {
+                          console.log('Share error:', err);
+                        }
+                      }}
+                    >
+                      <Ionicons name="share-social-outline" size={16} color={ZaloColors.blue} />
+                      <Text style={styles.resetLinkText}>Chia sẻ link</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={[styles.resetLinkBtn, { flex: 1, justifyContent: 'center' }]}
+                      onPress={() => {
+                        if (!inviteCode) return;
+                        router.push({
+                          pathname: '/join/[inviteCode]',
+                          params: { inviteCode },
+                        });
+                      }}
+                    >
+                      <Ionicons name="open-outline" size={16} color={ZaloColors.blue} />
+                      <Text style={styles.resetLinkText}>Mở link</Text>
+                    </TouchableOpacity>
+                  </View>
                   {(myRole === 'leader' || myRole === 'deputy') && (
-                    <TouchableOpacity style={styles.resetLinkBtn} onPress={handleResetInvite}>
+                    <TouchableOpacity style={[styles.resetLinkBtn, { marginTop: 10 }]} onPress={handleResetInvite}>
                       <Ionicons name="refresh" size={16} color={ZaloColors.blue} />
                       <Text style={styles.resetLinkText}>Đổi link mới</Text>
                     </TouchableOpacity>

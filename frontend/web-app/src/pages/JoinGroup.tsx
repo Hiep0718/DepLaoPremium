@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
-import { joinGroupByInviteCode } from '../services/message.service';
+import { joinGroupByInviteCode, getConversationsList } from '../services/message.service';
 import { Loader2, Users, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { useChatStore } from '../stores/chatStore';
 
 const JoinGroup = () => {
   const { inviteCode } = useParams();
@@ -25,6 +26,20 @@ const JoinGroup = () => {
           setStatus('success');
           setMessage('Tham gia nhóm thành công!');
           setGroupData(res.data.data);
+
+          // Reload conversations and set the joined group as active
+          try {
+            const convRes = await getConversationsList(String(user.id));
+            const list = convRes.data?.data || convRes.data;
+            if (Array.isArray(list)) {
+              useChatStore.getState().setConversations(list);
+              const joinedConv = list.find((c: any) => c.conversationId === res.data.data?.conversationId);
+              if (joinedConv) {
+                useChatStore.getState().setActiveConversation(joinedConv);
+              }
+            }
+          } catch { /* ignore reload error */ }
+
           // Redirect after a short delay
           setTimeout(() => {
             navigate('/chat');

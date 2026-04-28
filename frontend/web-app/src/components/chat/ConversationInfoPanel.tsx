@@ -263,7 +263,7 @@ const ConversationInfoPanel = () => {
     if (!activeConversation?.conversationId || !user?.id) return;
 
     const confirmMessage = myRole === 'leader'
-      ? "Bạn là trưởng nhóm. Việc rời nhóm sẽ tự động giải tán nhóm này hoàn toàn. Bạn có chắc chắn muốn rời?"
+      ? "Bạn là trưởng nhóm. Nếu rời nhóm, quyền trưởng nhóm sẽ được tự động chuyển cho phó nhóm hoặc thành viên vào sớm nhất. Bạn có chắc chắn muốn rời?"
       : "Bạn có chắc chắn muốn rời khỏi nhóm này không?";
 
     if (!window.confirm(confirmMessage)) return;

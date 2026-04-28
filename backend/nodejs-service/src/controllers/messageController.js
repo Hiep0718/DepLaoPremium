@@ -620,32 +620,90 @@ export const removeMemberFromGroup = async (req, res) => {
     // Cho phép tự rời nhóm, hoặc kiểm tra quyền nếu xoá người khác
     if (requesterId === targetUserId) {
       if (requester.role === 'leader') {
-        // Tự động giải tán nhóm nếu người rời là nhóm trưởng
+        // ═══ Tự động chuyển quyền trưởng nhóm trước khi rời ═══
+        // Ưu tiên: 1) Phó nhóm, 2) Thành viên vào sớm nhất
+        const otherParticipants = conversation.participants.filter(p => p.userId !== requesterId);
+
+        if (otherParticipants.length === 0) {
+          // Nếu nhóm chỉ còn mình leader → giải tán
+          if (req.io) {
+            try {
+              const sysContent = `group_disbanded:${requesterId}`;
+              const payload = {
+                messageId: `disband_${conversationId}_${Date.now()}`,
+                conversationId,
+                senderId: requesterId,
+                messageType: 'system',
+                content: sysContent,
+                timestamp: new Date().toISOString(),
+                status: 'received',
+              };
+              conversation.participants.forEach(p => {
+                req.io.to(`user_${p.userId}`).emit('message_received', payload);
+                req.io.to(`user_${p.userId}`).emit('group_disbanded', {
+                  conversationId,
+                  requesterId,
+                });
+              });
+            } catch (err) {
+              console.error('Failed to emit disband notification:', err);
+            }
+          }
+          await Conversation.deleteOne({ conversationId });
+          return res.status(200).json({
+            success: true,
+            message: 'Group disbanded because the last member left',
+          });
+        }
+
+        // Tìm người kế nhiệm: ưu tiên phó nhóm, nếu không có thì thành viên vào sớm nhất
+        let successor = otherParticipants.find(p => p.role === 'deputy');
+        if (!successor) {
+          successor = otherParticipants.sort((a, b) => {
+            const dateA = a.joinedAt ? new Date(a.joinedAt).getTime() : 0;
+            const dateB = b.joinedAt ? new Date(b.joinedAt).getTime() : 0;
+            return dateA - dateB;
+          })[0];
+        }
+
+        // Cập nhật vai trò: người kế nhiệm thành leader
+        const successorInList = conversation.participants.find(p => p.userId === successor.userId);
+        if (successorInList) {
+          successorInList.role = 'leader';
+        }
+
+        // Emit thông báo chuyển quyền trưởng nhóm
         if (req.io) {
           try {
-            const sysContent = `group_disbanded:${requesterId}`;
-            const payload = {
-              messageId: `disband_${conversationId}_${Date.now()}`,
+            const roleContent = `role_leader:${requesterId}:${successor.userId}`;
+            const roleSysMsg = new Message({
+              conversationId,
+              senderId: requesterId,
+              receiverId: conversationId,
+              messageType: 'system',
+              content: roleContent,
+              status: 'sent',
+            });
+            await roleSysMsg.save();
+
+            const rolePayload = {
+              messageId: roleSysMsg._id,
               conversationId,
               senderId: requesterId,
               messageType: 'system',
-              content: sysContent,
-              timestamp: new Date().toISOString(),
+              content: roleContent,
+              timestamp: roleSysMsg.createdAt,
               status: 'received',
             };
 
             conversation.participants.forEach(p => {
-              req.io.to(`user_${p.userId}`).emit('message_received', payload);
+              req.io.to(`user_${p.userId}`).emit('message_received', rolePayload);
             });
           } catch (err) {
-            console.error('Failed to emit disband notification:', err);
+            console.error('Failed to emit role transfer message:', err);
           }
         }
-        await Conversation.deleteOne({ conversationId });
-        return res.status(200).json({
-          success: true,
-          message: 'Group disbanded successfully because the leader left',
-        });
+        // Sau khi chuyển quyền xong, tiếp tục flow rời nhóm bình thường bên dưới
       }
     } else {
       if (requester.role === 'member') {
@@ -920,6 +978,10 @@ export const disbandGroup = async (req, res) => {
 
         conversation.participants.forEach(p => {
           req.io.to(`user_${p.userId}`).emit('message_received', payload);
+          req.io.to(`user_${p.userId}`).emit('group_disbanded', {
+            conversationId,
+            requesterId,
+          });
         });
       } catch (err) {
         console.error('Failed to emit disband notification:', err);

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, StyleSheet, KeyboardAvoidingView, Platform, Dimensions,
   FlatList, ActivityIndicator, Text, TouchableOpacity, Modal, Image, ScrollView,
-  TextInput, Linking, Animated as RNAnimated, TouchableWithoutFeedback, Keyboard
+  TextInput, Linking, Animated as RNAnimated, TouchableWithoutFeedback, Keyboard, Alert
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -180,7 +180,12 @@ export default function ChatScreen() {
       // Xử lý ẩn thanh chat nếu mình bị ảnh hưởng
       if (actionName === 'member_left' && String(data.userId || data.targetUserId) === String(currentUserId)) setIsMember(false);
       if (actionName === 'member_removed' && String(data.targetUserId || data.userId) === String(currentUserId)) setIsMember(false);
-      if (actionName === 'group_disbanded') setIsMember(false);
+      if (actionName === 'group_disbanded') {
+        setIsMember(false);
+        Alert.alert('Nhóm đã bị giải tán', 'Nhóm chat này đã được trưởng nhóm giải tán.', [
+          { text: 'OK', onPress: () => router.replace('/(tabs)') }
+        ]);
+      }
 
       setMessages(prev => {
         // LỌC BỎ các tin nhắn rỗng ("") gây lỗi hiển thị trước đó
@@ -242,6 +247,9 @@ export default function ChatScreen() {
           if (String(leftId) === String(currentUserId)) setIsMember(false);
         } else if (content.startsWith('group_disbanded:')) {
           setIsMember(false);
+          Alert.alert('Nhóm đã bị giải tán', 'Nhóm chat này đã được trưởng nhóm giải tán.', [
+            { text: 'OK', onPress: () => router.replace('/(tabs)') }
+          ]);
         }
       }
 

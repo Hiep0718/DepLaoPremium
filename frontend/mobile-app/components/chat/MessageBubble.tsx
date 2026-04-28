@@ -34,6 +34,36 @@ interface MessageBubbleProps {
   participantRoles?: Record<string, string>;
 }
 
+// Helper: render text with clickable links
+const renderTextWithLinks = (text: string, textStyle: any) => {
+  if (!text) return <Text style={textStyle}>{text}</Text>;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  if (parts.length <= 1) {
+    return <Text style={textStyle}>{text}</Text>;
+  }
+  // Use a non-global regex for testing individual parts (avoids lastIndex bug)
+  const urlTest = /^https?:\/\//;
+  return (
+    <Text style={textStyle}>
+      {parts.map((part, i) => {
+        if (urlTest.test(part)) {
+          return (
+            <Text
+              key={i}
+              style={{ color: '#1a73e8', textDecorationLine: 'underline' }}
+              onPress={() => Linking.openURL(part)}
+            >
+              {part}
+            </Text>
+          );
+        }
+        return part ? <Text key={i}>{part}</Text> : null;
+      })}
+    </Text>
+  );
+};
+
 const VideoMessage = ({ item, handleMessageLongPress }: { item: Message; handleMessageLongPress: (msg: Message) => void }) => {
   const [isPlaying, setIsPlaying] = React.useState(false);
 
@@ -525,9 +555,7 @@ export default function MessageBubble({
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#f97316' }}>Bếp AI 🍜</Text>
                         </View>
                       )}
-                      <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
-                        {safeContent}
-                      </Text>
+                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent])}
                       {translatedMessages[item._id] && (
                         <View style={styles.translatedWrap}>
                           <Text style={[styles.translatedText, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
