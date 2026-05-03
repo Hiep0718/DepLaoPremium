@@ -1000,6 +1000,9 @@ const setupSocketEvents = (io) => {
     // Cancel / End call before anyone joins
     socket.on('group_call_cancel', async (data) => {
       const { conversationId } = data;
+      const roomName = `group_call_${conversationId}`;
+      socket.leave(roomName);
+      
       try {
         const conversation = await Conversation.findOne({ conversationId });
         if (conversation && conversation.participants) {

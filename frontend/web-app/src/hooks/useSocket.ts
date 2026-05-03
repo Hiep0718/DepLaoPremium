@@ -228,6 +228,20 @@ export const useSocketSetup = () => {
             fileSize: data.fileSize,
             messageType: data.messageType,
           });
+        } else if (state.activeConversation?.conversationId === data.conversationId) {
+          // Xử lý trường hợp tin nhắn được server tạo ra (như group_call_start) không có tempId
+          const incomingId = data.messageId || data._id || data.id;
+          const exists = incomingId ? state.messages.find(m => m.id === incomingId || m._id === incomingId) : false;
+          
+          if (!exists) {
+            state.addMessage({
+              ...data,
+              id: incomingId,
+              _id: incomingId,
+              content: data.content || data.text,
+              messageType: data.messageType || 'text',
+            });
+          }
         }
 
         // Cập nhật lastMessage và đẩy hội thoại lên đầu danh sách

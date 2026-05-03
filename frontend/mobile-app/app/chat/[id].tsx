@@ -206,20 +206,36 @@ export default function ChatScreen() {
 
     const handleMessageSent = (data: any) => {
       if (data.conversationId !== id) return;
+      
       setMessages(prev => {
-        const pendingIdx = prev.findIndex(
-          m => m.status === 'pending' && (data.tempId ? m._id === data.tempId : (m.content === data.text && String(m.senderId) === String(currentUserId)))
-        );
-        if (pendingIdx !== -1) {
-          const updated = [...prev];
-          updated[pendingIdx] = { ...updated[pendingIdx], _id: data.messageId || updated[pendingIdx]._id, status: 'sent' };
-          return updated;
+        // 1. Trực tiếp xử lý bằng tempId (Tin nhắn do chính máy này gửi)
+        if (data.tempId) {
+          const pendingIdx = prev.findIndex(m => m._id === data.tempId || m.tempId === data.tempId);
+          if (pendingIdx !== -1) {
+            const updated = [...prev];
+            updated[pendingIdx] = { 
+              ...updated[pendingIdx], 
+              tempId: data.tempId, 
+              _id: data.messageId || updated[pendingIdx]._id, 
+              status: 'sent' 
+            };
+            return updated;
+          }
+          // Nếu có tempId mà không tìm thấy (có thể đã bị fetchHistory xóa), thì KHÔNG thêm mới để tránh duplicate
+          return prev;
         }
-        if (data.messageId && !prev.some(m => String(m._id) === String(data.messageId))) {
+
+        // 2. Xử lý tin nhắn hệ thống sinh ra (ví dụ: bắt đầu cuộc gọi nhóm, không có tempId)
+        if (data.messageId && !prev.some(m => String(m._id) === String(data.messageId) || String(m.tempId) === String(data.messageId))) {
           const newMsg: Message = {
-            _id: data.messageId, senderId: String(data.senderId || currentUserId), recipientId: String(data.recipientId || ''),
-            content: data.text || '', messageType: data.messageType || 'text', fileUrl: data.fileUrl,
-            createdAt: data.timestamp || new Date().toISOString(), status: 'sent',
+            _id: data.messageId, 
+            senderId: String(data.senderId || currentUserId), 
+            recipientId: String(data.recipientId || ''),
+            content: data.text || data.content || '', 
+            messageType: data.messageType || 'text', 
+            fileUrl: data.fileUrl,
+            createdAt: data.timestamp || new Date().toISOString(), 
+            status: 'sent',
           };
           return [newMsg, ...prev];
         }
@@ -574,7 +590,7 @@ export default function ChatScreen() {
                 <FlatList
                   data={messages}
                   extraData={messages}
-                  keyExtractor={item => item._id}
+                  keyExtractor={item => item.tempId || item._id}
                   renderItem={({ item }) => (
                     <MessageBubble
                       item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}

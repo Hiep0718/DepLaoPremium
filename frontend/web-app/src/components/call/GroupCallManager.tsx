@@ -176,6 +176,7 @@ const GroupCallManager = () => {
     });
 
     socket.on('group_user_joined', async (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { userId } = data;
       if (userId === String(user?.id)) return;
       
@@ -196,6 +197,7 @@ const GroupCallManager = () => {
     });
 
     socket.on('group_webrtc_offer', async (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { senderPeerId, offer } = data;
       addParticipant(senderPeerId);
       
@@ -233,6 +235,7 @@ const GroupCallManager = () => {
     });
 
     socket.on('group_webrtc_answer', async (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { senderPeerId, answer } = data;
       const pc = pcsRef.current.get(senderPeerId);
       if (pc) {
@@ -245,6 +248,7 @@ const GroupCallManager = () => {
     });
 
     socket.on('group_webrtc_ice_candidate', async (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { senderPeerId, candidate } = data;
       const pc = pcsRef.current.get(senderPeerId);
       if (pc && pc.remoteDescription) {
@@ -257,17 +261,20 @@ const GroupCallManager = () => {
     });
 
     socket.on('group_user_left', (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { userId } = data;
       removeParticipant(userId);
       closePeerConnection(userId);
     });
 
     socket.on('group_call_remote_mute', (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { userId, isMuted } = data;
       setRemoteMutes(prev => ({ ...prev, [userId]: isMuted }));
     });
 
     socket.on('group_call_remote_video_off', (data) => {
+      if (useGroupCallStore.getState().callState !== 'in-call') return;
       const { userId, isVideoOff } = data;
       setRemoteVideoOffs(prev => ({ ...prev, [userId]: isVideoOff }));
     });

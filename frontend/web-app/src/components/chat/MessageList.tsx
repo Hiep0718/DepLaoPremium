@@ -187,6 +187,7 @@ const MessageList = () => {
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [addingOptionToId, setAddingOptionToId] = useState<string | null>(null);
   const [newOptionText, setNewOptionText] = useState("");
+  const [showEndedCallPopup, setShowEndedCallPopup] = useState(false);
 
   // AI streaming state (must be before any early return)
   const isAiStreaming = useChatStore((s) => s.isAiStreaming);
@@ -1029,6 +1030,25 @@ const MessageList = () => {
 
   return (
     <>
+      {showEndedCallPopup && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 animate-fadeIn">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl flex flex-col items-center text-center animate-bounce-in">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-500">
+              <Phone size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Cuộc gọi đã kết thúc</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Bạn không thể tham gia vì cuộc gọi nhóm này đã kết thúc.
+            </p>
+            <button
+              onClick={() => setShowEndedCallPopup(false)}
+              className="w-full py-2.5 bg-[#0068FF] text-white font-semibold rounded-xl hover:bg-blue-600 transition-colors"
+            >
+              Đóng
+            </button>
+          </div>
+        </div>
+      )}
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
         {pinnedMessage && pinnedMessage.messageId && (
@@ -1396,8 +1416,8 @@ const MessageList = () => {
                       {isMe && actionMenu}
 
                       <div className={`max-w-[80%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                        {/* Sender Name in Group Chat (for non-text types: show above bubble) */}
-                        {!isMe && activeConversation.isGroup && isFirstInCluster && !msg.isRevoked && msg.messageType && msg.messageType !== 'text' && (
+                        {/* Sender Name in Group Chat (show above bubble) */}
+                        {!isMe && activeConversation.isGroup && isFirstInCluster && !msg.isRevoked && (
                           <div className="flex items-center gap-2 mb-1 ml-1">
                             <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
                               {msgSenderName}
@@ -1525,16 +1545,24 @@ const MessageList = () => {
 
                               /* Group Call */
                             ) : msg.messageType === 'group_call' ? (
-                              <div
-                                className="flex flex-col gap-2.5 px-3 py-3 min-w-[200px] max-w-[250px] shadow-sm relative"
-                                style={{
-                                  background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
-                                  border: isMe ? 'none' : '1px solid var(--border-light)',
-                                  borderRadius: bubbleR.normal,
-                                  borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
-                                  borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
-                                }}
-                              >
+                              (() => {
+                                const isCallEnded = messages.some(
+                                  m => m.messageType === 'system' && 
+                                  (m.content === 'Cuộc gọi nhóm đã kết thúc' || m.content === '📞 Cuộc gọi nhóm đã kết thúc') && 
+                                  new Date(m.createdAt || m.timestamp || 0).getTime() > msgTime.getTime()
+                                );
+                                
+                                return (
+                                  <div
+                                    className="flex flex-col gap-2.5 px-3 py-3 min-w-[200px] max-w-[250px] shadow-sm relative"
+                                    style={{
+                                      background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
+                                      border: isMe ? 'none' : '1px solid var(--border-light)',
+                                      borderRadius: bubbleR.normal,
+                                      borderBottomRightRadius: isMe ? bubbleR.corner : undefined,
+                                      borderBottomLeftRadius: !isMe ? bubbleR.corner : undefined,
+                                    }}
+                                  >
                                 <div className="flex items-center gap-2.5">
                                   <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[#E5F0FF] text-[#0068FF]">
                                     {msg.content === 'video' ? <Video size={20} fill="currentColor" stroke="currentColor" /> : <Phone size={20} fill="currentColor" stroke="currentColor" />}
@@ -1544,10 +1572,14 @@ const MessageList = () => {
                                   </span>
                                 </div>
                                 <button
-                                  className="w-full py-2 rounded-2xl font-medium text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
-                                  style={{ background: '#0068FF', fontSize: '14px' }}
+                                  className={`w-full py-2 rounded-2xl font-medium transition-opacity ${isCallEnded ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-[#0068FF] text-white hover:opacity-90 active:scale-[0.98]'}`}
+                                  style={{ fontSize: '14px' }}
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    if (isCallEnded) {
+                                      setShowEndedCallPopup(true);
+                                      return;
+                                    }
                                     const conversationId = msg.conversationId || activeConversation?.conversationId;
                                     if (conversationId) {
                                       import('../../stores/groupCallStore').then(m => {
@@ -1558,7 +1590,7 @@ const MessageList = () => {
                                     }
                                   }}
                                 >
-                                  Tham gia
+                                  {isCallEnded ? 'Đã kết thúc' : 'Tham gia'}
                                 </button>
                                 {/* Time overlay */}
                                 <span className="text-[11px] self-end flex items-center gap-0.5 select-none whitespace-nowrap flex-shrink-0"
@@ -1572,7 +1604,9 @@ const MessageList = () => {
                                   )}
                                 </span>
                                 {renderReactions(msg)}
-                              </div>
+                                  </div>
+                                );
+                              })()
 
                               /* Poll */
                             ) : msg.messageType === 'poll' ? (
@@ -1597,23 +1631,7 @@ const MessageList = () => {
                                       ? '1px solid var(--border-primary)'
                                       : undefined,
                                   }}>
-                                  {/* Sender name INSIDE bubble (Zalo style) */}
-                                  {!isMe && activeConversation.isGroup && isFirstInCluster && (
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                      <span className="text-[13px] font-semibold" style={{ color: '#0068FF' }}>
-                                        {msgSenderName}
-                                      </span>
-                                      {(() => {
-                                        const participant = activeConversation.participants?.find(
-                                          (p: any) => String(p.userId || p.id || p) === String(msg.senderId)
-                                        );
-                                        const role = (participant as any)?.role;
-                                        if (role === 'leader') return <span className="text-[9px] px-1 rounded bg-[#fff7ed] text-[#f59e0b] font-bold border border-[#f59e0b40] uppercase">Trưởng nhóm</span>;
-                                        if (role === 'deputy') return <span className="text-[9px] px-1 rounded bg-[#f0fdf4] text-[#10b981] font-bold border border-[#10b98140] uppercase">Phó nhóm</span>;
-                                        return null;
-                                      })()}
-                                    </div>
-                                  )}
+
 
                                   <div className={isAiConversation && !isMe ? '' : 'pr-12'}>
                                     {isAiConversation && !isMe ? (
