@@ -1,7 +1,5 @@
 import AiMessage from '../models/AiMessage.js';
-
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2:1.5b';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 /**
  * System prompt cho Bếp AI — chuyên gia ẩm thực Việt Nam
@@ -18,10 +16,10 @@ Khả năng của bạn:
 
 Quy tắc trả lời:
 - Luôn dùng tiếng Việt, thân thiện và dễ hiểu
-- SỬ DỤNG MARKDOWN để format câu trả lời: **in đậm** cho tiêu đề phụ, danh sách có đánh số cho các bước, \`code\` cho đơn vị đo lường đặc biệt
+- SỬ DỤNG MARKDOWN để format câu trả lời: **in đậm** cho tiêu đề phụ, danh sách có đánh số cho các bước. TUYỆT ĐỐI KHÔNG SỬ DỤNG markdown code block (kí tự \` hoặc \`\`\`) dưới bất kỳ hình thức nào vì đây là giao diện tư vấn ẩm thực.
 - Khi chia sẻ công thức, luôn chia thành các phần rõ ràng: **Nguyên liệu**, **Cách làm**, **Mẹo**
 - Giữ câu trả lời ngắn gọn nhưng đầy đủ thông tin
-- Nếu người dùng hỏi ngoài chủ đề ẩm thực, nhẹ nhàng dẫn dắt họ quay lại chủ đề ẩm thực`;
+- TỪ CHỐI TRẢ LỜI MỌI CÂU HỎI KHÔNG LIÊN QUAN ĐẾN ẨM THỰC. Nếu người dùng hỏi các chủ đề khác (toán học, lập trình, chính trị, giải trí, v.v.), bạn PHẢI TỪ CHỐI và nói: "Xin lỗi, mình là Bếp AI nên chỉ có thể giúp bạn các vấn đề liên quan đến ẩm thực, công thức nấu ăn và nguyên liệu thôi nhé!". Tuyệt đối không cung cấp thông tin ngoài luồng.`;
 
 /**
  * GET /api/ai-chat/messages/:userId
@@ -64,31 +62,59 @@ export const getMessages = async (req, res) => {
  * Lưu cả user message + AI reply vào MongoDB.
  */
 export const streamChat = async (req, res) => {
-  const { userId, content } = req.body;
+  const { userId, content, imageBase64, imageMimeType } = req.body;
 
-  if (!userId || !content || !content.trim()) {
-    return res.status(400).json({ success: false, message: 'userId and content are required' });
+  if (!userId || (!content?.trim() && !imageBase64)) {
+    return res.status(400).json({ success: false, message: 'userId and content or image are required' });
   }
 
-  // Lưu user message vào MongoDB
-  const userMsg = new AiMessage({ userId, role: 'user', content: content.trim() });
+  const textContent = content?.trim() || 'Dựa vào ảnh này, hãy gợi ý cho tôi các món ăn có thể nấu.';
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is not configured in .env' });
+  }
+
+  // Khởi tạo Gemini
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash",
+    systemInstruction: SYSTEM_PROMPT 
+  });
+
+  // Lưu user message vào MongoDB (ghi chú [Hình ảnh] vào nội dung để lưu lịch sử)
+  const savedContent = imageBase64 ? `[Đã đính kèm hình ảnh] ${textContent}` : textContent;
+  const userMsg = new AiMessage({ userId, role: 'user', content: savedContent });
   await userMsg.save();
 
-  // Lấy 10 messages gần nhất làm context (không tính message vừa lưu)
+  // Lấy 10 messages gần nhất làm context (không tính message vừa gửi)
   const recentMessages = await AiMessage.find({ userId })
     .sort({ createdAt: -1 })
-    .limit(11)
+    .limit(10)
     .lean();
 
-  // Đảo ngược để theo thứ tự thời gian, bỏ message vừa gửi (cái đầu tiên sau sort desc)
-  const contextMessages = recentMessages.reverse().slice(0, -1);
+  const contextMessages = recentMessages.reverse();
 
-  // Build messages array cho Ollama
-  const ollamaMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...contextMessages.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: content.trim() },
-  ];
+  // Build history cho Gemini (Gemini dùng role 'user' và 'model')
+  let geminiHistory = contextMessages.map((m) => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content || ' ' }],
+  }));
+
+  // Xử lý lỗi "First content should be with role 'user', got model"
+  // Gemini yêu cầu lịch sử PHẢI bắt đầu bằng 'user' và các role phải xen kẽ nhau (user -> model -> user)
+  const validHistory = [];
+  for (const msg of geminiHistory) {
+    if (validHistory.length === 0) {
+      if (msg.role === 'user') validHistory.push(msg); // Chỉ lấy nếu là user
+    } else {
+      if (validHistory[validHistory.length - 1].role !== msg.role) {
+        validHistory.push(msg); // Xen kẽ thì push
+      } else {
+        // Cùng role thì gộp nội dung lại
+        validHistory[validHistory.length - 1].parts[0].text += `\n${msg.parts[0].text}`;
+      }
+    }
+  }
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
@@ -100,58 +126,38 @@ export const streamChat = async (req, res) => {
   let fullReply = '';
 
   try {
-    const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: ollamaMessages,
-        stream: true,
-      }),
+    const chat = model.startChat({
+      history: validHistory,
     });
 
-    if (!ollamaRes.ok) {
-      const errText = await ollamaRes.text();
-      console.error('[AI-Chat] Ollama error:', errText);
-      res.write(`data: ${JSON.stringify({ error: 'AI service unavailable' })}\n\n`);
-      res.end();
-      return;
-    }
-
-    const reader = ollamaRes.body.getReader();
-    const decoder = new TextDecoder();
-
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n').filter((l) => l.trim());
-
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          const token = parsed?.message?.content || '';
-
-          if (token) {
-            fullReply += token;
-            // Gửi từng token về frontend qua SSE
-            res.write(`data: ${JSON.stringify({ token })}\n\n`);
-          }
-
-          // Ollama báo done
-          if (parsed.done) {
-            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-          }
-        } catch {
-          // ignore parse errors for incomplete chunks
+    // Chuẩn bị payload (chỉ text, hoặc text + hình ảnh)
+    let messageParts = [textContent];
+    if (imageBase64) {
+      // Tự động cắt bỏ phần header "data:image/jpeg;base64," nếu frontend gửi kèm
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      messageParts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: imageMimeType || "image/jpeg"
         }
-      }
+      });
     }
-  } catch (fetchError) {
-    console.error('[AI-Chat] Fetch Ollama error:', fetchError.message);
-    res.write(`data: ${JSON.stringify({ error: 'Cannot connect to Ollama. Make sure it is running.' })}\n\n`);
+
+    const result = await chat.sendMessageStream(messageParts);
+
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      fullReply += chunkText;
+      // Gửi từng token về frontend qua SSE
+      res.write(`data: ${JSON.stringify({ token: chunkText })}\n\n`);
+    }
+
+    // Báo cho frontend đã xong
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+
+  } catch (error) {
+    console.error('[AI-Chat] Gemini API error:', error.message);
+    res.write(`data: ${JSON.stringify({ error: 'Cannot connect to Gemini AI API.' })}\n\n`);
   } finally {
     // Lưu AI reply vào MongoDB dù có lỗi hay không (nếu có nội dung)
     if (fullReply.trim()) {

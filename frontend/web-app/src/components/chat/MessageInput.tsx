@@ -39,6 +39,10 @@ const MessageInput = () => {
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [isListeningText, setIsListeningText] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
+  const speechRecognitionRef = useRef<any>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -99,6 +103,9 @@ const MessageInput = () => {
   // Clean up preview URLs and recording timer on unmount
   useEffect(() => {
     return () => {
+      if (speechRecognitionRef.current) {
+        speechRecognitionRef.current.stop();
+      }
       previewUrls.forEach(url => URL.revokeObjectURL(url));
       if (timerRef.current) clearInterval(timerRef.current);
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
@@ -332,6 +339,71 @@ const MessageInput = () => {
   const sendFiles = async () => {
     if (pendingFiles.length === 0 || !activeConversation || !user) return;
 
+    const isAi = activeConversation.conversationId.startsWith('ai_');
+
+    if (isAi) {
+      const file = pendingFiles[0];
+      if (!file.type.startsWith('image/')) {
+        showToast('Bếp AI', 'AI chỉ hỗ trợ phân tích hình ảnh.', 'error');
+        return;
+      }
+      setUploading(true);
+      try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64data = reader.result as string;
+          const { addMessage, setAiStreaming, appendAiToken, finishAiStream } = useChatStore.getState();
+          const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+          
+          const activeText = text.trim();
+          setText('');
+          setPendingFiles([]);
+          setPreviewUrls([]);
+
+          addMessage({
+            id: tempId + '_img',
+            conversationId: activeConversation.conversationId,
+            senderId: user.id.toString(),
+            content: `[Hình ảnh]`,
+            text: `[Hình ảnh]`,
+            messageType: 'image',
+            fileUrl: base64data,
+            createdAt: new Date().toISOString(),
+          } as any);
+
+          if (activeText) {
+            addMessage({
+              id: tempId + '_txt',
+              conversationId: activeConversation.conversationId,
+              senderId: user.id.toString(),
+              content: activeText,
+              text: activeText,
+              messageType: 'text',
+              createdAt: new Date().toISOString(),
+            } as any);
+          }
+
+          setAiStreaming(true);
+          await streamAiChat(
+            user.id.toString(),
+            activeText,
+            (token) => appendAiToken(token),
+            () => finishAiStream(user.id.toString()),
+            (errMsg) => {
+              setAiStreaming(false);
+              showToast('Bếp AI', errMsg, 'error');
+            },
+            base64data,
+            file.type
+          );
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
     const currentConversation = await ensureConversation();
     if (!currentConversation) return;
 
@@ -505,6 +577,55 @@ const MessageInput = () => {
     return `${m}:${s}`;
   };
 
+  const toggleSpeechToText = () => {
+    if (isListeningText) {
+      if (speechRecognitionRef.current) speechRecognitionRef.current.stop();
+      setIsListeningText(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      showToast("Lỗi", "Trình duyệt của bạn không hỗ trợ nhận diện giọng nói. Vui lòng dùng Chrome/Edge.", "error");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'vi-VN';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = '';
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+      if (finalTranscript) {
+         setText(prev => (prev + ' ' + finalTranscript).trim());
+      }
+      setInterimTranscript(interim);
+    };
+
+    recognition.onerror = () => {
+      setIsListeningText(false);
+      setInterimTranscript('');
+    };
+
+    recognition.onend = () => {
+      setIsListeningText(false);
+      setInterimTranscript('');
+    };
+
+    recognition.start();
+    speechRecognitionRef.current = recognition;
+    setIsListeningText(true);
+  };
+
   if (!activeConversation) return null;
 
   const isAiConversation = activeConversation.conversationId.startsWith('ai_');
@@ -559,7 +680,9 @@ const MessageInput = () => {
   const aiSuggestions = isAiConversation ? getAiSuggestions() : [];
 
   // Zalo toolbar icons — matches real Zalo PC exactly
-  const toolButtons = isAiConversation ? [] : [
+  const toolButtons = isAiConversation ? [
+    { icon: ImageIcon, title: 'Gửi ảnh cho Bếp AI', action: () => imageInputRef.current?.click() }
+  ] : [
     { icon: Sticker, title: 'Sticker', action: () => setShowStickers(!showStickers) },
     { icon: ImageIcon, title: 'Hình ảnh', action: () => imageInputRef.current?.click() },
     { icon: Paperclip, title: 'Đính kèm tệp', action: () => fileInputRef.current?.click() },
@@ -801,6 +924,17 @@ const MessageInput = () => {
                 }
               }}
             />
+            {/* Live STT Preview Overlay */}
+            {isListeningText && (
+              <div className="absolute top-[-36px] left-0 right-0 pointer-events-none flex justify-center z-10 animate-fadeIn">
+                <div className="bg-[#0068FF] text-white px-4 py-1.5 rounded-full text-xs shadow-lg flex items-center gap-2 max-w-[90%]">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0"></span>
+                  <span className="truncate">
+                    {interimTranscript ? interimTranscript : "Đang nghe... Hãy nói gì đó"}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -829,6 +963,18 @@ const MessageInput = () => {
               ) : (
                 <Send size={22} strokeWidth={1.5} />
               )}
+            </button>
+          ) : isAiConversation ? (
+            <button type="button" onClick={toggleSpeechToText} className="p-2 rounded-md transition-all duration-150 relative"
+              style={{ color: isListeningText ? '#ef4444' : '#0068FF' }}
+              onMouseEnter={(e) => { if(!isListeningText) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={(e) => { if(!isListeningText) e.currentTarget.style.background = 'transparent'; }}
+              title={isListeningText ? "Đang nghe... Nhấp để dừng" : "Nhập bằng giọng nói"}
+            >
+              {isListeningText && (
+                 <span className="absolute inset-0 m-auto w-8 h-8 bg-red-400 rounded-full animate-ping opacity-30 pointer-events-none"></span>
+              )}
+              <Mic size={22} strokeWidth={1.5} className={isListeningText ? "animate-pulse" : ""} />
             </button>
           ) : !isRecording ? (
             <button type="button" className="p-2 rounded-md transition-all duration-150"

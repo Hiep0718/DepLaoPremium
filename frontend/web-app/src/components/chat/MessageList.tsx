@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2, Copy, Check, RefreshCw } from 'lucide-react';
+import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2, Copy, Check, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
@@ -130,7 +130,11 @@ const MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
 };
 
 const markdownComponents: any = {
-  code: MarkdownCodeBlock,
+  code: ({ inline, children }: any) => (
+    <span className="font-semibold text-[#f97316] bg-[#fff7ed] px-1.5 py-0.5 rounded-md border border-[#ffedd5] shadow-sm mx-0.5">
+      {children}
+    </span>
+  ),
   p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
   ul: ({ children }: any) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
   ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
@@ -196,6 +200,30 @@ const MessageList = () => {
   // AI action states
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [readingMsgId, setReadingMsgId] = useState<string | null>(null);
+
+  // Read AI message aloud
+  const handleReadAloud = useCallback((msgId: string, content: string) => {
+    if (readingMsgId === msgId) {
+      window.speechSynthesis.cancel();
+      setReadingMsgId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    
+    // Clean markdown before speaking
+    const cleanText = content.replace(/[#*`_~\[\]()]/g, '').trim();
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'vi-VN';
+    utterance.rate = 1.0;
+    
+    utterance.onend = () => setReadingMsgId(null);
+    utterance.onerror = () => setReadingMsgId(null);
+    
+    setReadingMsgId(msgId);
+    window.speechSynthesis.speak(utterance);
+  }, [readingMsgId]);
 
   const bubbleR = BUBBLE_RADIUS[settings.bubbleStyle] || BUBBLE_RADIUS.modern;
 
@@ -1646,6 +1674,19 @@ const MessageList = () => {
                                       title="Thử lại"
                                     >
                                       <RefreshCw size={13} className={regeneratingId === messageId ? 'animate-spin' : ''} /> Thử lại
+                                    </button>
+                                    <button
+                                      onClick={() => handleReadAloud(messageId, msg.content || msg.text || '')}
+                                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-200 hover:scale-105"
+                                      style={{
+                                        color: readingMsgId === messageId ? '#0068FF' : 'var(--text-secondary)',
+                                        background: readingMsgId === messageId ? 'rgba(0,104,255,0.1)' : 'transparent',
+                                      }}
+                                      onMouseEnter={(e) => { if (readingMsgId !== messageId) e.currentTarget.style.background = 'var(--bg-hover)'; }}
+                                      onMouseLeave={(e) => { if (readingMsgId !== messageId) e.currentTarget.style.background = 'transparent'; }}
+                                      title={readingMsgId === messageId ? "Dừng đọc" : "Đọc văn bản"}
+                                    >
+                                      {readingMsgId === messageId ? <><VolumeX size={13} /> Dừng đọc</> : <><Volume2 size={13} /> Đọc thành tiếng</>}
                                     </button>
                                   </div>
                                 )}
