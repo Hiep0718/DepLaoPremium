@@ -28,7 +28,7 @@ services:
     image: mongo:6.0
     container_name: deplao-mongodb
     restart: always
-    command: mongod --wiredTigerCacheSizeGB 0.125
+    command: mongod --wiredTigerCacheSizeGB 0.25
     mem_limit: 250m
     volumes:
       - mongodb-data:/data/db
