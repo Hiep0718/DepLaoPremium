@@ -16,7 +16,7 @@ import {
 /* ────────────────────────── Mini Bar Chart (SVG) ────────────────────────── */
 const MiniBarChart = ({ data, color = '#6366f1' }: { data: { label: string; value: number }[]; color?: string }) => {
   const max = Math.max(...data.map(d => d.value), 1);
-  const barW = 100 / data.length;
+  const _barW = 100 / data.length;
   return (
     <svg viewBox="0 0 400 120" className="w-full h-28" preserveAspectRatio="none">
       {data.map((d, i) => {
@@ -88,7 +88,7 @@ export default function AdminDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Check admin
   useEffect(() => {

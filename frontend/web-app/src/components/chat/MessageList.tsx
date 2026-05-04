@@ -96,7 +96,7 @@ const getFileExtension = (url: string): string => {
 };
 
 // ── Markdown components for AI messages ──
-const MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
+const _MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
   const lang = match ? match[1] : '';
@@ -130,7 +130,7 @@ const MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
 };
 
 const markdownComponents: any = {
-  code: ({ inline, children }: any) => (
+  code: ({ children }: any) => (
     <span className="font-semibold text-[#f97316] bg-[#fff7ed] px-1.5 py-0.5 rounded-md border border-[#ffedd5] shadow-sm mx-0.5">
       {children}
     </span>
