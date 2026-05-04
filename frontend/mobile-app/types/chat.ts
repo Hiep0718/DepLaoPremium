@@ -12,6 +12,7 @@ export interface Message {
   fileSize?: number;
   isRevoked?: boolean;
   createdAt?: string;
+  tempId?: string; // Add tempId to keep keys stable for FlatList
   status: MessageStatus;
   replyTo?: {
     messageId: string;

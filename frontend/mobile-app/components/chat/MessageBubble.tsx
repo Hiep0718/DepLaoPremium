@@ -225,7 +225,7 @@ export default function MessageBubble({
     const actor = isMeActor ? 'Bạn' : getName(String(item.senderId));
 
     if (text === 'Nhóm đã được tạo') {
-      text = `${actor} đã tạo nhóm mới`;
+      text = `${actor} đã tạo một nhóm mới`; // Tránh truyền activeConversation.groupName vì mobile chưa pass props này
     } else if (text === 'Đã thêm thành viên mới vào nhóm') {
       text = `${actor} đã thêm thành viên mới vào nhóm`;
     } else if (text.startsWith('added_members:')) {
@@ -236,27 +236,29 @@ export default function MessageBubble({
     } else if (text.startsWith('member_left:')) {
       const leftId = text.split(':')[1];
       const leftName = getName(leftId);
-      text = `${leftName} đã rời nhóm`;
+      text = `${leftName} đã rời khỏi nhóm`;
     } else if (text.startsWith('member_removed:')) {
       const parts = text.split(':');
       const remover = getName(parts[1]);
       const removed = getName(parts[2]);
-      text = `${remover} đã xóa ${removed} khỏi nhóm`;
+      text = `${remover} đã xóa ${removed} ra khỏi nhóm`;
     } else if (text.startsWith('group_disbanded:')) {
       text = `${actor} đã giải tán nhóm`;
     } else if (text.startsWith('role_deputy:')) {
-      text = `${actor} đã đưa ${getName(text.split(':')[2])} lên làm phó nhóm`;
+      text = `${actor} đã đặt ${getName(text.split(':')[2])} làm phó nhóm`;
     } else if (text.startsWith('role_undeputy:')) {
-      text = `${actor} đã gỡ quyền phó nhóm của ${getName(text.split(':')[2])}`;
+      text = `${actor} đã gỡ phó nhóm của ${getName(text.split(':')[2])}`;
     } else if (text.startsWith('role_leader:')) {
-      text = `${actor} đã chuyển quyền trưởng nhóm cho ${getName(text.split(':')[2])}`;
+      text = `${actor} đã đặt ${getName(text.split(':')[2])} làm trưởng nhóm`;
     } else if (text.startsWith('group_updated:')) {
       const updatesString = text.split(':')[2] || '';
       if (updatesString.includes('tên nhóm|')) {
         const newName = updatesString.split('tên nhóm|')[1].split(',')[0];
-        text = `${actor} đã đổi tên nhóm thành "${newName}"`;
+        text = `${actor} đã đổi tên đoạn chat thành "${newName}"`;
+      } else if (updatesString.trim().toLowerCase() === 'cập nhật thông tin nhóm') {
+        return null; // Ẩn thông báo này theo yêu cầu
       } else {
-        text = `${actor} đã cập nhật thông tin nhóm`;
+        text = `${actor} đã thay đổi ${updatesString}`;
       }
     } else if (text.startsWith('member_joined_via_link:')) {
       const joinedId = text.split(':')[1];
