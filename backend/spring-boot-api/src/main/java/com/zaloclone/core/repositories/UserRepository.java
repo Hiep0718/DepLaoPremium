@@ -7,6 +7,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -22,4 +25,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
             "LOWER(u.fullName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
             "u.phone LIKE CONCAT('%', :search, '%')")
     Page<User> searchUsers(@Param("search") String search, Pageable pageable);
+
+    // ─── Admin queries ───
+    long countByCreatedAtAfter(LocalDateTime dateTime);
+    long countByCreatedAtIsNotNullAndCreatedAtAfter(LocalDateTime dateTime);
+
+    long countByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+
+    @Query(value = "SELECT DATE(created_at) as d, COUNT(*) as cnt FROM users " +
+            "WHERE created_at >= :since AND created_at IS NOT NULL GROUP BY DATE(created_at) ORDER BY d ASC",
+            nativeQuery = true)
+    List<Object[]> countNewUsersPerDay(@Param("since") LocalDateTime since);
 }
+

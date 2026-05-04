@@ -41,8 +41,12 @@ public class AuthorizationUtil {
      * Check if current user has admin role
      */
     public boolean isAdmin() {
-        // TODO: Implement when role-based authorization is needed
-        return false;
+        try {
+            User user = getCurrentUser();
+            return user.getRole() == User.Role.ADMIN;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

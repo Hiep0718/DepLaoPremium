@@ -294,9 +294,20 @@ const PasswordPanel = ({ onSwitchToQR, onSwitchToForgot }: { onSwitchToQR: () =>
         useChatStore.getState().clearChat();
         sessionStorage.setItem('accessToken', data.data.accessToken);
         if (data.data.refreshToken) sessionStorage.setItem('refreshToken', data.data.refreshToken);
-        try { const profile = await contactService.getUserProfile(); setAuth(profile, data.data.accessToken); }
-        catch { setAuth({ phone }, data.data.accessToken); }
-        navigate('/');
+        try {
+          const profile = await contactService.getUserProfile();
+          setAuth(profile, data.data.accessToken);
+          // Redirect admin to admin dashboard
+          if (profile.role === 'ADMIN') {
+            navigate('/admin');
+          } else {
+            navigate('/');
+          }
+        }
+        catch {
+          setAuth({ phone }, data.data.accessToken);
+          navigate('/');
+        }
       } else { setError(data.message || 'Đăng nhập thất bại'); }
     } catch (err: any) { setError(err?.response?.data?.message || 'Có lỗi xảy ra khi đăng nhập'); }
     finally { setLoading(false); }

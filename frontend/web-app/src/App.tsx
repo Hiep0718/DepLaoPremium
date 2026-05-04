@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ChatDesk from './pages/ChatDesk';
 import JoinGroup from './pages/JoinGroup';
+import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import ToastContainer from './components/chat/ToastContainer';
 import { useThemeStore } from './stores/themeStore';
@@ -54,6 +55,8 @@ function App() {
               <Route path="/contacts" element={<ChatDesk />} />
               <Route path="/join/:inviteCode" element={<JoinGroup />} />
             </Route>
+            {/* Admin Dashboard — standalone layout (no MainLayout sidebar) */}
+            <Route path="/admin" element={<AdminDashboard />} />
           </Route>
           
           {/* Fallback */}

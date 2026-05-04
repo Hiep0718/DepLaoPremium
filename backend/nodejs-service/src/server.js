@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import connectDB from './config/database.js';
 import messageRoutes from './routes/messages.js';
+import adminRoutes from './routes/adminRoutes.js';
 import errorHandler from './middleware/errorHandler.js';
 import setupSocketEvents from './socket/socketHandler.js';
 
@@ -49,6 +50,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/messages', messageRoutes);
+app.use('/api/messages/admin', adminRoutes);
 
 // 404 Handler
 app.use((req, res) => {

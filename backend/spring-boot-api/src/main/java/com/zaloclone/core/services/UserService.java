@@ -11,6 +11,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.*;
+
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -28,6 +33,7 @@ public class UserService {
                 .fullName(request.getFullName())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(User.Role.USER)
+                .isLocked(false)
                 .build();
 
         return userRepository.save(user);
@@ -36,6 +42,10 @@ public class UserService {
     public User login(LoginRequest request) {
         User user = userRepository.findByPhone(request.getPhone())
                 .orElseThrow(() -> new RuntimeException("Tài khoản không tồn tại!"));
+
+        if (Boolean.TRUE.equals(user.getIsLocked())) {
+            throw new RuntimeException("Tài khoản đã bị khóa bởi quản trị viên!");
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
             throw new RuntimeException("Mật khẩu không chính xác!");
@@ -102,6 +112,97 @@ public class UserService {
         return users.map(this::toUserResponse);
     }
 
+    // ─── Admin Methods ───────────────────────────────────────────────────────
+
+    public Page<UserResponse> getAllUsers(Pageable pageable) {
+        Page<User> users = userRepository.findAll(pageable);
+        return users.map(this::toUserResponse);
+    }
+
+    @Transactional
+    public UserResponse lockUser(Long userId, boolean lock) {
+        User user = getUserById(userId);
+        if (user.getRole() == User.Role.ADMIN) {
+            throw new RuntimeException("Không thể khóa tài khoản admin!");
+        }
+        user.setIsLocked(lock);
+        return toUserResponse(userRepository.save(user));
+    }
+
+    @Transactional
+    public void deleteUser(Long userId) {
+        User user = getUserById(userId);
+        if (user.getRole() == User.Role.ADMIN) {
+            throw new RuntimeException("Không thể xóa tài khoản admin!");
+        }
+        userRepository.delete(user);
+    }
+
+    public Map<String, Object> getAdminStats() {
+        Map<String, Object> stats = new HashMap<>();
+
+        long totalUsers = userRepository.count();
+        stats.put("totalUsers", totalUsers);
+
+        // Users created today (null-safe)
+        LocalDateTime startOfToday = LocalDate.now().atStartOfDay();
+        long newUsersToday = userRepository.countByCreatedAtIsNotNullAndCreatedAtAfter(startOfToday);
+        stats.put("newUsersToday", newUsersToday);
+
+        // Users this week
+        LocalDateTime startOfWeek = LocalDate.now().minusDays(7).atStartOfDay();
+        long newUsersThisWeek = userRepository.countByCreatedAtIsNotNullAndCreatedAtAfter(startOfWeek);
+        stats.put("newUsersThisWeek", newUsersThisWeek);
+
+        // Users this month
+        LocalDateTime startOfMonth = LocalDate.now().withDayOfMonth(1).atStartOfDay();
+        long newUsersThisMonth = userRepository.countByCreatedAtIsNotNullAndCreatedAtAfter(startOfMonth);
+        stats.put("newUsersThisMonth", newUsersThisMonth);
+
+        // New users per day (last 7 days) for chart
+        List<Map<String, Object>> chartData = new ArrayList<>();
+        try {
+            LocalDateTime since7Days = LocalDate.now().minusDays(6).atStartOfDay();
+            List<Object[]> perDay = userRepository.countNewUsersPerDay(since7Days);
+            for (Object[] row : perDay) {
+                Map<String, Object> point = new HashMap<>();
+                point.put("date", row[0].toString());
+                point.put("count", ((Number) row[1]).longValue());
+                chartData.add(point);
+            }
+        } catch (Exception e) {
+            // Chart data unavailable — silently ignore
+        }
+        stats.put("userGrowthChart", chartData);
+
+        return stats;
+    }
+
+    /**
+     * Ensure admin account exists for phone 9999999999
+     */
+    @Transactional
+    public void ensureAdminAccount() {
+        Optional<User> existing = userRepository.findByPhone("9999999999");
+        if (existing.isEmpty()) {
+            User admin = User.builder()
+                    .phone("9999999999")
+                    .fullName("Admin")
+                    .passwordHash(passwordEncoder.encode("123456"))
+                    .role(User.Role.ADMIN)
+                    .isLocked(false)
+                    .build();
+            userRepository.save(admin);
+        } else {
+            // Ensure existing account has ADMIN role
+            User user = existing.get();
+            if (user.getRole() != User.Role.ADMIN) {
+                user.setRole(User.Role.ADMIN);
+                userRepository.save(user);
+            }
+        }
+    }
+
     private UserResponse toUserResponse(User user) {
         return UserResponse.builder()
                 .id(user.getId())
@@ -112,6 +213,9 @@ public class UserService {
                 .gender(user.getGender())
                 .birthday(user.getBirthday())
                 .role(user.getRole().toString())
+                .isLocked(user.getIsLocked())
+                .createdAt(user.getCreatedAt())
                 .build();
     }
 }
+
