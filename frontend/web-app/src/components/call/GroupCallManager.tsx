@@ -6,7 +6,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { socket } from '../../services/socket';
 import { 
   Phone, PhoneOff, Video, VideoOff, Mic, MicOff, 
-  Maximize2, Minimize2, Users, User, Volume2, VolumeX 
+  Maximize2, Minimize2, Users
 } from 'lucide-react';
 
 const ICE_SERVERS = {
@@ -93,7 +93,6 @@ const GroupCallManager = () => {
   } = useGroupCallStore();
 
   const user = useAuthStore((state) => state.user);
-  const activeConversation = useChatStore((state) => state.activeConversation);
   
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});

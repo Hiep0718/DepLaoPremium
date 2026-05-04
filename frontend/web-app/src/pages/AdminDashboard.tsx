@@ -16,7 +16,6 @@ import {
 /* ────────────────────────── Mini Bar Chart (SVG) ────────────────────────── */
 const MiniBarChart = ({ data, color = '#6366f1' }: { data: { label: string; value: number }[]; color?: string }) => {
   const max = Math.max(...data.map(d => d.value), 1);
-  const _barW = 100 / data.length;
   return (
     <svg viewBox="0 0 400 120" className="w-full h-28" preserveAspectRatio="none">
       {data.map((d, i) => {

@@ -1,8 +1,8 @@
-import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Trash2, Loader2, Users, MoreHorizontal } from 'lucide-react';
+import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Loader2, Users, MoreHorizontal } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useCallStore } from '../../stores/callStore';
 import { useAuthStore } from '../../stores/authStore';
-import { clearAiHistory } from '../../services/aiChat.service';
+
 import { socket } from '../../services/socket';
 
 const ChatHeader = () => {

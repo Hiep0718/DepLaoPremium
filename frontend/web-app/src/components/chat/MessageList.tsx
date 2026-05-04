@@ -96,38 +96,7 @@ const getFileExtension = (url: string): string => {
 };
 
 // ── Markdown components for AI messages ──
-const _MarkdownCodeBlock = ({ inline, className, children, ...props }: any) => {
-  const [copied, setCopied] = useState(false);
-  const match = /language-(\w+)/.exec(className || '');
-  const lang = match ? match[1] : '';
-  const codeString = String(children).replace(/\n$/, '');
 
-  if (inline) {
-    return (
-      <code className="px-1.5 py-0.5 rounded-md text-[13px] font-mono" style={{ background: 'var(--bg-hover)', color: '#e06c75' }} {...props}>
-        {children}
-      </code>
-    );
-  }
-
-  return (
-    <div className="relative my-2 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-light)' }}>
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px]" style={{ background: 'rgba(0,0,0,0.7)', color: '#abb2bf' }}>
-        <span className="uppercase font-bold tracking-wider">{lang || 'code'}</span>
-        <button
-          onClick={() => { navigator.clipboard.writeText(codeString); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-          className="flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors hover:bg-white/10"
-        >
-          {copied ? <><Check size={12} /> Đã sao chép</> : <><Copy size={12} /> Sao chép</>}
-        </button>
-      </div>
-      <SyntaxHighlighter style={oneDark} language={lang || 'text'} PreTag="div"
-        customStyle={{ margin: 0, borderRadius: 0, fontSize: '13px', padding: '12px 16px' }}>
-        {codeString}
-      </SyntaxHighlighter>
-    </div>
-  );
-};
 
 const markdownComponents: any = {
   code: ({ children }: any) => (

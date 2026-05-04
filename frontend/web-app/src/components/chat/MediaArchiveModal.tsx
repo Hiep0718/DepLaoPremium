@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, ImageIcon, FileText, Link as LinkIcon, Mic, Search, ChevronDown, Download, Share2, Trash2, ExternalLink } from 'lucide-react';
-import { useChatStore } from '../../stores/chatStore';
+
 import { useAuthStore } from '../../stores/authStore';
 import api from '../../services/axios';
 import { format, isYesterday, isToday, parseISO } from 'date-fns';
