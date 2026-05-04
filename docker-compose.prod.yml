@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # =============================================
+  # Infrastructure (Memory Optimized for 1GB RAM)
+  # =============================================
+  mariadb:
+    image: mariadb:10.11
+    container_name: deplao-mariadb
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_PASSWORD:-StrongPassword123!}
+      MARIADB_DATABASE: zalo_db
+    command: >-
+      --innodb-buffer-pool-size=64M
+      --innodb-log-file-size=16M
+      --max-connections=50
+      --key-buffer-size=16M
+      --tmp-table-size=16M
+      --max-heap-table-size=16M
+    mem_limit: 200m
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - deplao-network
+
+  mongodb:
+    image: mongo:6.0
+    container_name: deplao-mongodb
+    restart: always
+    command: mongod --wiredTigerCacheSizeGB 0.125
+    mem_limit: 250m
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - deplao-network
+
+  # =============================================
+  # Backend Services
+  # =============================================
+  spring-boot-api:
+    build: ./backend/spring-boot-api
+    container_name: deplao-spring-api
+    restart: always
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/zalo_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MARIADB_PASSWORD:-StrongPassword123!}
+      JWT_SECRET: ${JWT_SECRET}
+      JAVA_OPTS: -Xms128m -Xmx256m -XX:+UseSerialGC
+      AWS_ACCESS_KEY: ${AWS_ACCESS_KEY:-}
+      AWS_SECRET_KEY: ${AWS_SECRET_KEY:-}
+      AWS_S3_REGION: ${AWS_S3_REGION:-ap-southeast-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-lab456-demo-bucket}
+    mem_limit: 400m
+    depends_on:
+      - mariadb
+    networks:
+      - deplao-network
+
+  nodejs-messaging:
+    build: ./backend/nodejs-service
+    container_name: deplao-messaging
+    restart: always
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/messaging_db
+      PORT: 3001
+      NODE_ENV: production
+      SPRING_BOOT_URL: http://spring-boot-api:8082
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      NODE_OPTIONS: --max-old-space-size=64
+    mem_limit: 100m
+    depends_on:
+      - mongodb
+      - spring-boot-api
+    networks:
+      - deplao-network
+
+  ai-chat-service:
+    build: ./backend/ai-chat-service
+    container_name: deplao-ai-chat
+    restart: always
+    environment:
+      MONGO_URI: mongodb://mongodb:27017/ai_chat_db
+      PORT: 3002
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      NODE_OPTIONS: --max-old-space-size=64
+    mem_limit: 100m
+    depends_on:
+      - mongodb
+    networks:
+      - deplao-network
+
+  # =============================================
+  # Frontend + Reverse Proxy
+  # =============================================
+  web-app:
+    build: ./frontend/web-app
+    container_name: deplao-web
+    restart: always
+    ports:
+      - "80:80"
+    mem_limit: 30m
+    depends_on:
+      - spring-boot-api
+      - nodejs-messaging
+      - ai-chat-service
+    networks:
+      - deplao-network
+
+volumes:
+  mariadb-data:
+  mongodb-data:
+
+networks:
+  deplao-network:
+    driver: bridge
