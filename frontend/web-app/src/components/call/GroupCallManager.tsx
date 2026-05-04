@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useGroupCallStore } from '../../stores/groupCallStore';
 import { useAuthStore } from '../../stores/authStore';
-import { useChatStore } from '../../stores/chatStore';
+
 import { socket } from '../../services/socket';
 import { 
   Phone, PhoneOff, Video, VideoOff, Mic, MicOff, 
