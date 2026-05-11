@@ -773,6 +773,131 @@ const MessageList = () => {
     );
   };
 
+  // Render Location Message
+  const renderLocationMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
+    let locData: { latitude: number; longitude: number; address: string } | null = null;
+    try {
+      const parsed = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+      if (parsed?.latitude && parsed?.longitude) locData = parsed;
+    } catch {
+      const text = msg.content || msg.text || '';
+      const match = text.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+      if (match) locData = { latitude: parseFloat(match[1]), longitude: parseFloat(match[2]), address: text };
+    }
+    if (!locData) return null;
+
+    const mapUrl = `https://www.openstreetmap.org/#map=16/${locData.latitude}/${locData.longitude}`;
+    const staticMapUrl = `https://staticmap.openstreetmap.de/staticmap.php?center=${locData.latitude},${locData.longitude}&zoom=15&size=280x140&maptype=mapnik&markers=${locData.latitude},${locData.longitude},red-pushpin`;
+
+    return (
+      <div
+        className="w-[280px] rounded-2xl overflow-hidden cursor-pointer transition-shadow hover:shadow-md"
+        style={{
+          background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
+          border: isMe ? 'none' : '1px solid var(--border-light)',
+          borderRadius: isLastInCluster ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px') : '18px',
+        }}
+        onClick={() => window.open(mapUrl, '_blank')}
+      >
+        {/* Map Preview */}
+        <div className="w-full h-[140px] bg-[var(--bg-hover)] flex items-center justify-center relative overflow-hidden">
+          <img
+            src={staticMapUrl}
+            alt="Map"
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+              (e.target as HTMLImageElement).parentElement!.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#0068FF" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>';
+            }}
+          />
+        </div>
+        {/* Info */}
+        <div className="p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="#FF4757" stroke="#FF4757" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3" fill="white"></circle></svg>
+            <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Vị trí của tôi</span>
+          </div>
+          <p className="text-xs leading-relaxed mb-2 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>{locData.address}</p>
+          <p className="text-[10px] mb-2 font-mono" style={{ color: 'var(--text-secondary)', opacity: 0.7 }}>{locData.latitude.toFixed(6)}, {locData.longitude.toFixed(6)}</p>
+          <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg" style={{ background: 'rgba(0,104,255,0.08)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0068FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+            <span className="text-xs font-semibold" style={{ color: '#0068FF' }}>Mở bản đồ</span>
+          </div>
+        </div>
+        {/* Time */}
+        <div className="flex justify-end px-3 pb-2">
+          <span className="text-[11px] flex items-center gap-0.5 select-none" style={{ color: '#6b7b8d' }}>
+            {format(msgTime, 'HH:mm')}
+            {isMe && (
+              <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Reminder Message
+  const renderReminderMessage = (msg: any, isMe: boolean, msgTime: Date, isLastInCluster: boolean = true) => {
+    let remData: { text: string; reminderTime: string } | null = null;
+    try {
+      const parsed = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+      if (parsed?.text && parsed?.reminderTime) remData = parsed;
+    } catch {}
+    if (!remData) return null;
+
+    const isPast = new Date(remData.reminderTime) < new Date();
+    const reminderDate = new Date(remData.reminderTime);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const formattedTime = `${pad(reminderDate.getHours())}:${pad(reminderDate.getMinutes())} - ${pad(reminderDate.getDate())}/${pad(reminderDate.getMonth() + 1)}/${reminderDate.getFullYear()}`;
+
+    return (
+      <div
+        className="flex items-start gap-3 px-3 py-3 min-w-[220px] max-w-[280px]"
+        style={{
+          background: isMe ? 'var(--bg-msg-sent)' : 'var(--bg-panel)',
+          border: isMe ? 'none' : '1px solid var(--border-light)',
+          borderRadius: isLastInCluster ? (isMe ? '18px 18px 2px 18px' : '18px 18px 18px 2px') : '18px',
+          boxShadow: !isMe ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+        }}
+      >
+        {/* Icon */}
+        <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          style={{ background: isPast ? 'rgba(153,153,153,0.12)' : 'rgba(255,99,72,0.12)' }}>
+          {isPast ? (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          ) : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FF6348" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M5 3L2 6"></path><path d="M22 6l-3-3"></path></svg>
+          )}
+        </div>
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+              {isPast ? 'Đã nhắc hẹn' : '⏰ Nhắc hẹn'}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed mb-2 line-clamp-3" style={{ color: 'var(--text-primary)', opacity: isPast ? 0.6 : 1 }}>
+            {remData.text}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span className="text-xs" style={{ color: '#888' }}>{formattedTime}</span>
+          </div>
+          {/* Message time */}
+          <div className="flex justify-end mt-1.5">
+            <span className="text-[11px] flex items-center gap-0.5 select-none" style={{ color: '#6b7b8d' }}>
+              {format(msgTime, 'HH:mm')}
+              {isMe && (
+                <svg className="w-3.5 h-3.5 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="#4a9eff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Render Poll Message
   const renderPollMessage = (msg: any, isMe: boolean, msgTime: Date) => {
     let pollData;
@@ -1508,6 +1633,20 @@ const MessageList = () => {
                             ) : msg.messageType === 'contact' ? (
                               <div className="relative">
                                 {renderContactMessage(msg, isMe, msgTime, isLastInCluster)}
+                                {renderReactions(msg)}
+                              </div>
+
+                              /* Location */
+                            ) : msg.messageType === 'location' ? (
+                              <div className="relative">
+                                {renderLocationMessage(msg, isMe, msgTime, isLastInCluster)}
+                                {renderReactions(msg)}
+                              </div>
+
+                              /* Reminder */
+                            ) : msg.messageType === 'reminder' ? (
+                              <div className="relative">
+                                {renderReminderMessage(msg, isMe, msgTime, isLastInCluster)}
                                 {renderReactions(msg)}
                               </div>
 

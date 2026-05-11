@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
   ScreenShare, Code, Type, X, FileText, Film, Loader2,
-  Mic, Trash2, Contact, BarChart2, MoreHorizontal
+  Mic, Trash2, Contact, BarChart2, MoreHorizontal, MapPin, CalendarClock, Clock, Navigation
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
 import CreatePollModal from './CreatePollModal';
@@ -31,7 +31,17 @@ const MessageInput = () => {
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
 
+  // Location state
+  const [isSendingLocation, setIsSendingLocation] = useState(false);
 
+  // Reminder states
+  const [isReminderModalOpen, setIsReminderModalOpen] = useState(false);
+  const [reminderText, setReminderText] = useState('');
+  const [reminderDate, setReminderDate] = useState('');
+  const [reminderTime, setReminderTime] = useState('');
+
+  // Smart time suggestion
+  const [timeSuggestion, setTimeSuggestion] = useState<{ text: string; date: Date } | null>(null);
 
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
 
@@ -277,6 +287,145 @@ const MessageInput = () => {
     addMessage({ id: tempId, ...messagePayload, createdAt: new Date().toISOString() });
     setReplyingMessage(null);
   };
+
+  // ── SEND LOCATION ──
+  const sendLocation = async () => {
+    if (!activeConversation || !user) return;
+    if (!navigator.geolocation) {
+      showToast('Lỗi', 'Trình duyệt không hỗ trợ định vị.', 'error');
+      return;
+    }
+    setIsSendingLocation(true);
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000 })
+      );
+      const { latitude, longitude } = pos.coords;
+      let address = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&accept-language=vi`);
+        const geo = await res.json();
+        if (geo.display_name) address = geo.display_name;
+      } catch {}
+
+      const currentConversation = await ensureConversation();
+      if (!currentConversation) return;
+      const recipientId = getRecipientId(currentConversation);
+      const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+      const content = JSON.stringify({ latitude, longitude, address });
+
+      const messagePayload = {
+        tempId,
+        conversationId: currentConversation.conversationId,
+        senderId: user.id.toString(),
+        recipientId: recipientId?.toString(),
+        text: content,
+        messageType: 'location',
+      };
+      socket.emit('send_message', messagePayload);
+      addMessage({ id: tempId, ...messagePayload, content, createdAt: new Date().toISOString() });
+    } catch (err: any) {
+      if (err?.code === 1) showToast('Quyền truy cập', 'Vui lòng cho phép truy cập vị trí trong trình duyệt.', 'error');
+      else showToast('Lỗi', 'Không thể lấy vị trí hiện tại.', 'error');
+    } finally {
+      setIsSendingLocation(false);
+    }
+  };
+
+  // ── SEND REMINDER ──
+  const sendReminder = async () => {
+    if (!activeConversation || !user) return;
+    if (!reminderText.trim()) { showToast('Thông báo', 'Vui lòng nhập nội dung nhắc hẹn.', 'error'); return; }
+    if (!reminderDate || !reminderTime) { showToast('Thông báo', 'Vui lòng chọn ngày và giờ.', 'error'); return; }
+
+    const reminderDateTime = new Date(`${reminderDate}T${reminderTime}`);
+    if (isNaN(reminderDateTime.getTime()) || reminderDateTime <= new Date()) {
+      showToast('Thông báo', 'Thời gian nhắc hẹn phải ở tương lai.', 'error');
+      return;
+    }
+
+    const currentConversation = await ensureConversation();
+    if (!currentConversation) return;
+    const recipientId = getRecipientId(currentConversation);
+    const tempId = Date.now().toString() + Math.random().toString(36).substring(7);
+    const content = JSON.stringify({ text: reminderText.trim(), reminderTime: reminderDateTime.toISOString() });
+
+    const messagePayload = {
+      tempId,
+      conversationId: currentConversation.conversationId,
+      senderId: user.id.toString(),
+      recipientId: recipientId?.toString(),
+      text: content,
+      messageType: 'reminder',
+    };
+    socket.emit('send_message', messagePayload);
+    addMessage({ id: tempId, ...messagePayload, content, createdAt: new Date().toISOString() });
+    setIsReminderModalOpen(false);
+    setReminderText('');
+    setReminderDate('');
+    setReminderTime('');
+  };
+
+  // ── SMART TIME DETECTION ──
+  const detectTimeInText = (input: string) => {
+    if (!input || input.length < 3) { setTimeSuggestion(null); return; }
+    const now = new Date();
+    const patterns: { regex: RegExp; parse: (m: RegExpMatchArray) => { text: string; date: Date } | null }[] = [
+      { regex: /(\d{1,2})[hH:](\d{0,2})\s*(sáng|chiều|tối)?/i, parse: (m) => {
+        let h = parseInt(m[1]); const min = m[2] ? parseInt(m[2]) : 0; const period = m[3]?.toLowerCase();
+        if (period === 'chiều' && h < 12) h += 12; if (period === 'tối' && h < 18) h += 6;
+        const d = new Date(now); d.setHours(h, min, 0, 0); if (d <= now) d.setDate(d.getDate() + 1);
+        return { text: `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`, date: d };
+      }},
+      { regex: /(\d{1,2})\s*giờ\s*(\d{0,2})\s*(sáng|chiều|tối|phút)?/i, parse: (m) => {
+        let h = parseInt(m[1]); const min = m[2] ? parseInt(m[2]) : 0; const period = m[3]?.toLowerCase();
+        if (period === 'chiều' && h < 12) h += 12; if (period === 'tối' && h < 18) h += 6;
+        const d = new Date(now); d.setHours(h, min, 0, 0); if (d <= now) d.setDate(d.getDate() + 1);
+        return { text: `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`, date: d };
+      }},
+      { regex: /(sáng mai|chiều mai|tối mai|ngày mai)/i, parse: (m) => {
+        const d = new Date(now); d.setDate(d.getDate() + 1);
+        const kw = m[1].toLowerCase();
+        if (kw.includes('sáng')) d.setHours(8, 0, 0, 0);
+        else if (kw.includes('chiều')) d.setHours(14, 0, 0, 0);
+        else if (kw.includes('tối')) d.setHours(19, 0, 0, 0);
+        else d.setHours(9, 0, 0, 0);
+        return { text: m[1], date: d };
+      }},
+      { regex: /(sáng nay|chiều nay|tối nay)/i, parse: (m) => {
+        const d = new Date(now); const kw = m[1].toLowerCase();
+        if (kw.includes('sáng')) d.setHours(8, 0, 0, 0);
+        else if (kw.includes('chiều')) d.setHours(14, 0, 0, 0);
+        else d.setHours(19, 0, 0, 0);
+        if (d <= now) return null;
+        return { text: m[1], date: d };
+      }},
+      { regex: /(tuần sau|tuần tới)/i, parse: (m) => {
+        const d = new Date(now); d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0);
+        return { text: m[1], date: d };
+      }},
+      { regex: /(cuối tuần)/i, parse: (m) => {
+        const d = new Date(now); const day = d.getDay(); const diff = day === 0 ? 6 : (6 - day);
+        d.setDate(d.getDate() + diff); d.setHours(9, 0, 0, 0); if (d <= now) d.setDate(d.getDate() + 7);
+        return { text: m[1], date: d };
+      }},
+      { regex: /(\d{1,2})\s*(phút|tiếng|giờ)\s*nữa/i, parse: (m) => {
+        const num = parseInt(m[1]); const unit = m[2].toLowerCase();
+        const d = new Date(now);
+        if (unit === 'phút') d.setMinutes(d.getMinutes() + num);
+        else d.setHours(d.getHours() + num);
+        return { text: `${num} ${m[2]} nữa`, date: d };
+      }},
+    ];
+    for (const p of patterns) {
+      const match = input.match(p.regex);
+      if (match) { const result = p.parse(match); if (result && result.date > now) { setTimeSuggestion(result); return; } }
+    }
+    setTimeSuggestion(null);
+  };
+
+  // Detect time when text changes
+  useEffect(() => { detectTimeInText(text); }, [text]);
 
   // Handle image selection
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -687,9 +836,8 @@ const MessageInput = () => {
     { icon: ImageIcon, title: 'Hình ảnh', action: () => imageInputRef.current?.click() },
     { icon: Paperclip, title: 'Đính kèm tệp', action: () => fileInputRef.current?.click() },
     { icon: Contact, title: 'Gửi danh thiếp', action: () => setIsContactModalOpen(true) },
-    { icon: ScreenShare, title: 'Chụp màn hình' },
-    { icon: Code, title: 'Code Snippet' },
-    { icon: Type, title: 'Định dạng tin nhắn' },
+    { icon: MapPin, title: isSendingLocation ? 'Đang lấy vị trí...' : 'Gửi vị trí', action: () => !isSendingLocation && sendLocation() },
+    { icon: CalendarClock, title: 'Tạo nhắc hẹn', action: () => setIsReminderModalOpen(true) },
     { icon: Mic, title: 'Gửi tin nhắn thoại', action: () => startRecording() },
     ...(activeConversation.isGroup && canCreatePoll ? [{ icon: BarChart2, title: 'Tạo bình chọn', action: () => setIsPollModalOpen(true) }] : [])
   ];
@@ -844,6 +992,36 @@ const MessageInput = () => {
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Smart Time Suggestion Banner ── */}
+      {timeSuggestion && !isAiConversation && (
+        <div className="flex items-center justify-between px-3 py-2 animate-fadeIn" style={{ background: 'rgba(255,99,72,0.08)', borderBottom: '1px solid rgba(255,99,72,0.15)' }}>
+          <div className="flex items-center gap-2 text-xs" style={{ color: '#FF6348' }}>
+            <CalendarClock size={15} />
+            <span>Phát hiện thời gian <b>"{timeSuggestion.text}"</b> — Tạo nhắc hẹn?</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="px-2.5 py-1 text-xs font-semibold rounded-md transition-all hover:scale-105"
+              style={{ background: '#FF6348', color: '#fff' }}
+              onClick={() => {
+                setReminderText(text);
+                const d = timeSuggestion.date;
+                setReminderDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`);
+                setReminderTime(`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`);
+                setIsReminderModalOpen(true);
+                setTimeSuggestion(null);
+              }}
+            >
+              Tạo nhắc hẹn
+            </button>
+            <button type="button" className="p-1 rounded-full hover:bg-[rgba(255,99,72,0.15)]" onClick={() => setTimeSuggestion(null)}>
+              <X size={14} style={{ color: '#FF6348' }} />
+            </button>
           </div>
         </div>
       )}
@@ -1003,8 +1181,103 @@ const MessageInput = () => {
         />,
         document.body
       )}
+
+      {/* ── Reminder Modal ── */}
+      {isReminderModalOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 animate-fadeIn" onClick={() => setIsReminderModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-bounce-in" onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-panel)' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border-light)' }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,99,72,0.12)' }}>
+                  <CalendarClock size={20} style={{ color: '#FF6348' }} />
+                </div>
+                <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>Tạo nhắc hẹn</h3>
+              </div>
+              <button className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] transition-colors" onClick={() => setIsReminderModalOpen(false)}>
+                <X size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Nội dung nhắc hẹn</label>
+                <textarea
+                  className="w-full px-3 py-2.5 rounded-xl text-sm resize-none outline-none transition-all focus:ring-2 focus:ring-[#FF6348]/30"
+                  style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
+                  rows={2}
+                  placeholder="VD: Họp nhóm project..."
+                  value={reminderText}
+                  onChange={e => setReminderText(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Ngày</label>
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all focus:ring-2 focus:ring-[#FF6348]/30"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
+                    value={reminderDate}
+                    onChange={e => setReminderDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Giờ</label>
+                  <input
+                    type="time"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all focus:ring-2 focus:ring-[#FF6348]/30"
+                    style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border-light)' }}
+                    value={reminderTime}
+                    onChange={e => setReminderTime(e.target.value)}
+                  />
+                </div>
+              </div>
+              {/* Quick time chips */}
+              <div>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Gợi ý nhanh</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: '30 phút nữa', mins: 30 },
+                    { label: '1 giờ nữa', mins: 60 },
+                    { label: '3 giờ nữa', mins: 180 },
+                    { label: 'Ngày mai 9h', mins: null, fn: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; } },
+                  ].map(chip => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      className="px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-105"
+                      style={{ background: 'rgba(255,99,72,0.1)', color: '#FF6348', border: '1px solid rgba(255,99,72,0.2)' }}
+                      onClick={() => {
+                        const d = chip.fn ? chip.fn() : new Date(Date.now() + (chip.mins || 0) * 60000);
+                        setReminderDate(`${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`);
+                        setReminderTime(`${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`);
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid var(--border-light)' }}>
+              <button className="px-4 py-2 rounded-xl text-sm font-medium transition-colors hover:bg-[var(--bg-hover)]"
+                style={{ color: 'var(--text-secondary)' }}
+                onClick={() => setIsReminderModalOpen(false)}>Hủy</button>
+              <button className="px-5 py-2 rounded-xl text-sm font-bold text-white transition-all hover:opacity-90"
+                style={{ background: '#FF6348' }}
+                onClick={sendReminder}>Gửi nhắc hẹn</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
 
 export default MessageInput;
+

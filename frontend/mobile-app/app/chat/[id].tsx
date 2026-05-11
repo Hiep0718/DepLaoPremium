@@ -112,6 +112,51 @@ export default function ChatScreen() {
   const [reminderText, setReminderText] = useState('');
   const [reminderDate, setReminderDate] = useState<Date>(new Date(Date.now() + 3600000));
 
+  // Smart time suggestion
+  const [timeSuggestion, setTimeSuggestion] = useState<{ text: string; date: Date } | null>(null);
+
+  const detectTimeInText = useCallback((input: string) => {
+    if (!input || input.length < 3 || isAi) { setTimeSuggestion(null); return; }
+    const now = new Date();
+    const patterns: { regex: RegExp; parse: (m: RegExpMatchArray) => { text: string; date: Date } | null }[] = [
+      { regex: /(\d{1,2})[hH:](\d{0,2})\s*(sáng|chiều|tối)?/i, parse: (m) => {
+        let h = parseInt(m[1]); const min = m[2] ? parseInt(m[2]) : 0; const p = m[3]?.toLowerCase();
+        if (p === 'chiều' && h < 12) h += 12; if (p === 'tối' && h < 18) h += 6;
+        const d = new Date(now); d.setHours(h, min, 0, 0); if (d <= now) d.setDate(d.getDate() + 1);
+        return { text: `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`, date: d };
+      }},
+      { regex: /(\d{1,2})\s*giờ\s*(\d{0,2})\s*(sáng|chiều|tối|phút)?/i, parse: (m) => {
+        let h = parseInt(m[1]); const min = m[2] ? parseInt(m[2]) : 0; const p = m[3]?.toLowerCase();
+        if (p === 'chiều' && h < 12) h += 12; if (p === 'tối' && h < 18) h += 6;
+        const d = new Date(now); d.setHours(h, min, 0, 0); if (d <= now) d.setDate(d.getDate() + 1);
+        return { text: `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`, date: d };
+      }},
+      { regex: /(sáng mai|chiều mai|tối mai|ngày mai)/i, parse: (m) => {
+        const d = new Date(now); d.setDate(d.getDate() + 1); const kw = m[1].toLowerCase();
+        if (kw.includes('sáng')) d.setHours(8,0,0,0); else if (kw.includes('chiều')) d.setHours(14,0,0,0);
+        else if (kw.includes('tối')) d.setHours(19,0,0,0); else d.setHours(9,0,0,0);
+        return { text: m[1], date: d };
+      }},
+      { regex: /(sáng nay|chiều nay|tối nay)/i, parse: (m) => {
+        const d = new Date(now); const kw = m[1].toLowerCase();
+        if (kw.includes('sáng')) d.setHours(8,0,0,0); else if (kw.includes('chiều')) d.setHours(14,0,0,0); else d.setHours(19,0,0,0);
+        if (d <= now) return null; return { text: m[1], date: d };
+      }},
+      { regex: /(tuần sau|tuần tới)/i, parse: (m) => { const d = new Date(now); d.setDate(d.getDate()+7); d.setHours(9,0,0,0); return { text: m[1], date: d }; }},
+      { regex: /(cuối tuần)/i, parse: (m) => { const d = new Date(now); const day = d.getDay(); const diff = day===0?6:(6-day); d.setDate(d.getDate()+diff); d.setHours(9,0,0,0); if(d<=now) d.setDate(d.getDate()+7); return { text: m[1], date: d }; }},
+      { regex: /(\d{1,2})\s*(phút|tiếng|giờ)\s*nữa/i, parse: (m) => {
+        const num = parseInt(m[1]); const unit = m[2].toLowerCase(); const d = new Date(now);
+        if (unit === 'phút') d.setMinutes(d.getMinutes()+num); else d.setHours(d.getHours()+num);
+        return { text: `${num} ${m[2]} nữa`, date: d };
+      }},
+    ];
+    for (const p of patterns) {
+      const match = input.match(p.regex);
+      if (match) { const result = p.parse(match); if (result && result.date > now) { setTimeSuggestion(result); return; } }
+    }
+    setTimeSuggestion(null);
+  }, [isAi]);
+
   // Animations
   const stickerPanelHeight = useRef(new RNAnimated.Value(0)).current;
   const moreActionsPanelHeight = useRef(new RNAnimated.Value(0)).current;
@@ -429,6 +474,7 @@ export default function ChatScreen() {
 
   const handleTextChange = (val: string) => {
     setText(val);
+    detectTimeInText(val); // Smart time detection
     if (isAi) return; // AI chat không cần typing indicator qua socket
     if (!isTyping && val.trim().length > 0) {
       setIsTyping(true);
@@ -658,6 +704,34 @@ export default function ChatScreen() {
           {isMember ? (
             canSendMessage ? (
               <>
+                {/* Smart Time Suggestion Banner */}
+                {timeSuggestion && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(255,99,72,0.08)', paddingHorizontal: 14, paddingVertical: 8, borderTopWidth: 1, borderTopColor: 'rgba(255,99,72,0.15)' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Ionicons name="alarm-outline" size={16} color="#FF6348" />
+                      <Text style={{ fontSize: 12, color: '#FF6348', marginLeft: 6, flex: 1 }} numberOfLines={1}>
+                        Phát hiện thời gian <Text style={{ fontWeight: '700' }}>"{timeSuggestion.text}"</Text>
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity
+                        style={{ backgroundColor: '#FF6348', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 }}
+                        onPress={() => {
+                          setReminderText(text);
+                          setReminderDate(timeSuggestion.date);
+                          setShowReminderModal(true);
+                          setTimeSuggestion(null);
+                        }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Tạo nhắc hẹn</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setTimeSuggestion(null)} style={{ padding: 2 }}>
+                        <Ionicons name="close" size={16} color="#FF6348" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 <ChatInputBar
                   inputRef={inputRef} text={text} handleTextChange={handleTextChange} handleSend={handleSend}
                   isRecording={isRecording} recordingTime={recordingTime} cancelRecording={cancelRecording}

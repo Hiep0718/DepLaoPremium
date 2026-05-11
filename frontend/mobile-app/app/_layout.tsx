@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SocketProvider } from '@/contexts/SocketContext';
+import NotificationManager from '@/components/NotificationManager';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -16,6 +17,7 @@ export default function RootLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <SocketProvider>
+        <NotificationManager />
         <Stack>
           <Stack.Screen name="welcome" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
