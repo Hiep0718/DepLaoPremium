@@ -285,6 +285,18 @@ const GroupCallManager = () => {
       }
     });
 
+    // Đồng bộ đa thiết bị: Khi user xử lý cuộc gọi trên thiết bị khác
+    socket.on('group_call_handled', (data) => {
+      const { conversationId: handledConvId, handledBySocketId } = data;
+      // Chỉ xử lý nếu event đến từ thiết bị KHÁC (không phải chính mình)
+      if (handledBySocketId === socket.id) return;
+      const state = useGroupCallStore.getState();
+      // Nếu đang ở trạng thái ringing cho cùng cuộc gọi → tắt popup
+      if (state.callState === 'ringing' && state.conversationId === handledConvId) {
+        endCall();
+      }
+    });
+
     return () => {
       socket.off('group_call_incoming');
       socket.off('group_user_joined');
@@ -295,6 +307,7 @@ const GroupCallManager = () => {
       socket.off('group_call_remote_mute');
       socket.off('group_call_remote_video_off');
       socket.off('group_call_ended');
+      socket.off('group_call_handled');
     };
   }, [user]);
 
@@ -464,6 +477,7 @@ const GroupCallManager = () => {
     const currentParticipantIds = Object.keys(remoteStreams);
     
     if (activeConvId) {
+      // Nếu mình là người tạo cuộc gọi VÀ chưa có ai tham gia → hủy ngay lập tức
       if (currentParticipantIds.length === 0 && String(activeCallerId) === String(user?.id)) {
         socket.emit('group_call_cancel', { conversationId: activeConvId });
       } else {

@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SocketProvider } from '@/contexts/SocketContext';
+import CallManager from '@/components/call/CallManager';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -32,6 +33,7 @@ export default function RootLayout() {
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style="auto" />
+        <CallManager />
       </SocketProvider>
     </ThemeProvider>
   );

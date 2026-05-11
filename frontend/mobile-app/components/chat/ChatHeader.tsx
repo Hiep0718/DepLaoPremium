@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { ZaloColors } from '@/constants/zalo';
+import { useGroupCallStore } from '@/stores/groupCallStore';
+import { useSocket } from '@/contexts/SocketContext';
 
 interface ChatHeaderProps {
   id: string;
@@ -26,6 +28,19 @@ export default function ChatHeader({
   isOtherTyping,
 }: ChatHeaderProps) {
   const router = useRouter();
+  const { currentUserId, socket } = useSocket();
+
+  const handleStartCall = (isVideo: boolean) => {
+    if (!socket || !currentUserId || !id) return;
+    // Emit group_call_start to notify others and create the call message
+    socket.emit('group_call_start', {
+      conversationId: id,
+      callerInfo: { id: currentUserId },
+      isVideo,
+    });
+    // Set store state → CallManager will auto-init stream then emit group_call_join
+    useGroupCallStore.getState().setOutgoingCall(id, currentUserId.toString(), isVideo);
+  };
 
   return (
     <View style={styles.header}>
@@ -43,10 +58,10 @@ export default function ChatHeader({
         ) : null}
       </View>
       <View style={styles.headerActions}>
-        <TouchableOpacity style={styles.headerBtn}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(false)}>
           <Ionicons name="call-outline" size={22} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerBtn}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(true)}>
           <Ionicons name="videocam-outline" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity 

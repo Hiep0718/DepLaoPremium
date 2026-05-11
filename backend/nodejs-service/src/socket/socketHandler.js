@@ -857,12 +857,19 @@ const setupSocketEvents = (io) => {
       }
     });
 
-    // Accept and Join a Group Call
     socket.on('group_call_join', (data) => {
       const { conversationId } = data;
       const roomName = `group_call_${conversationId}`;
       
       socket.join(roomName);
+
+      // Đồng bộ: Thông báo cho TẤT CẢ thiết bị của cùng user rằng cuộc gọi đã được xử lý
+      // (thiết bị khác sẽ tắt popup cuộc gọi đến)
+      io.to(`user_${socket.userId}`).emit('group_call_handled', {
+        conversationId,
+        action: 'accepted',
+        handledBySocketId: socket.id,
+      });
 
       // Notify others in the room that this user joined
       socket.to(roomName).emit('group_user_joined', {
@@ -970,8 +977,14 @@ const setupSocketEvents = (io) => {
     // Decline / Reject an incoming group call (does not affect the room, just dismisses the ringing)
     socket.on('group_call_reject', (data) => {
       const { conversationId, callerId } = data;
-      // You can notify the caller if needed, but in a group context it might be noisy.
-      // Usually, we just quietly ignore it. 
+
+      // Đồng bộ: Thông báo cho TẤT CẢ thiết bị của cùng user rằng cuộc gọi đã được từ chối
+      io.to(`user_${socket.userId}`).emit('group_call_handled', {
+        conversationId,
+        action: 'rejected',
+        handledBySocketId: socket.id,
+      });
+
       console.log(`[Group Call] User ${socket.userId} rejected incoming group call from ${callerId}`);
     });
 
