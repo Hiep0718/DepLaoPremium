@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { ZaloColors } from '@/constants/zalo';
@@ -32,6 +32,8 @@ interface MessageBubbleProps {
   onAddPollOption?: (msg: Message, optionText: string) => void;
   isGroup?: boolean;
   participantRoles?: Record<string, string>;
+  allMessages?: Message[];
+  onJoinCall?: (conversationId: string, isVideo: boolean) => void;
 }
 
 // Helper: render text with clickable links
@@ -131,6 +133,8 @@ export default function MessageBubble({
   onAddPollOption,
   isGroup,
   participantRoles,
+  allMessages,
+  onJoinCall,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -146,6 +150,7 @@ export default function MessageBubble({
   const isReminder = !item.isRevoked && item.messageType === 'reminder';
   const isContact = !item.isRevoked && item.messageType === 'contact';
   const isPoll = !item.isRevoked && item.messageType === 'poll';
+  const isGroupCall = !item.isRevoked && item.messageType === 'group_call';
   const isImage = !item.isRevoked && !isSticker && !isAudio && !isVideo && !isFile && !isLocation && !isReminder && !isContact && (
     item.messageType === 'image' ||
     item.imageUrl ||
@@ -539,6 +544,46 @@ export default function MessageBubble({
                     </TouchableOpacity>
                   );
                 })()
+              ) : isGroupCall ? (
+                (() => {
+                  const msgTime = new Date(item.createdAt || item.timestamp || 0).getTime();
+                  const isCallEnded = (allMessages || []).some(
+                    m => m.messageType === 'system' &&
+                    (m.content === 'Cuộc gọi nhóm đã kết thúc' || m.content === '📞 Cuộc gọi nhóm đã kết thúc') &&
+                    new Date(m.createdAt || m.timestamp || 0).getTime() > msgTime
+                  );
+                  const isVideoCall = safeContent === 'video';
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onLongPress={() => handleMessageLongPress(item)}
+                      onPress={() => {
+                        if (isCallEnded) {
+                          Alert.alert('Thông báo', 'Cuộc gọi này đã kết thúc');
+                          return;
+                        }
+                        if (onJoinCall) {
+                          onJoinCall(item.conversationId || '', isVideoCall);
+                        }
+                      }}
+                    >
+                      <View style={[styles.groupCallBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
+                        <View style={styles.groupCallHeader}>
+                          <View style={styles.groupCallIconWrap}>
+                            <Ionicons name={isVideoCall ? 'videocam' : 'call'} size={20} color="#0068FF" />
+                          </View>
+                          <Text style={styles.groupCallTitle}>Cuộc gọi nhóm</Text>
+                        </View>
+                        <View style={[styles.groupCallBtn, isCallEnded && styles.groupCallBtnEnded]}>
+                          <Text style={[styles.groupCallBtnText, isCallEnded && styles.groupCallBtnTextEnded]}>
+                            {isCallEnded ? 'Đã kết thúc' : 'Tham gia'}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })()
               ) : (() => {
                 const isAiBot = String(item.senderId) === 'ai_food_bot';
                 return (
@@ -726,6 +771,15 @@ const styles = StyleSheet.create({
   pollOptionCount: { fontSize: 12, fontWeight: '700', color: '#666' },
   pollFooter: { marginTop: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   pollFooterText: { fontSize: 12, color: '#888' },
+
+  groupCallBubble: { minWidth: 200, maxWidth: SCREEN_WIDTH * 0.65, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 16, gap: 10 },
+  groupCallHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  groupCallIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E5F0FF', justifyContent: 'center', alignItems: 'center' },
+  groupCallTitle: { fontSize: 15, fontWeight: '600', color: '#000' },
+  groupCallBtn: { backgroundColor: '#0068FF', paddingVertical: 10, borderRadius: 20, alignItems: 'center' },
+  groupCallBtnEnded: { backgroundColor: '#e5e7eb' },
+  groupCallBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  groupCallBtnTextEnded: { color: '#6b7280' },
 
   translatedWrap: { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)', borderStyle: 'dashed' },
   translatedText: { fontSize: 14, fontStyle: 'italic', lineHeight: 20, opacity: 0.9 },

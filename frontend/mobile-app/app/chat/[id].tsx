@@ -38,6 +38,7 @@ import { useVoiceRecording } from '@/hooks/chat/useVoiceRecording';
 import { useMediaHandling } from '@/hooks/chat/useMediaHandling';
 import { useAudioPlayback } from '@/hooks/chat/useAudioPlayback';
 import { useChatActions } from '@/hooks/chat/useChatActions';
+import { useGroupCallStore } from '@/stores/groupCallStore';
 
 
 export default function ChatScreen() {
@@ -658,6 +659,10 @@ export default function ChatScreen() {
                       lastReactionType={lastReaction}
                       onVotePoll={handleVotePoll}
                       onAddPollOption={handleAddPollOption}
+                      allMessages={messages}
+                      onJoinCall={(convId, isVid) => {
+                        useGroupCallStore.getState().setOutgoingCall(id, String(currentUserId), isVid);
+                      }}
                     />
                   )}
                   inverted
