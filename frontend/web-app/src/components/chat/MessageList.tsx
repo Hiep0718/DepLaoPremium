@@ -36,45 +36,82 @@ const REACTION_EMOJIS = [
 // Helper: detect URLs in text and render as clickable links
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 
-const renderTextWithLinks = (text: string) => {
+const renderTextWithLinks = (text: string, memberMap?: Record<string, any>) => {
   if (!text) return text;
-  const parts = text.split(URL_REGEX);
-  if (parts.length === 1) return text;
+  
+  let mentionRegex: RegExp | null = null;
+  if (memberMap) {
+    const names = Object.values(memberMap).map(m => m.fullName).filter(Boolean);
+    if (names.length > 0) {
+      // Sort by length desc to match longer names first
+      const escapedNames = names
+        .sort((a, b) => b.length - a.length)
+        .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      mentionRegex = new RegExp(`@(${escapedNames.join('|')})`, 'gi');
+    }
+  }
 
-  return parts.map((part, i) => {
-    if (URL_REGEX.test(part)) {
-      // Reset regex lastIndex after test
+  const parts = text.split(URL_REGEX);
+  if (parts.length === 1 && !mentionRegex) {
+    // No URLs and no mentions
+    if (mentionRegex) {
+      const mentionParts = text.split(mentionRegex);
+      if (mentionParts.length > 1) {
+        return mentionParts.map((mPart, j) => {
+          if (j % 2 === 1) {
+            return (
+              <span key={`mention-single-${j}`} style={{ color: '#0068FF', fontWeight: 600 }}>
+                @{mPart}
+              </span>
+            );
+          }
+          return <span key={`text-single-${j}`}>{mPart}</span>;
+        });
+      }
+    }
+    return text;
+  }
+
+  return parts.map((urlPart, i) => {
+    if (URL_REGEX.test(urlPart)) {
       URL_REGEX.lastIndex = 0;
-      const href = part.startsWith('http') ? part : `https://${part}`;
+      const href = urlPart.startsWith('http') ? urlPart : `https://${urlPart}`;
       return (
         <a
-          key={i}
+          key={`url-${i}`}
           href={href}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          style={{
-            color: '#4A90D9',
-            textDecoration: 'underline',
-            wordBreak: 'break-all',
-          }}
-          onMouseEnter={(e) => {
-            (e.target as HTMLAnchorElement).style.color = '#2B6CB0';
-          }}
-          onMouseLeave={(e) => {
-            (e.target as HTMLAnchorElement).style.color = '#4A90D9';
-          }}
+          style={{ color: '#4A90D9', textDecoration: 'underline', wordBreak: 'break-all' }}
+          onMouseEnter={(e) => (e.target as HTMLAnchorElement).style.color = '#2B6CB0'}
+          onMouseLeave={(e) => (e.target as HTMLAnchorElement).style.color = '#4A90D9'}
         >
-          {part}
+          {urlPart}
         </a>
       );
     }
-    // Reset regex lastIndex
+    
     URL_REGEX.lastIndex = 0;
-    return part;
+    
+    if (mentionRegex) {
+      const mentionParts = urlPart.split(mentionRegex);
+      if (mentionParts.length > 1) {
+        return mentionParts.map((mPart, j) => {
+          if (j % 2 === 1) {
+            return (
+              <span key={`mention-${i}-${j}`} style={{ color: '#0068FF', fontWeight: 600 }}>
+                @{mPart}
+              </span>
+            );
+          }
+          return <span key={`text-${i}-${j}`}>{mPart}</span>;
+        });
+      }
+    }
+    return <span key={`text-${i}`}>{urlPart}</span>;
   });
 };
-
 // Helper: format file size
 const formatFileSize = (bytes: number): string => {
   if (!bytes) return '';
@@ -1750,7 +1787,7 @@ const MessageList = () => {
                                       </div>
                                     ) : (
                                       /* Regular Message — plain text with links */
-                                      <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '')}</div>
+                                      <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '', activeConversation.isGroup ? memberMap : undefined)}</div>
                                     )}
                                     {translatedMessages[messageId] && (
                                       <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>

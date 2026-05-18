@@ -29,6 +29,8 @@ interface Conversation {
     avatarUrl?: string;
   };
   isAiBot?: boolean;
+  lastMessageSenderName?: string;
+  unreadCount?: number;
 }
 
 export default function MessagesScreen() {
@@ -60,6 +62,16 @@ export default function MessagesScreen() {
                 console.log('Failed to fetch user', otherUserId);
                 conv.otherUser = { id: otherUserId, fullName: 'Người dùng Zalo' };
               }
+            }
+          } else {
+            // Nhóm: Nếu tin nhắn cuối không phải của mình, lấy tên người gửi
+            if (conv.lastMessage && conv.lastMessage.senderId && conv.lastMessage.senderId !== currentUserId) {
+                try {
+                    const userRes = await apiClient.get(`/users/${conv.lastMessage.senderId}`);
+                    conv.lastMessageSenderName = userRes.data?.data?.fullName || 'Thành viên';
+                } catch (e) {
+                    conv.lastMessageSenderName = 'Thành viên';
+                }
             }
           }
           return conv;
@@ -111,7 +123,7 @@ export default function MessagesScreen() {
   // Lắng nghe Message mới bắn về để cập nhật "Tin nhắn mới nhất"
   useEffect(() => {
     if (!socket) return;
-    const handleNewMessage = (data: any) => {
+    const handleNewMessage = async (data: any) => {
       // Khi có tin nhắn mới, đẩy conversation đó lên đầu và cập nhật lastMessage
       setConversations(prev => {
         const idx = prev.findIndex(c => c.conversationId === data.conversationId);
@@ -122,6 +134,9 @@ export default function MessagesScreen() {
             senderId: data.senderId,
             timestamp: data.timestamp || new Date().toISOString()
           };
+          if (data.senderName) {
+             updatedConv.lastMessageSenderName = data.senderName;
+          }
           // Xoá và đẩy lên đầu
           const newList = prev.filter((_, i) => i !== idx);
           return [updatedConv, ...newList];
@@ -131,6 +146,26 @@ export default function MessagesScreen() {
           return prev;
         }
       });
+
+      // Fetch sender name if group and missing
+      if (data.senderId !== currentUserId) {
+         try {
+             const userRes = await apiClient.get(`/users/${data.senderId}`);
+             const name = userRes.data?.data?.fullName;
+             if (name) {
+                 setConversations(prev => {
+                     const idx = prev.findIndex(c => c.conversationId === data.conversationId);
+                     if (idx > -1 && prev[idx].isGroup) {
+                         const updatedConv = { ...prev[idx], lastMessageSenderName: name };
+                         const newList = [...prev];
+                         newList[idx] = updatedConv;
+                         return newList;
+                     }
+                     return prev;
+                 });
+             }
+         } catch (e) {}
+      }
     };
     
     // Lắng nghe sự kiện cập nhật nhóm
@@ -174,7 +209,7 @@ export default function MessagesScreen() {
 
   const renderItem = ({ item }: { item: Conversation }) => {
     const displayName = item.isGroup ? (item.groupName || 'Nhóm') : (item.otherUser?.fullName || 'Người dùng');
-    const isUnread = false; // Có thể mở rộng
+    const isUnread = item.unreadCount ? item.unreadCount > 0 : false;
 
     return (
       <TouchableOpacity 
@@ -187,6 +222,7 @@ export default function MessagesScreen() {
                 name: displayName,
                 recipientId: item.isGroup ? "" : (item.otherUser?.id || ""),
                 avatar: item.isGroup ? (item.groupAvatar || "") : (item.otherUser?.avatarUrl || ""),
+                initialUnreadCount: item.unreadCount || 0
             } 
         })}
       >
@@ -208,19 +244,44 @@ export default function MessagesScreen() {
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
             <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {isUnread && (
+                <View style={styles.unreadBadgeList}>
+                  <Text style={styles.unreadBadgeTextList}>{item.unreadCount}</Text>
+                </View>
+              )}
+              <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
+            </View>
           </View>
           <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread]} numberOfLines={1}>
-            {item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
             {(() => {
-                const content = item.lastMessage?.content || 'Chưa có tin nhắn';
-                if (typeof content === 'string' && content.startsWith('{"question":')) {
-                    try {
-                        const poll = JSON.parse(content);
-                        return `📊 Bình chọn: ${poll.question}`;
-                    } catch(e) { return content; }
+                let prefix = '';
+                if (item.lastMessage?.senderId === currentUserId) {
+                    prefix = 'Bạn: ';
+                } else if (item.isGroup && item.lastMessage?.senderId && !item.isAiBot) {
+                    // For group chats, if someone else sent it, show their name
+                    prefix = item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : 'Thành viên: ';
                 }
-                return content;
+
+                let content = item.lastMessage?.content || 'Chưa có tin nhắn';
+                
+                if (typeof content === 'string') {
+                    if (content.startsWith('{"question":')) {
+                        try {
+                            const poll = JSON.parse(content);
+                            return <Text>{prefix}📊 Bình chọn: {poll.question}</Text>;
+                        } catch(e) {}
+                    } else if (content.match(/^https?:\/\//)) {
+                        return (
+                           <Text>
+                               <Text>{prefix}</Text>
+                               <Ionicons name="link-outline" size={14} color="#666" />
+                               <Text> {content}</Text>
+                           </Text>
+                        );
+                    }
+                }
+                return `${prefix}${content}`;
             })()}
           </Text>
         </View>
@@ -336,5 +397,19 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+  unreadBadgeList: {
+    backgroundColor: '#ff3b30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  unreadBadgeTextList: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

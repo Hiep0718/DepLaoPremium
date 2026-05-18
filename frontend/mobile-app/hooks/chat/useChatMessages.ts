@@ -185,6 +185,13 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
         }
       }
 
+      // Thêm tất cả thành viên nhóm để có đầy đủ thông tin cho tính năng tag (@mention)
+      if (isGroup && participantRoles) {
+        Object.keys(participantRoles).forEach(uid => {
+          if (uid) allIds.add(uid);
+        });
+      }
+
       const newIds = Array.from(allIds).filter(uid => !memberMap[uid]);
       if (newIds.length === 0) return;
 

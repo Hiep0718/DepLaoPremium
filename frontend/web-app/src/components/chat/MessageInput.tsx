@@ -15,6 +15,7 @@ import { streamAiChat } from '../../services/aiChat.service';
 import { uploadChatFile } from '../../services/upload.service';
 import { STICKERS } from '../../constants/stickers';
 import { showToast } from '../../services/notification.service';
+import api from '../../services/axios';
 
 // Helper: format file size
 const formatFileSize = (bytes: number): string => {
@@ -45,6 +46,55 @@ const MessageInput = () => {
 
   const [isPollModalOpen, setIsPollModalOpen] = useState(false);
 
+  // Mention States
+  const [mentionKeyword, setMentionKeyword] = useState<string | null>(null);
+  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
+
+  // Fetch members for mentions
+  useEffect(() => {
+    if (!activeConversation?.isGroup || !activeConversation.participants?.length) return;
+    const fetchMembers = async () => {
+      const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
+      for (const p of activeConversation.participants) {
+        const uid = String((p as any).userId || (p as any).id || p);
+        if (!uid) continue;
+        try {
+          const res = await api.get(`/users/${uid}`);
+          if (res.data?.data) {
+            map[uid] = { fullName: res.data.data.fullName || res.data.data.nickname || 'Thành viên', avatarUrl: res.data.data.avatarUrl };
+          }
+        } catch { /* skip */ }
+      }
+      setMemberMap(map);
+    };
+    fetchMembers();
+  }, [activeConversation?.conversationId, activeConversation?.isGroup, activeConversation?.participants]);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setText(val);
+    
+    if (activeConversation?.isGroup) {
+      const match = val.match(/(?:^|\s)@([^@]*)$/);
+      if (match) {
+        setMentionKeyword(match[1]);
+      } else {
+        setMentionKeyword(null);
+      }
+    }
+  };
+
+  const handleMentionSelect = (fullName: string) => {
+    const match = text.match(/(?:^|\s)@([^@]*)$/);
+    if (match) {
+       const beforeAt = text.substring(0, text.length - match[0].length + (match[0].startsWith(' ') ? 1 : 0));
+       const newText = beforeAt + '@' + fullName + ' ';
+       setText(newText);
+       setMentionKeyword(null);
+       const textarea = document.querySelector('textarea') as HTMLTextAreaElement;
+       if (textarea) textarea.focus();
+    }
+  };
 
   // Voice Recording States
   const [isRecording, setIsRecording] = useState(false);
@@ -1079,7 +1129,38 @@ const MessageInput = () => {
           </div>
         ) : (
           /* Text Input UI */
-          <div className="flex-1">
+          <div className="flex-1 relative">
+            {mentionKeyword !== null && isGroup && (
+              <div 
+                className="absolute left-0 bottom-full mb-2 w-64 max-h-48 overflow-y-auto rounded-xl shadow-lg border custom-scrollbar z-50"
+                style={{ background: 'var(--bg-panel)', borderColor: 'var(--border-primary)' }}
+              >
+                {Object.entries(memberMap)
+                  .filter(([uid, userObj]) => 
+                    uid !== user?.id?.toString() && 
+                    (userObj.fullName.toLowerCase().includes(mentionKeyword.toLowerCase()) || mentionKeyword === '')
+                  )
+                  .map(([uid, userObj]) => (
+                    <button
+                      key={uid}
+                      type="button"
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                      onClick={() => handleMentionSelect(userObj.fullName)}
+                    >
+                      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
+                        {userObj.avatarUrl ? (
+                          <img src={userObj.avatarUrl} alt={userObj.fullName} className="w-full h-full object-cover" />
+                        ) : (
+                          userObj.fullName.charAt(0).toUpperCase()
+                        )}
+                      </div>
+                      <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        {userObj.fullName}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
             <textarea
               className="w-full bg-transparent border-0 resize-none py-2 outline-none text-[15px] leading-relaxed"
               style={{ color: 'var(--text-primary)' }}
@@ -1088,7 +1169,7 @@ const MessageInput = () => {
                 ? 'Hỏi Bếp AI về ẩm thực...'
                 : (pendingFiles.length > 0 ? 'Thêm tin nhắn (tùy chọn)...' : `Nhập @, tin nhắn tới ${recipientName}`)}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={handleTextChange}
               onPaste={handlePaste}
               disabled={isAiConversation && isAiStreaming}
               onKeyDown={(e) => {

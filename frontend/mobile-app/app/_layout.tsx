@@ -1,7 +1,13 @@
+import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import 'react-native-reanimated';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SocketProvider } from '@/contexts/SocketContext';
@@ -16,6 +22,47 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const checkAuthStatus = async () => {
+      try {
+        const token = await AsyncStorage.getItem('accessToken');
+        if (!isMounted) return;
+
+        const inAuthGroup = [
+          'welcome', 'login', 'register', 'register-otp', 
+          'register-name', 'register-info', 'register-avatar', 'forgot-password'
+        ].includes(segments[0] as string);
+
+        if (!token && !inAuthGroup) {
+          // If no token and not trying to access an auth screen, redirect to welcome
+          router.replace('/welcome');
+        } else if (token && inAuthGroup) {
+          // If token exists and trying to access auth screen, redirect to main app
+          router.replace('/(tabs)');
+        }
+      } catch (error) {
+        console.log('Error checking auth state:', error);
+      } finally {
+        if (isMounted) {
+          await SplashScreen.hideAsync();
+        }
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      checkAuthStatus();
+    }, 10);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+    };
+  }, [segments]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

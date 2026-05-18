@@ -48,10 +48,17 @@ export default function ChatScreen() {
   const avatar = params.avatar as string;
   const isOnline = params.isOnline === 'true';
   const recipientId = params.recipientId as string;
+  const initialUnreadParam = parseInt(params.initialUnreadCount as string) || 0;
 
   const { socket, currentUserId } = useSocket();
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
+
+  // BỔ SUNG: Refs và State cho cuộn tin nhắn
+  const flatListRef = useRef<FlatList>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [initialUnreadCount, setInitialUnreadCount] = useState(initialUnreadParam);
 
   // States
   const [text, setText] = useState('');
@@ -62,6 +69,27 @@ export default function ChatScreen() {
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles, groupName, groupAvatar, groupSettings } = useChatMessages(id, currentUserId, socket);
   const { isOtherTyping, lastSeenMessageId } = useChatSocket({ socket, id, currentUserId, setMessages, setPinnedMessage });
+
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 150) {
+      if (!showScrollToBottom) setShowScrollToBottom(true);
+    } else {
+      if (showScrollToBottom) setShowScrollToBottom(false);
+      if (unreadCount > 0) setUnreadCount(0);
+    }
+  };
+
+  const prevMessagesLength = useRef(messages.length);
+  useEffect(() => {
+     if (messages.length > prevMessagesLength.current) {
+        const newMsg = messages[0];
+        if (newMsg && newMsg.senderId !== currentUserId && showScrollToBottom) {
+           setUnreadCount(prev => prev + 1);
+        }
+     }
+     prevMessagesLength.current = messages.length;
+  }, [messages, showScrollToBottom, currentUserId]);
 
   const myRole = React.useMemo(() => participantRoles[String(currentUserId)] || 'member', [participantRoles, currentUserId]);
 
@@ -99,6 +127,127 @@ export default function ChatScreen() {
 
   const isAi = (id as string)?.startsWith('ai_');
   const [isAiStreaming, setIsAiStreaming] = useState(false);
+
+  // BỔ SUNG: State cho Mention (Tag)
+  const [mentionKeyword, setMentionKeyword] = useState<string | null>(null);
+  const [mentionActionUser, setMentionActionUser] = useState<{ id: string; name: string } | null>(null);
+  const [selectedUserProfile, setSelectedUserProfile] = useState<any | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  const handleMentionSelect = (fullName: string) => {
+    const match = text.match(/(?:^|\s)@([^@]*)$/);
+    if (match) {
+       const beforeAt = text.substring(0, text.length - match[0].length + (match[0].startsWith(' ') ? 1 : 0));
+       const newText = beforeAt + '@' + fullName + ' ';
+       setText(newText);
+       setMentionKeyword(null);
+       inputRef.current?.focus();
+    }
+  };
+
+  const handleTagMentionUser = () => {
+    if (mentionActionUser) {
+      setText(prev => {
+        const prefix = prev ? (prev.endsWith(' ') ? prev : prev + ' ') : '';
+        return prefix + '@' + mentionActionUser.name + ' ';
+      });
+      setMentionActionUser(null);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  };
+
+  const handleDirectMessageMention = async () => {
+    if (!currentUserId || !mentionActionUser) return;
+    const targetUserId = mentionActionUser.id;
+    if (String(targetUserId) === String(currentUserId)) {
+      Alert.alert('Thông báo', 'Bạn không thể nhắn tin riêng cho chính mình!');
+      setMentionActionUser(null);
+      return;
+    }
+    const ids = [currentUserId.toString(), targetUserId.toString()].sort();
+    const convId = `1to1_${ids[0]}_${ids[1]}`;
+    try {
+        const { chatApiClient } = await import('@/constants/chatApi');
+        await chatApiClient.post('/conversation', {
+            conversationId: convId,
+            participants: [currentUserId.toString(), targetUserId.toString()],
+            isGroup: false
+        });
+        setMentionActionUser(null);
+        router.replace({
+            pathname: "/chat/[id]",
+            params: {
+                id: convId,
+                name: mentionActionUser.name,
+                recipientId: targetUserId.toString(),
+                avatar: memberMap?.[targetUserId]?.avatarUrl || ""
+            }
+        });
+    } catch (error) {
+        console.error("Failed to start conversation", error);
+        Alert.alert('Lỗi', 'Không thể kết nối để tạo cuộc trò chuyện mới.');
+    }
+  };
+
+  const handleCallMention = async () => {
+    if (!currentUserId || !mentionActionUser || !socket) return;
+    const targetUserId = mentionActionUser.id;
+    if (String(targetUserId) === String(currentUserId)) {
+      Alert.alert('Thông báo', 'Bạn không thể gọi cho chính mình!');
+      setMentionActionUser(null);
+      return;
+    }
+    const ids = [currentUserId.toString(), targetUserId.toString()].sort();
+    const convId = `1to1_${ids[0]}_${ids[1]}`;
+    try {
+        const { chatApiClient } = await import('@/constants/chatApi');
+        await chatApiClient.post('/conversation', {
+            conversationId: convId,
+            participants: [currentUserId.toString(), targetUserId.toString()],
+            isGroup: false
+        });
+        setMentionActionUser(null);
+        
+        socket.emit('group_call_start', {
+          conversationId: convId,
+          callerInfo: { id: currentUserId },
+          isVideo: false,
+        });
+        useGroupCallStore.getState().setOutgoingCall(convId, currentUserId.toString(), false);
+    } catch (error) {
+        console.error("Failed to start call", error);
+        Alert.alert('Lỗi', 'Không thể bắt đầu cuộc gọi.');
+    }
+  };
+
+  const handleTransferMention = () => {
+    if (!mentionActionUser) return;
+    const name = mentionActionUser.name;
+    setMentionActionUser(null);
+    Alert.alert(
+      'Chuyển khoản nhanh',
+      `Tính năng chuyển khoản nhanh đến ${name} đang được phát triển!`,
+      [{ text: 'Đồng ý', style: 'default' }]
+    );
+  };
+
+  const handleViewMentionProfile = async () => {
+    if (!mentionActionUser) return;
+    const targetUserId = mentionActionUser.id;
+    setMentionActionUser(null);
+    setLoadingProfile(true);
+    try {
+      const res = await apiClient.get(`/users/${targetUserId}`);
+      setSelectedUserProfile(res.data?.data || null);
+    } catch (err) {
+      console.log('Failed to fetch profile', err);
+      Alert.alert('Lỗi', 'Không thể tải thông tin cá nhân của người này.');
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
 
   // groupMemberCount is now provided by useChatMessages hook
 
@@ -476,6 +625,17 @@ export default function ChatScreen() {
   const handleTextChange = (val: string) => {
     setText(val);
     detectTimeInText(val); // Smart time detection
+    
+    // BỔ SUNG: Detect Mention cho nhóm
+    if (isGroup) {
+      const match = val.match(/(?:^|\s)@([^@]*)$/);
+      if (match) {
+         setMentionKeyword(match[1]);
+      } else {
+         setMentionKeyword(null);
+      }
+    }
+
     if (isAi) return; // AI chat không cần typing indicator qua socket
     if (!isTyping && val.trim().length > 0) {
       setIsTyping(true);
@@ -595,6 +755,21 @@ export default function ChatScreen() {
           style={[styles.chatArea, { backgroundColor: '#e2e9f1' }]}
           behavior="padding"
         >
+          {/* Nút nhảy đến tin nhắn chưa đọc đầu tiên (khi mới vào) */}
+          {initialUnreadCount > 0 && initialUnreadCount <= messages.length && (
+            <TouchableOpacity 
+              style={styles.jumpToUnreadBanner}
+              activeOpacity={0.9}
+              onPress={() => {
+                flatListRef.current?.scrollToIndex({ index: initialUnreadCount - 1, animated: true, viewPosition: 1 });
+                setInitialUnreadCount(0); // Ẩn nút sau khi click
+              }}
+            >
+              <Text style={styles.jumpToUnreadText}>{initialUnreadCount} tin nhắn chưa xem</Text>
+              <Ionicons name="chevron-up" size={18} color="#0068FF" />
+            </TouchableOpacity>
+          )}
+
           <View style={{ flex: 1 }}>
             {isLoading ? (
               <View style={styles.centerWrap}>
@@ -635,6 +810,7 @@ export default function ChatScreen() {
             ) : (
               <>
                 <FlatList
+                  ref={flatListRef}
                   data={messages}
                   extraData={messages}
                   keyExtractor={item => item.tempId || item._id}
@@ -663,6 +839,9 @@ export default function ChatScreen() {
                       onJoinCall={(convId, isVid) => {
                         useGroupCallStore.getState().setOutgoingCall(id, String(currentUserId), isVid);
                       }}
+                      onPressMention={(fullName, userId) => {
+                        setMentionActionUser({ id: userId, name: fullName });
+                      }}
                     />
                   )}
                   inverted
@@ -670,7 +849,29 @@ export default function ChatScreen() {
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                   onScrollBeginDrag={() => setReactionTooltipId(null)}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
                 />
+
+                {/* Nút cuộn xuống dưới & Tin nhắn mới */}
+                {showScrollToBottom && (
+                  <TouchableOpacity 
+                    style={styles.scrollToBottomBtn}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+                      setUnreadCount(0);
+                      setShowScrollToBottom(false);
+                    }}
+                  >
+                    <Ionicons name="chevron-down" size={24} color="#0068FF" />
+                    {unreadCount > 0 && (
+                      <View style={styles.unreadBadgeMsg}>
+                        <Text style={styles.unreadBadgeTextMsg}>{unreadCount}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
 
                 {/* AI Streaming Indicator — dots khi đang chờ AI */}
                 {isAi && isAiStreaming && !messages.some(m => m._id === '__ai_streaming__') && (
@@ -734,6 +935,31 @@ export default function ChatScreen() {
                         <Ionicons name="close" size={16} color="#FF6348" />
                       </TouchableOpacity>
                     </View>
+                  </View>
+                )}
+
+                {/* Danh sách Tag (Mention) */}
+                {mentionKeyword !== null && isGroup && (
+                  <View style={styles.mentionListWrap}>
+                    <ScrollView keyboardShouldPersistTaps="always" style={styles.mentionScrollView}>
+                      {Object.entries(memberMap)
+                        .filter(([uid, user]) => 
+                          uid !== currentUserId && 
+                          participantRoles[uid] && 
+                          (user.fullName.toLowerCase().includes(mentionKeyword.toLowerCase()) || mentionKeyword === '')
+                        )
+                        .map(([uid, user]) => (
+                          <TouchableOpacity 
+                            key={uid} 
+                            style={styles.mentionItem}
+                            keyboardShouldPersistTaps="always"
+                            onPress={() => handleMentionSelect(user.fullName)}
+                          >
+                            <Image source={{ uri: user.avatarUrl || 'https://via.placeholder.com/40' }} style={styles.mentionAvatar} />
+                            <Text style={styles.mentionName}>{user.fullName}</Text>
+                          </TouchableOpacity>
+                        ))}
+                    </ScrollView>
                   </View>
                 )}
 
@@ -1012,6 +1238,131 @@ export default function ChatScreen() {
           })() : null}
         />
 
+        {/* Loading Profile Overlay */}
+        <Modal visible={loadingProfile} transparent animationType="fade">
+          <View style={styles.mentionDialogOverlay}>
+            <View style={{ backgroundColor: '#fff', padding: 24, borderRadius: 12, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color="#0068FF" />
+              <Text style={{ marginTop: 12, color: '#666' }}>Đang tải...</Text>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Custom Mention Dialog Modal */}
+        <Modal visible={!!mentionActionUser} transparent animationType="fade" onRequestClose={() => setMentionActionUser(null)}>
+          <TouchableOpacity style={styles.mentionDialogOverlay} activeOpacity={1} onPress={() => setMentionActionUser(null)}>
+            <TouchableWithoutFeedback>
+              <View style={styles.mentionDialogContainer}>
+                <Text style={styles.mentionDialogTitle}>{mentionActionUser?.name}</Text>
+                
+                <TouchableOpacity style={styles.mentionDialogItem} onPress={handleViewMentionProfile}>
+                  <Text style={styles.mentionDialogItemText}>Xem trang cá nhân</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.mentionDialogItem} onPress={handleTagMentionUser}>
+                  <Text style={styles.mentionDialogItemText}>@ Nhắc đến...</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.mentionDialogItem} onPress={handleDirectMessageMention}>
+                  <Text style={styles.mentionDialogItemText}>Nhắn tin riêng</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.mentionDialogItem} onPress={handleCallMention}>
+                  <Text style={styles.mentionDialogItemText}>Gọi Zalo miễn phí</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.mentionDialogItem} onPress={handleTransferMention}>
+                  <Text style={styles.mentionDialogItemText}>Chuyển khoản nhanh</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* User Profile Card Modal */}
+        <Modal visible={!!selectedUserProfile} transparent animationType="slide" onRequestClose={() => setSelectedUserProfile(null)}>
+          <View style={styles.mentionDialogOverlay}>
+            <View style={styles.profileCardContainer}>
+              {/* Cover photo */}
+              <View style={styles.profileCardCoverWrap}>
+                {selectedUserProfile?.coverUrl ? (
+                  <Image source={{ uri: selectedUserProfile.coverUrl }} style={styles.profileCardCover} />
+                ) : (
+                  <View style={[styles.profileCardCover, { backgroundColor: '#005FD8' }]} />
+                )}
+                {/* Close button */}
+                <TouchableOpacity style={styles.profileCardCloseBtn} onPress={() => setSelectedUserProfile(null)}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Avatar */}
+              <View style={styles.profileCardAvatarWrap}>
+                {selectedUserProfile?.avatarUrl ? (
+                  <Image source={{ uri: selectedUserProfile.avatarUrl }} style={styles.profileCardAvatar} />
+                ) : (
+                  <View style={styles.profileCardAvatarPlaceholder}>
+                    <Ionicons name="person" size={40} color="#fff" />
+                  </View>
+                )}
+              </View>
+
+              {/* Name */}
+              <Text style={styles.profileCardName}>{selectedUserProfile?.fullName}</Text>
+
+              {/* Details card */}
+              <View style={styles.profileCardInfoWrap}>
+                <Text style={styles.profileCardInfoTitle}>Thông tin cá nhân</Text>
+                
+                <View style={styles.profileCardInfoRow}>
+                  <Text style={styles.profileCardInfoLabel}>Giới tính</Text>
+                  <Text style={styles.profileCardInfoValue}>{selectedUserProfile?.gender || 'Chưa cập nhật'}</Text>
+                </View>
+
+                <View style={styles.profileCardInfoRow}>
+                  <Text style={styles.profileCardInfoLabel}>Ngày sinh</Text>
+                  <Text style={styles.profileCardInfoValue}>
+                    {selectedUserProfile?.birthday ? new Date(selectedUserProfile.birthday).toLocaleDateString('vi-VN') : 'Chưa cập nhật'}
+                  </Text>
+                </View>
+
+                <View style={styles.profileCardInfoRow}>
+                  <Text style={styles.profileCardInfoLabel}>ID người dùng</Text>
+                  <Text style={styles.profileCardInfoValue}>#{selectedUserProfile?.id || '---'}</Text>
+                </View>
+
+                <View style={styles.profileCardInfoRow}>
+                  <Text style={styles.profileCardInfoLabel}>Số điện thoại</Text>
+                  <Text style={styles.profileCardInfoValue}>{selectedUserProfile?.phone || 'Ẩn'}</Text>
+                </View>
+              </View>
+
+              {/* Footer action buttons */}
+              <View style={styles.profileCardFooter}>
+                <TouchableOpacity 
+                  style={styles.profileCardFooterBtn} 
+                  onPress={() => {
+                    const u = selectedUserProfile;
+                    setSelectedUserProfile(null);
+                    setMentionActionUser({ id: u.id, name: u.fullName });
+                    handleDirectMessageMention();
+                  }}
+                >
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color="#fff" />
+                  <Text style={styles.profileCardFooterBtnText}>Nhắn tin</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.profileCardFooterBtn, { backgroundColor: '#e0e0e0' }]} 
+                  onPress={() => setSelectedUserProfile(null)}
+                >
+                  <Text style={{ color: '#333', fontWeight: '600' }}>Đóng</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
       </SafeAreaView >
     </View >
   );
@@ -1224,4 +1575,244 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 4,
   },
+  scrollToBottomBtn: {
+    position: 'absolute',
+    bottom: 20,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#e1e4ea',
+  },
+  unreadBadgeMsg: {
+    position: 'absolute',
+    top: -6,
+    right: -4,
+    backgroundColor: '#ff3b30',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  unreadBadgeTextMsg: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  jumpToUnreadBanner: {
+    position: 'absolute',
+    top: 10,
+    right: 16,
+    backgroundColor: '#e6f0ff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    zIndex: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    borderWidth: 1,
+    borderColor: '#b3d4ff',
+  },
+  jumpToUnreadText: {
+    color: '#0068FF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  mentionListWrap: {
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e1e4ea',
+    maxHeight: 180,
+  },
+  mentionScrollView: {
+    paddingVertical: 4,
+  },
+  mentionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  mentionAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e1bee7',
+    marginRight: 12,
+  },
+  mentionName: {
+    fontSize: 15,
+    color: '#333',
+    fontWeight: '500',
+  },
+
+  // Custom Mention Dialog & Profile Card Modals
+  mentionDialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mentionDialogContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    width: '80%',
+    paddingVertical: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  mentionDialogTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+    marginBottom: 8,
+  },
+  mentionDialogItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+  },
+  mentionDialogItemText: {
+    fontSize: 16,
+    color: '#1a1a1a',
+  },
+  profileCardContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    width: '85%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  profileCardCoverWrap: {
+    position: 'relative',
+    height: 120,
+    width: '100%',
+  },
+  profileCardCover: {
+    height: 120,
+    width: '100%',
+  },
+  profileCardCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCardAvatarWrap: {
+    alignSelf: 'center',
+    marginTop: -40,
+    position: 'relative',
+    zIndex: 1,
+  },
+  profileCardAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+  profileCardAvatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#fff',
+    backgroundColor: '#b0c4de',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCardName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  profileCardInfoWrap: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  profileCardInfoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  profileCardInfoRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  profileCardInfoLabel: {
+    width: 110,
+    fontSize: 14,
+    color: '#888',
+  },
+  profileCardInfoValue: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111',
+    fontWeight: '500',
+  },
+  profileCardFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eee',
+    backgroundColor: '#fafafa',
+  },
+  profileCardFooterBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#0068FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileCardFooterBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  }
 });

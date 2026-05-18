@@ -34,25 +34,42 @@ interface MessageBubbleProps {
   participantRoles?: Record<string, string>;
   allMessages?: Message[];
   onJoinCall?: (conversationId: string, isVideo: boolean) => void;
+  onPressMention?: (fullName: string, userId: string) => void;
 }
 
 // Helper: render text with clickable links
-const renderTextWithLinks = (text: string, textStyle: any) => {
+const renderTextWithLinks = (
+  text: string, 
+  textStyle: any, 
+  memberMap?: Record<string, { fullName: string; avatarUrl?: string }>,
+  isGroup?: boolean,
+  onPressMention?: (fullName: string, userId: string) => void
+) => {
   if (!text) return <Text style={textStyle}>{text}</Text>;
+
+  let mentionRegex: RegExp | null = null;
+  if (isGroup && memberMap) {
+    const names = Object.values(memberMap).map(m => m.fullName).filter(Boolean);
+    if (names.length > 0) {
+      // Sort by length desc to match longer names first
+      const escapedNames = names
+        .sort((a, b) => b.length - a.length)
+        .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      mentionRegex = new RegExp(`@(${escapedNames.join('|')})`, 'gi');
+    }
+  }
+
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
-  if (parts.length <= 1) {
-    return <Text style={textStyle}>{text}</Text>;
-  }
-  // Use a non-global regex for testing individual parts (avoids lastIndex bug)
   const urlTest = /^https?:\/\//;
+
   return (
     <Text style={textStyle}>
       {parts.map((part, i) => {
         if (urlTest.test(part)) {
           return (
             <Text
-              key={i}
+              key={`url-${i}`}
               style={{ color: '#1a73e8', textDecorationLine: 'underline' }}
               onPress={() => Linking.openURL(part)}
             >
@@ -60,7 +77,35 @@ const renderTextWithLinks = (text: string, textStyle: any) => {
             </Text>
           );
         }
-        return part ? <Text key={i}>{part}</Text> : null;
+
+        // Apply mention matching to the non-url part
+        if (mentionRegex) {
+          const mentionParts = part.split(mentionRegex);
+          if (mentionParts.length > 1) {
+            return mentionParts.map((mPart, j) => {
+              if (j % 2 === 1) {
+                const memberEntry = Object.entries(memberMap || {}).find(([_, info]) => info.fullName === mPart);
+                const userId = memberEntry ? memberEntry[0] : null;
+                return (
+                  <Text 
+                    key={`mention-${i}-${j}`} 
+                    style={{ color: '#0068FF', fontWeight: 'bold' }}
+                    onPress={() => {
+                      if (userId && onPressMention) {
+                        onPressMention(mPart, userId);
+                      }
+                    }}
+                  >
+                    @{mPart}
+                  </Text>
+                );
+              }
+              return mPart ? <Text key={`text-${i}-${j}`}>{mPart}</Text> : null;
+            });
+          }
+        }
+
+        return part ? <Text key={`text-${i}`}>{part}</Text> : null;
       })}
     </Text>
   );
@@ -135,6 +180,7 @@ export default function MessageBubble({
   participantRoles,
   allMessages,
   onJoinCall,
+  onPressMention,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -602,7 +648,7 @@ export default function MessageBubble({
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#f97316' }}>Bếp AI 🍜</Text>
                         </View>
                       )}
-                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent])}
+                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent], memberMap, isGroup, onPressMention)}
                       {translatedMessages[item._id] && (
                         <View style={styles.translatedWrap}>
                           <Text style={[styles.translatedText, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
