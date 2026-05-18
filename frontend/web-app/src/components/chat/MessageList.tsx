@@ -15,6 +15,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { socket } from '../../services/socket';
 import { contactService } from '../../services/contactService';
+import api from '../../services/axios';
 import ProfileModal from '../ProfileModal';
 import CreatePollModal from './CreatePollModal';
 
@@ -36,7 +37,11 @@ const REACTION_EMOJIS = [
 // Helper: detect URLs in text and render as clickable links
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
 
-const renderTextWithLinks = (text: string, memberMap?: Record<string, any>) => {
+const renderTextWithLinks = (
+  text: string, 
+  memberMap?: Record<string, any>, 
+  onPressMention?: (userId: string, fullName: string) => void
+) => {
   if (!text) return text;
   
   let mentionRegex: RegExp | null = null;
@@ -53,21 +58,35 @@ const renderTextWithLinks = (text: string, memberMap?: Record<string, any>) => {
 
   const parts = text.split(URL_REGEX);
   if (parts.length === 1 && !mentionRegex) {
-    // No URLs and no mentions
-    if (mentionRegex) {
-      const mentionParts = text.split(mentionRegex);
-      if (mentionParts.length > 1) {
-        return mentionParts.map((mPart, j) => {
-          if (j % 2 === 1) {
-            return (
-              <span key={`mention-single-${j}`} style={{ color: '#0068FF', fontWeight: 600 }}>
-                @{mPart}
-              </span>
-            );
-          }
-          return <span key={`text-single-${j}`}>{mPart}</span>;
-        });
-      }
+    return text;
+  }
+
+  // If there are mentions but NO URLs, handle them directly
+  if (parts.length === 1 && mentionRegex) {
+    const mentionParts = text.split(mentionRegex);
+    if (mentionParts.length > 1) {
+      return mentionParts.map((mPart, j) => {
+        if (j % 2 === 1) {
+          const memberEntry = Object.entries(memberMap || {}).find(([_, info]) => info.fullName === mPart);
+          const userId = memberEntry ? memberEntry[0] : null;
+          return (
+            <span 
+              key={`mention-single-${j}`} 
+              style={{ color: '#0068FF', fontWeight: 600, cursor: userId ? 'pointer' : 'default' }}
+              className={userId ? 'hover:underline' : ''}
+              onClick={(e) => {
+                if (userId && onPressMention) {
+                  e.stopPropagation();
+                  onPressMention(userId, mPart);
+                }
+              }}
+            >
+              @{mPart}
+            </span>
+          );
+        }
+        return <span key={`text-single-${j}`}>{mPart}</span>;
+      });
     }
     return text;
   }
@@ -99,8 +118,20 @@ const renderTextWithLinks = (text: string, memberMap?: Record<string, any>) => {
       if (mentionParts.length > 1) {
         return mentionParts.map((mPart, j) => {
           if (j % 2 === 1) {
+            const memberEntry = Object.entries(memberMap || {}).find(([_, info]) => info.fullName === mPart);
+            const userId = memberEntry ? memberEntry[0] : null;
             return (
-              <span key={`mention-${i}-${j}`} style={{ color: '#0068FF', fontWeight: 600 }}>
+              <span 
+                key={`mention-${i}-${j}`} 
+                style={{ color: '#0068FF', fontWeight: 600, cursor: userId ? 'pointer' : 'default' }}
+                className={userId ? 'hover:underline' : ''}
+                onClick={(e) => {
+                  if (userId && onPressMention) {
+                    e.stopPropagation();
+                    onPressMention(userId, mPart);
+                  }
+                }}
+              >
                 @{mPart}
               </span>
             );
@@ -207,6 +238,22 @@ const MessageList = () => {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [readingMsgId, setReadingMsgId] = useState<string | null>(null);
+
+  const handlePressMention = async (userId: string, fullName: string) => {
+    try {
+      const res = await api.get(`/users/${userId}`);
+      if (res.data?.data) {
+        setActiveProfile(res.data.data);
+      } else {
+        setActiveProfile({ id: Number(userId), fullName });
+      }
+      setIsProfileModalOpen(true);
+    } catch (err) {
+      console.error("Failed to fetch user profile via mention", err);
+      setActiveProfile({ id: Number(userId), fullName });
+      setIsProfileModalOpen(true);
+    }
+  };
 
   // Read AI message aloud
   const handleReadAloud = useCallback((msgId: string, content: string) => {
@@ -1787,7 +1834,7 @@ const MessageList = () => {
                                       </div>
                                     ) : (
                                       /* Regular Message — plain text with links */
-                                      <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '', activeConversation.isGroup ? memberMap : undefined)}</div>
+                                      <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{renderTextWithLinks(msg.content || msg.text || '', activeConversation.isGroup ? memberMap : undefined, handlePressMention)}</div>
                                     )}
                                     {translatedMessages[messageId] && (
                                       <div className="mt-1.5 pt-1.5 text-[0.9em] italic opacity-90" style={{ borderTop: '1px dashed currentColor' }}>

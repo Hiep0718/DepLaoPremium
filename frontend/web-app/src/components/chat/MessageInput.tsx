@@ -25,6 +25,8 @@ const formatFileSize = (bytes: number): string => {
 };
 
 const MessageInput = () => {
+  const { activeConversation, setActiveConversation, addMessage, replyingMessage, setReplyingMessage } = useChatStore();
+  const { user } = useAuthStore();
   const [text, setText] = useState('');
   const [showStickers, setShowStickers] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -110,8 +112,7 @@ const MessageInput = () => {
   const stickerRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { activeConversation, setActiveConversation, addMessage, replyingMessage, setReplyingMessage } = useChatStore();
-  const { user } = useAuthStore();
+
 
   const isGroup = activeConversation?.isGroup;
   const myRole = useMemo(() => {
