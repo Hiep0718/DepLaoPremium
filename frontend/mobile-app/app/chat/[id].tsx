@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, StyleSheet, KeyboardAvoidingView, Platform, Dimensions,
   FlatList, ActivityIndicator, Text, TouchableOpacity, Modal, Image, ScrollView,
@@ -47,12 +47,14 @@ export default function ChatScreen() {
   const name = params.name as string;
   const avatar = params.avatar as string;
   const isOnline = params.isOnline === 'true';
-  const recipientId = params.recipientId as string;
   const initialUnreadParam = parseInt(params.initialUnreadCount as string) || 0;
 
   const { socket, currentUserId } = useSocket();
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
+  
+  const isCloud = (id as string)?.startsWith('cloud_');
+  const recipientId = isCloud ? (currentUserId as string) : (params.recipientId as string);
 
   // BỔ SUNG: Refs và State cho cuộn tin nhắn
   const flatListRef = useRef<FlatList>(null);
@@ -69,6 +71,30 @@ export default function ChatScreen() {
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles, groupName, groupAvatar, groupSettings } = useChatMessages(id, currentUserId, socket);
   const { isOtherTyping, lastSeenMessageId } = useChatSocket({ socket, id, currentUserId, setMessages, setPinnedMessage });
+
+  const [cloudFilter, setCloudFilter] = useState<'all' | 'image' | 'file' | 'link' | 'text' | 'collection'>('all');
+  
+  const filteredMessages = useMemo(() => {
+    if (!isCloud || cloudFilter === 'all') return messages;
+    return messages.filter(msg => {
+      if (cloudFilter === 'image') {
+        return msg.messageType === 'image' || (msg.messageType === 'file' && /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(msg.fileUrl || ''));
+      }
+      if (cloudFilter === 'file') {
+        return msg.messageType === 'file' || msg.messageType === 'document';
+      }
+      if (cloudFilter === 'link') {
+        return typeof msg.content === 'string' && (msg.content.includes('http://') || msg.content.includes('https://'));
+      }
+      if (cloudFilter === 'text') {
+        return msg.messageType === 'text' && !(typeof msg.content === 'string' && (msg.content.includes('http://') || msg.content.includes('https://')));
+      }
+      if (cloudFilter === 'collection') {
+        return msg.messageType === 'sticker' || msg.messageType === 'sticker-message';
+      }
+      return true;
+    });
+  }, [messages, isCloud, cloudFilter]);
 
   const handleScroll = (event: any) => {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -118,8 +144,8 @@ export default function ChatScreen() {
       setIsMember(!!participantRoles[String(currentUserId)]);
     }
   }, [isGroup, participantRoles, currentUserId]);
-  const dynamicName = isGroup ? (groupName || name) : name;
-  const dynamicAvatar = isGroup ? (groupAvatar || avatar) : avatar;
+  const dynamicName = isCloud ? 'Cloud của tôi' : (isGroup ? (groupName || name) : name);
+  const dynamicAvatar = isCloud ? 'cloud' : (isGroup ? (groupAvatar || avatar) : avatar);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
@@ -860,10 +886,37 @@ export default function ChatScreen() {
               </View>
             ) : (
               <>
+                {isCloud && (
+                  <View style={styles.filterBarContainer}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterBarScroll}>
+                      {[
+                        { key: 'all', label: 'Tất cả' },
+                        { key: 'image', label: 'Ảnh' },
+                        { key: 'file', label: 'File' },
+                        { key: 'link', label: 'Link' },
+                        { key: 'text', label: 'Văn bản' },
+                        { key: 'collection', label: 'Bộ sưu tập' }
+                      ].map((tab) => {
+                        const isActive = cloudFilter === tab.key;
+                        return (
+                          <TouchableOpacity
+                            key={tab.key}
+                            onPress={() => setCloudFilter(tab.key as any)}
+                            style={[styles.filterTabButton, isActive && styles.filterTabButtonActive]}
+                          >
+                            <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>
+                              {tab.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
                 <FlatList
                   ref={flatListRef}
-                  data={messages}
-                  extraData={messages}
+                  data={filteredMessages}
+                  extraData={filteredMessages}
                   keyExtractor={item => item.tempId || item._id}
                   renderItem={({ item }) => (
                     <MessageBubble
@@ -1893,5 +1946,37 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 15,
+  },
+  filterBarContainer: {
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e0e0e0',
+    paddingVertical: 10,
+  },
+  filterBarScroll: {
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  filterTabButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+    backgroundColor: '#f5f5f5',
+    marginHorizontal: 4,
+  },
+  filterTabButtonActive: {
+    backgroundColor: '#0068FF',
+    borderColor: '#0068FF',
+  },
+  filterTabText: {
+    fontSize: 13,
+    color: '#555',
+    fontWeight: '500',
+  },
+  filterTabTextActive: {
+    color: '#fff',
+    fontWeight: '600',
   }
 });

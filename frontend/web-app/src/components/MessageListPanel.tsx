@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, UserPlus, Users as UsersIcon } from 'lucide-react';
+import { Search, UserPlus, Users as UsersIcon, Cloud } from 'lucide-react';
 import { contactService, type ContactResponse } from '../services/contactService';
 import { getConversationsList } from '../services/message.service';
 import { fetchAiLastMessage } from '../services/aiChat.service';
@@ -118,6 +118,10 @@ const MessageListPanel = () => {
   }, [user, setConversations]);
 
   const getOtherParticipant = (conv: Conversation) => {
+    // ═══ My Documents ═══
+    if (conv.conversationId?.startsWith('cloud_')) {
+      return { name: 'My Documents', avatar: '__cloud__' };
+    }
     if (conv.isGroup) return { name: conv.groupName || 'Nhóm chưa đặt tên', avatar: conv.groupAvatar || undefined };
     for (const p of conv.participants) {
       const pid = String((p as any).userId || (p as any).id || p);
@@ -133,7 +137,9 @@ const MessageListPanel = () => {
 
   const handleConversationClick = (conv: Conversation) => {
     setActiveConversation(conv);
-    if (conv.isAiBot) {
+    if (conv.conversationId?.startsWith('cloud_')) {
+      useChatStore.getState().setActiveContactInfo({ name: 'My Documents', avatarUrl: undefined });
+    } else if (conv.isAiBot) {
       useChatStore.getState().setActiveContactInfo({ name: 'Bếp AI 🍜', avatarUrl: undefined });
     } else {
       const { name, avatar } = getOtherParticipant(conv);
@@ -282,13 +288,17 @@ const MessageListPanel = () => {
               >
                 <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white overflow-hidden"
                   style={{
-                    background: conv.isAiBot
-                      ? 'linear-gradient(135deg, #f97316, #ea580c)'
-                      : (avatar ? 'transparent' : '#0068FF')
+                    background: conv.conversationId?.startsWith('cloud_')
+                      ? 'linear-gradient(135deg, #0068FF, #00A2FF)'
+                      : conv.isAiBot
+                        ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                        : (avatar && avatar !== '__cloud__' ? 'transparent' : '#0068FF')
                   }}>
-                  {conv.isAiBot ? (
+                  {conv.conversationId?.startsWith('cloud_') ? (
+                    <Cloud size={22} className="text-white" />
+                  ) : conv.isAiBot ? (
                     <span className="text-2xl">🍜</span>
-                  ) : avatar ? (
+                  ) : avatar && avatar !== '__cloud__' ? (
                     <img src={avatar} alt={displayName} className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-lg">{displayName.charAt(0).toUpperCase()}</span>
@@ -296,8 +306,13 @@ const MessageListPanel = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline mb-0.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <h3 className={`text-sm truncate ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: 'var(--text-primary)' }}>{displayName}</h3>
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <h3 className={`text-sm truncate flex items-center gap-1 ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: 'var(--text-primary)' }}>
+                        {displayName}
+                        {conv.conversationId?.startsWith('cloud_') && (
+                          <span className="w-3.5 h-3.5 bg-[#FFB000] rounded-full flex items-center justify-center text-white shrink-0 select-none" style={{ fontSize: '8px', fontWeight: 'bold' }}>✓</span>
+                        )}
+                      </h3>
                       {conv.isAiBot && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>AI</span>
                       )}

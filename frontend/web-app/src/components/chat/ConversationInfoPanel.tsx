@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit } from 'lucide-react';
+import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit, Folder, Cloud, Info } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { clearAiHistory } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
@@ -386,6 +386,7 @@ const ConversationInfoPanel = () => {
   if (!activeConversation) return null;
 
   const isAiConversation = activeConversation.conversationId.startsWith('ai_');
+  const isCloudConversation = activeConversation.conversationId.startsWith('cloud_');
   const displayName = activeConversation.isGroup ? (activeConversation.groupName || 'Nhóm trò chuyện') : (activeContactInfo?.name || 'Người dùng');
   const displayAvatar = activeConversation.isGroup ? activeConversation.groupAvatar : activeContactInfo?.avatarUrl;
   const avatarLetter = displayName.charAt(0).toUpperCase();
@@ -398,7 +399,7 @@ const ConversationInfoPanel = () => {
       <div className="h-[60px] px-4 flex items-center justify-between shrink-0"
         style={{ borderBottom: '1px solid var(--border-primary)' }}>
         <h3 className="font-semibold text-base" style={{ color: 'var(--text-primary)' }}>
-          Thông tin hội thoại
+          {isCloudConversation ? 'My Documents' : 'Thông tin hội thoại'}
         </h3>
         <button onClick={toggleInfoPanel}
           className="p-1.5 rounded-lg transition-colors"
@@ -411,7 +412,93 @@ const ConversationInfoPanel = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {isAiConversation ? (
+        {isCloudConversation ? (
+          <div className="flex flex-col">
+            {/* Cloud Profile Section */}
+            <div className="flex flex-col items-center pt-8 pb-6 px-4 text-center border-b border-[#f0f0f0] dark:border-gray-700">
+              <div className="w-[84px] h-[84px] rounded-full flex items-center justify-center font-bold text-white mb-3.5 shadow-sm"
+                style={{ background: 'linear-gradient(135deg, #2A85FF, #00A2FF)' }}>
+                <Folder size={38} className="text-white" />
+              </div>
+              <h4 className="font-bold text-[17px] text-gray-900 dark:text-white mb-2">My Documents</h4>
+              <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 max-w-[250px] px-2">
+                Lưu trữ và truy cập nhanh những nội dung quan trọng của bạn ngay trên Zalo
+              </p>
+            </div>
+
+            {/* Capacity Progress Bar Section */}
+            <div className="p-4 border-b border-[#f0f0f0] dark:border-gray-700">
+              <div className="flex justify-between items-center mb-2.5">
+                <span className="text-sm font-bold text-gray-800 dark:text-gray-200">Dung lượng lưu trữ</span>
+                <span className="text-xs font-bold text-gray-800 dark:text-gray-200">31 MB / 500 MB</span>
+              </div>
+              
+              {/* Progress bar track */}
+              <div className="w-full h-3 rounded-full bg-gray-200 dark:bg-gray-700 flex overflow-hidden mb-3">
+                <div className="h-full bg-[#FF9F00]" style={{ width: '6.2%' }} title="Ảnh" />
+                <div className="h-full bg-[#2EC4B6]" style={{ width: '2.5%' }} title="Video" />
+                <div className="h-full bg-[#FFD166]" style={{ width: '1.2%' }} title="File" />
+                <div className="h-full bg-[#3A86FF]" style={{ width: '0.5%' }} title="Tin nhắn thoại" />
+              </div>
+
+              {/* Legends */}
+              <div className="flex flex-wrap items-center justify-between gap-y-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 px-0.5">
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#FF9F00] inline-block"></span>
+                  <span>Ảnh</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#2EC4B6] inline-block"></span>
+                  <span>Video</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#FFD166] inline-block"></span>
+                  <span>File</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#3A86FF] inline-block"></span>
+                  <span>Tin nhắn thoại</span>
+                </div>
+              </div>
+
+              {/* Xem và dọn dẹp My Documents button */}
+              <button 
+                onClick={() => alert("My Documents của bạn đang rất gọn gàng!")}
+                className="w-full bg-[#F0F2F5] hover:bg-[#E4E6EB] dark:bg-gray-800 dark:hover:bg-gray-700 text-[#1C1E21] dark:text-gray-200 text-[13px] font-bold py-2.5 rounded-lg text-center transition-colors border-none cursor-pointer mt-4"
+              >
+                Xem và dọn dẹp My Documents
+              </button>
+            </div>
+
+            {/* Upgrade zCloud Card */}
+            <div className="p-4 border-b border-[#f0f0f0] dark:border-gray-700 flex flex-col">
+              <div className="flex items-start gap-2.5">
+                <Info size={18} className="text-[#0068FF] shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h5 className="text-[13px] font-bold text-gray-800 dark:text-gray-200">Nâng cấp dung lượng My Documents</h5>
+                  <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400 mt-1">
+                    Mở rộng dung lượng lên đến 100GB và tự động bảo toàn dữ liệu trò chuyện với zCloud.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => alert("Chức năng nâng cấp dung lượng zCloud sắp ra mắt!")}
+                className="bg-[#E5F0FF] hover:bg-[#D4E8FF] text-[#0068FF] text-xs font-bold py-1.5 px-4 rounded-lg transition-colors border-none cursor-pointer mt-3 self-start ml-7"
+              >
+                Thêm dung lượng
+              </button>
+            </div>
+
+            {/* Danh sách nhắc hẹn Section */}
+            <div className="border-b border-[#f0f0f0] dark:border-gray-700">
+              <button className="w-full flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left border-none cursor-pointer bg-transparent"
+                onClick={() => alert("Chức năng nhắc hẹn đang được tải...")}>
+                <Clock size={18} className="text-gray-500" />
+                <span className="text-[13px] font-bold text-gray-800 dark:text-gray-200 flex-1">Danh sách nhắc hẹn</span>
+              </button>
+            </div>
+          </div>
+        ) : isAiConversation ? (
           <div className="flex flex-col">
             {/* AI Profile Section */}
             <div className="flex flex-col items-center py-8 px-4 text-center"

@@ -1,4 +1,4 @@
-import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Loader2, Users, MoreHorizontal } from 'lucide-react';
+import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Loader2, Users, MoreHorizontal, Cloud } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useCallStore } from '../../stores/callStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -26,15 +26,19 @@ const ChatHeader = () => {
 
   // Detect AI conversation
   const isAiConversation = activeConversation?.conversationId?.startsWith('ai_');
+  // Detect Cloud conversation
+  const isCloudConversation = activeConversation?.conversationId?.startsWith('cloud_');
   const isAiStreaming = useChatStore((s) => s.isAiStreaming);
 
   // Use resolved contact info from store, with fallbacks
 
-  const displayName = isAiConversation 
-    ? 'Bếp AI 🍜' 
-    : (activeConversation?.isGroup 
-        ? (activeConversation.groupName || 'Nhóm trò chuyện') 
-        : (activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện'));
+  const displayName = isCloudConversation
+    ? 'My Documents'
+    : isAiConversation 
+      ? 'Bếp AI 🍜' 
+      : (activeConversation?.isGroup 
+          ? (activeConversation.groupName || 'Nhóm trò chuyện') 
+          : (activeContactInfo?.name || contact?.nickname || contact?.fullName || 'Chọn cuộc trò chuyện'));
 
   const contactAvatarUrl = isAiConversation 
     ? undefined 
@@ -98,12 +102,16 @@ const ChatHeader = () => {
       <div className="flex items-center gap-3 cursor-pointer group">
         <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white overflow-hidden"
           style={{
-            background: isAiConversation
-              ? 'linear-gradient(135deg, #f97316, #ea580c)'
-              : (contactAvatarUrl ? 'transparent' : '#0068FF'),
+            background: isCloudConversation
+              ? 'linear-gradient(135deg, #0068FF, #00A2FF)'
+              : isAiConversation
+                ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                : (contactAvatarUrl ? 'transparent' : '#0068FF'),
             boxShadow: isAiConversation ? '0 2px 8px rgba(249,115,22,0.4)' : undefined,
           }}>
-          {isAiConversation ? (
+          {isCloudConversation ? (
+            <Cloud size={20} className="text-white" />
+          ) : isAiConversation ? (
             <span className="text-xl">🍜</span>
           ) : contactAvatarUrl ? (
             <img src={contactAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
@@ -113,7 +121,7 @@ const ChatHeader = () => {
         </div>
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-[15px] leading-tight group-hover:underline" style={{ color: 'var(--text-primary)' }}>
+            <h2 className="font-semibold text-[15px] leading-tight group-hover:underline flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
               {displayName}
             </h2>
             {isAiConversation && (
@@ -129,6 +137,10 @@ const ChatHeader = () => {
               ) : (
                 <span className="text-xs" style={{ color: '#f97316' }}>Trợ lý ẩm thực • Online</span>
               )}
+            </div>
+          ) : isCloudConversation ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Lưu và đồng bộ dữ liệu giữa các thiết bị | 📂</span>
             </div>
           ) : activeConversation?.isGroup ? (
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -166,6 +178,45 @@ const ChatHeader = () => {
               if (!isInfoPanelOpen) e.currentTarget.style.color = 'var(--text-secondary)';
             }}
             title="Thông tin hội thoại AI"
+          >
+            {isInfoPanelOpen ? <PanelRightClose size={20} strokeWidth={1.5} /> : <PanelRightOpen size={20} strokeWidth={1.5} />}
+          </button>
+        </div>
+      ) : isCloudConversation ? (
+        /* Cloud: chỉ hiện nút Search & Info panel, không gọi thoại/video */
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => alert("Tìm kiếm tin nhắn trong My Documents")}
+            className="p-2.5 rounded-lg transition-all duration-150 cursor-pointer"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="Tìm kiếm tin nhắn"
+          >
+            <Search size={20} strokeWidth={1.5} />
+          </button>
+          <button
+            onClick={toggleInfoPanel}
+            className="p-2.5 rounded-lg transition-all duration-150 cursor-pointer"
+            style={{
+              color: isInfoPanelOpen ? 'var(--text-accent)' : 'var(--text-secondary)',
+              background: isInfoPanelOpen ? 'var(--bg-active)' : 'transparent',
+            }}
+            onMouseEnter={(e) => {
+              if (!isInfoPanelOpen) e.currentTarget.style.background = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-accent)';
+            }}
+            onMouseLeave={(e) => {
+              if (!isInfoPanelOpen) e.currentTarget.style.background = 'transparent';
+              if (!isInfoPanelOpen) e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            title="Thông tin My Documents"
           >
             {isInfoPanelOpen ? <PanelRightClose size={20} strokeWidth={1.5} /> : <PanelRightOpen size={20} strokeWidth={1.5} />}
           </button>

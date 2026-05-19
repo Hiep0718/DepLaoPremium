@@ -16,7 +16,118 @@ import * as ImagePicker from 'expo-image-picker';
 export default function ChatOptionsScreen() {
   const router = useRouter();
   const { id, name, avatar, isGroup } = useLocalSearchParams();
-  
+  const isCloud = typeof id === 'string' && id.startsWith('cloud_');
+
+  if (isCloud) {
+    return (
+      <SafeAreaView edges={['top', 'bottom']} style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <StatusBar style="light" backgroundColor={ZaloColors.blue} />
+        
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4, justifyContent: 'center', marginLeft: 40 }}>
+            <Text style={[styles.headerTitle, { fontSize: 18 }]}>My Documents</Text>
+            <Ionicons name="checkmark-circle" size={18} color="#FFB000" />
+          </View>
+          <View style={{ flexDirection: 'row' }}>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Trợ giúp', 'Hướng dẫn sử dụng My Documents')}>
+              <Ionicons name="help-circle-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Cài đặt', 'Cài đặt My Documents')}>
+              <Ionicons name="settings-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={{ backgroundColor: '#f4f5f7' }} showsVerticalScrollIndicator={false}>
+          {/* Circular Folder Icon Section */}
+          <View style={{ alignItems: 'center', backgroundColor: '#fff', paddingVertical: 35, paddingHorizontal: 20, marginBottom: 12 }}>
+            <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: '#e8f0fe', justifyContent: 'center', alignItems: 'center', marginBottom: 16, position: 'relative' }}>
+              <Ionicons name="folder" size={56} color="#0068FF" />
+              <View style={{ position: 'absolute', right: 20, bottom: 20, backgroundColor: '#fff', borderRadius: 12, padding: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1 }}>
+                <Ionicons name="cloud" size={18} color="#0068FF" />
+              </View>
+              <View style={{ position: 'absolute', right: 4, bottom: 4, backgroundColor: '#fff', borderRadius: 12, padding: 1 }}>
+                <Ionicons name="checkmark-circle" size={22} color="#FFB000" />
+              </View>
+            </View>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: '#111', marginBottom: 10 }}>My Documents</Text>
+            <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, paddingHorizontal: 30 }}>
+              Lưu trữ và truy cập nhanh những nội dung quan trọng của bạn ngay trên Zalo
+            </Text>
+          </View>
+
+          {/* Capacity Section */}
+          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>Dung lượng</Text>
+              <Text style={{ fontSize: 14, color: '#666', fontWeight: '500' }}>30,7 MB / 500 MB</Text>
+            </View>
+            
+            {/* Multi-colored Progress Bar */}
+            <View style={{ height: 10, borderRadius: 5, backgroundColor: '#f0f0f0', flexDirection: 'row', overflow: 'hidden', marginBottom: 16 }}>
+              <View style={{ width: '6%', backgroundColor: '#ff9800' }} /> {/* Orange for Ảnh */}
+              <View style={{ width: '2%', backgroundColor: '#4caf50' }} /> {/* Green for Video */}
+              <View style={{ width: '1%', backgroundColor: '#ffeb3b' }} /> {/* Yellow for File */}
+            </View>
+
+            {/* Legend dot row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff9800' }} />
+                <Text style={{ fontSize: 13, color: '#666' }}>Ảnh</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#4caf50' }} />
+                <Text style={{ fontSize: 13, color: '#666' }}>Video</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ffeb3b' }} />
+                <Text style={{ fontSize: 13, color: '#666' }}>File</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#9e9e9e' }} />
+                <Text style={{ fontSize: 13, color: '#666' }}>Khác</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Upgrade Storage Card */}
+          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Thêm dung lượng với zCloud</Text>
+            <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
+              100 GB dành cho My Documents và toàn bộ dữ liệu trò chuyện
+            </Text>
+            <TouchableOpacity 
+              style={{ backgroundColor: '#e8f0fe', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
+              onPress={() => Alert.alert('Thông báo', 'Chức năng nâng cấp dung lượng zCloud sắp ra mắt!')}
+            >
+              <Text style={{ color: '#0068FF', fontWeight: '600', fontSize: 15 }}>Thêm dung lượng</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Cleanup Storage Card */}
+          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Dọn dẹp dữ liệu My Documents</Text>
+            <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
+              Xóa bớt nội dung không cần thiết để có thêm dung lượng trống
+            </Text>
+            <TouchableOpacity 
+              style={{ backgroundColor: '#f0f0f0', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
+              onPress={() => Alert.alert('My Documents', 'My Documents của bạn đang rất gọn gàng!')}
+            >
+              <Text style={{ color: '#333', fontWeight: '600', fontSize: 15 }}>Xem và dọn dẹp</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   const [isBestFriend, setIsBestFriend] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isHidden, setIsHidden] = useState(false);

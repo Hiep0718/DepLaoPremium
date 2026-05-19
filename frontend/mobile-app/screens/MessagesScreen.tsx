@@ -94,6 +94,15 @@ export function MessagesScreen() {
       // Vì NodeAPI chỉ lưu userId, cần gọi sang SpringBoot để lấy Tên và Avatar
       const enrichedConvs = await Promise.all(
         convs.map(async (conv: Conversation) => {
+          // ═══ Cloud của tôi: không cần fetch user khác ═══
+          if (conv.conversationId?.startsWith('cloud_')) {
+            conv.otherUser = {
+              id: currentUserId,
+              fullName: 'Cloud của tôi',
+              avatarUrl: undefined,
+            };
+            return conv;
+          }
           if (!conv.isGroup) {
             const otherUserId = conv.participants.find(p => p.userId !== currentUserId)?.userId;
             if (otherUserId) {
@@ -324,7 +333,8 @@ export function MessagesScreen() {
   };
 
   const renderItem = ({ item }: { item: Conversation }) => {
-    const name = item.isGroup ? item.groupName : item.otherUser?.fullName;
+    const isCloud = item.conversationId?.startsWith('cloud_');
+    const name = isCloud ? 'Cloud của tôi' : (item.isGroup ? item.groupName : item.otherUser?.fullName);
     const unreadCount = item.unreadCount || 0;
     const isUnread = unreadCount > 0;
     const lastContent = item.lastMessage?.content || '';
@@ -358,14 +368,18 @@ export function MessagesScreen() {
             pathname: '/chat/[id]',
             params: {
               id: item.conversationId,
-              name: name,
-              recipientId: item.isGroup ? "" : (item.otherUser?.id || ""),
-              avatar: item.isGroup ? (item.groupAvatar || "") : (item.otherUser?.avatarUrl || "")
+              name: isCloud ? 'Cloud của tôi' : name,
+              recipientId: isCloud ? currentUserId : (item.isGroup ? "" : (item.otherUser?.id || "")),
+              avatar: isCloud ? 'cloud' : (item.isGroup ? (item.groupAvatar || "") : (item.otherUser?.avatarUrl || ""))
             }
           });
         }}
       >
-        {item.isGroup ? (
+        {isCloud ? (
+          <View style={[styles.avatar, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#0068FF' }]}>
+            <Ionicons name="cloud" size={24} color="#fff" />
+          </View>
+        ) : item.isGroup ? (
           item.groupAvatar ? (
             <Image source={{ uri: item.groupAvatar }} style={styles.avatar} />
           ) : (
@@ -387,7 +401,7 @@ export function MessagesScreen() {
           </View>
           <View style={styles.chatPreviewRow}>
             <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread, isSystem && styles.chatPreviewSystem]} numberOfLines={1}>
-              {!isSystem && item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
+              {!isSystem && !isCloud && item.lastMessage?.senderId === currentUserId ? 'Bạn: ' : ''}
               {displayContent || 'Chưa có tin nhắn'}
             </Text>
             {isUnread && (

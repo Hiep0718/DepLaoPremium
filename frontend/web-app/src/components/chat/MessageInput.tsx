@@ -203,6 +203,10 @@ const MessageInput = () => {
   // Get recipient ID from conversation
   const getRecipientId = (conv: any) => {
     if (!user) return undefined;
+    // ═══ Cloud của tôi: recipient is self ═══
+    if (conv.conversationId?.startsWith('cloud_')) {
+      return user.id.toString();
+    }
     const recipientPart = conv.isGroup
       ? null
       : conv.participants.find((p: any) =>

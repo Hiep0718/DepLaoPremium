@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -214,6 +214,31 @@ const MessageList = () => {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const { activeConversation, messages, setMessages, setReplyingMessage, setForwardingMessage, updateMessage, activeContactInfo, pinnedMessage, setPinnedMessage } = useChatStore();
   const { user } = useAuthStore();
+
+  const [cloudFilter, setCloudFilter] = useState<'all' | 'image' | 'file' | 'link' | 'text' | 'collection'>('all');
+  const isCloudConversation = activeConversation?.conversationId?.startsWith('cloud_');
+
+  const filteredMessages = useMemo(() => {
+    if (!isCloudConversation || cloudFilter === 'all') return messages;
+    return messages.filter(msg => {
+      if (cloudFilter === 'image') {
+        return msg.messageType === 'image' || (msg.messageType === 'file' && /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(msg.fileUrl || ''));
+      }
+      if (cloudFilter === 'file') {
+        return msg.messageType === 'file' || msg.messageType === 'document';
+      }
+      if (cloudFilter === 'link') {
+        return typeof msg.content === 'string' && (msg.content.includes('http://') || msg.content.includes('https://'));
+      }
+      if (cloudFilter === 'text') {
+        return msg.messageType === 'text' && !(typeof msg.content === 'string' && (msg.content.includes('http://') || msg.content.includes('https://')));
+      }
+      if (cloudFilter === 'collection') {
+        return msg.messageType === 'sticker' || msg.messageType === 'sticker-message';
+      }
+      return true;
+    });
+  }, [messages, isCloudConversation, cloudFilter]);
   const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -1266,6 +1291,34 @@ const MessageList = () => {
       )}
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+        {isCloudConversation && (
+          <div className="sticky top-0 z-[45] flex items-center justify-start gap-2 py-2 px-3 mb-2 rounded-xl bg-white/95 dark:bg-gray-800/95 backdrop-blur border shadow-sm select-none"
+            style={{ borderColor: 'var(--border-light)' }}>
+            {[
+              { key: 'all', label: 'Tất cả' },
+              { key: 'image', label: 'Ảnh' },
+              { key: 'file', label: 'File' },
+              { key: 'link', label: 'Link' },
+              { key: 'text', label: 'Văn bản' },
+              { key: 'collection', label: 'Bộ sưu tập' }
+            ].map((tab) => {
+              const isActive = cloudFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setCloudFilter(tab.key as any)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+                    isActive 
+                      ? 'bg-[#0068FF] text-white border-[#0068FF]' 
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 border-transparent'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {pinnedMessage && pinnedMessage.messageId && (
           <div className="sticky top-0 z-40 flex items-center justify-between px-4 py-2 mb-2 cursor-pointer"
             style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-light)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -1363,12 +1416,12 @@ const MessageList = () => {
           )}
 
           <div className="w-full space-y-1">
-            {messages.map((msg, idx) => {
+            {filteredMessages.map((msg, idx) => {
               const currentUserId = user?._id?.toString() || user?.id?.toString();
               const isMe = String(msg.senderId) === currentUserId;
               const msgTime = msg.createdAt ? new Date(msg.createdAt) : (msg.timestamp ? new Date(msg.timestamp) : new Date());
-              const prevMsg = idx > 0 ? messages[idx - 1] : null;
-              const nextMsg = idx < messages.length - 1 ? messages[idx + 1] : null;
+              const prevMsg = idx > 0 ? filteredMessages[idx - 1] : null;
+              const nextMsg = idx < filteredMessages.length - 1 ? filteredMessages[idx + 1] : null;
               const prevTime = prevMsg
                 ? (prevMsg.createdAt ? new Date(prevMsg.createdAt) : (prevMsg.timestamp ? new Date(prevMsg.timestamp) : null))
                 : null;
@@ -1396,8 +1449,8 @@ const MessageList = () => {
                 }
 
                 let fwdIdx = idx + 1;
-                while (fwdIdx < messages.length) {
-                  const fwdMsg = messages[fwdIdx];
+                while (fwdIdx < filteredMessages.length) {
+                  const fwdMsg = filteredMessages[fwdIdx];
                   const fwdTime = fwdMsg.createdAt ? new Date(fwdMsg.createdAt) : (fwdMsg.timestamp ? new Date(fwdMsg.timestamp) : new Date());
                   const lastClMsg = clusterMessages[clusterMessages.length - 1];
                   const lastClTime = lastClMsg.createdAt ? new Date(lastClMsg.createdAt) : (lastClMsg.timestamp ? new Date(lastClMsg.timestamp) : new Date());

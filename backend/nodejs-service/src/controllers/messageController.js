@@ -131,6 +131,28 @@ export const getConversations = async (req, res) => {
   try {
     const { userId } = req.params;
 
+    // ═══ Auto-create "Cloud của tôi" personal cloud conversation if not exists ═══
+    const cloudId = `cloud_${userId}`;
+    const existingCloud = await Conversation.findOne({ conversationId: cloudId });
+    if (!existingCloud) {
+      const cloudConv = new Conversation({
+        conversationId: cloudId,
+        participants: [{ userId, role: 'member' }],
+        isGroup: false,
+        groupName: null,
+        groupAvatar: null,
+        lastMessage: {
+          content: 'Lưu trữ văn bản, hình ảnh, tệp tin cá nhân ☁️',
+          senderId: 'system',
+          messageType: 'system',
+          timestamp: new Date(),
+        },
+        lastMessageTime: new Date(),
+      });
+      await cloudConv.save();
+      console.log(`[Cloud] Auto-created cloud conversation for user ${userId}`);
+    }
+
     const conversations = await Conversation.find({
       $or: [
         { 'participants.userId': userId },

@@ -29,6 +29,7 @@ export default function ChatHeader({
 }: ChatHeaderProps) {
   const router = useRouter();
   const { currentUserId, socket } = useSocket();
+  const isCloud = id?.startsWith('cloud_');
 
   const handleStartCall = (isVideo: boolean) => {
     if (!socket || !currentUserId || !id) return;
@@ -48,8 +49,17 @@ export default function ChatHeader({
         <Ionicons name="arrow-back" size={24} color="#fff" />
       </TouchableOpacity>
       <View style={styles.headerTitleWrap}>
-        <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
-        {isOtherTyping ? (
+        {isCloud ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Text style={styles.headerName} numberOfLines={1}>My Documents</Text>
+            <Ionicons name="checkmark-circle" size={16} color="#FFB000" />
+          </View>
+        ) : (
+          <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
+        )}
+        {isCloud ? (
+          <Text style={styles.headerStatus}>Lưu trữ cá nhân • Đồng bộ</Text>
+        ) : isOtherTyping ? (
           <Text style={styles.headerStatus}>Đang gõ...</Text>
         ) : isGroup && (groupMemberCount || 0) > 0 ? (
           <Text style={styles.headerStatus}>{groupMemberCount} thành viên</Text>
@@ -58,26 +68,34 @@ export default function ChatHeader({
         ) : null}
       </View>
       <View style={styles.headerActions}>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(false)}>
-          <Ionicons name="call-outline" size={22} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(true)}>
-          <Ionicons name="videocam-outline" size={24} color="#fff" />
-        </TouchableOpacity>
+        {isCloud ? (
+          <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Tìm kiếm', 'Tìm kiếm tin nhắn trong My Documents')}>
+            <Ionicons name="search-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(false)}>
+              <Ionicons name="call-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(true)}>
+              <Ionicons name="videocam-outline" size={24} color="#fff" />
+            </TouchableOpacity>
+          </>
+        )}
         <TouchableOpacity 
           style={styles.headerBtn} 
           onPress={() => router.push({
             pathname: '/chat/options', 
             params: {
               id,
-              name: name as string,
+              name: 'My Documents',
               avatar: avatar as string,
               recipientId: recipientId as string,
               isGroup: isGroup ? 'true' : 'false'
             }
           })}
         >
-          <Ionicons name="menu" size={26} color="#fff" />
+          <Ionicons name={isCloud ? "list-outline" : "menu"} size={26} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>

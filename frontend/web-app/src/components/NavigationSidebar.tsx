@@ -1,4 +1,4 @@
-import { MessageSquare, Users, CloudLightning, ClipboardList, Settings, Bot } from 'lucide-react';
+import { MessageSquare, Users, Cloud, ClipboardList, Settings, Bot } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeStore } from '../stores/themeStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -63,11 +63,33 @@ const NavigationSidebar = () => {
     if (location.pathname !== '/') navigate('/');
   };
 
+  // Handler: mở My Documents conversation
+  const openCloudChat = () => {
+    if (!user?.id) return;
+    const chatState = useChatStore.getState();
+    const cloudConvId = `cloud_${user.id}`;
+
+    let cloudConv = chatState.conversations.find(c => c.conversationId === cloudConvId);
+    if (!cloudConv) {
+      cloudConv = {
+        conversationId: cloudConvId,
+        participants: [{ userId: user.id.toString(), fullName: 'My Documents', avatarUrl: null }],
+        isGroup: false,
+        lastMessage: { content: 'Lưu trữ văn bản, hình ảnh, tệp tin cá nhân ☁️', timestamp: new Date().toISOString() },
+      };
+      chatState.setConversations([cloudConv, ...chatState.conversations]);
+    }
+
+    chatState.setActiveConversation(cloudConv);
+    chatState.setActiveContactInfo({ name: 'My Documents', avatarUrl: undefined });
+    if (location.pathname !== '/') navigate('/');
+  };
+
   const navItems = [
     { key: 'messages', icon: MessageSquare, path: '/', title: 'Tin nhắn', isAi: false },
     { key: 'contacts', icon: Users, path: '/contacts', title: 'Danh bạ', isAi: false },
     { key: 'ai-chat', icon: Bot, path: '#ai', title: 'Bếp AI 🍜', isAi: true },
-    { key: 'cloud', icon: CloudLightning, path: '#', title: 'Cloud', isAi: false },
+    { key: 'cloud', icon: Cloud, path: '#cloud', title: 'My Documents', isAi: false, isCloud: true },
     { key: 'tools', icon: ClipboardList, path: '#', title: 'Công cụ', isAi: false },
   ];
 
@@ -112,6 +134,7 @@ const NavigationSidebar = () => {
               key={item.key}
               onClick={() => {
                 if (isAiItem) { openAiChat(); }
+                else if ((item as any).isCloud) { openCloudChat(); }
                 else if (item.path !== '#') { navigate(item.path); }
               }}
               className="w-full py-3 flex justify-center items-center transition-all relative group"
