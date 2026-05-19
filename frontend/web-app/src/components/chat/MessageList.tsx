@@ -249,20 +249,13 @@ const MessageList = () => {
       return;
     }
 
-    const unreadCount = activeConversation.unreadCount || 0;
-    if (unreadCount <= 0) {
-      setUnreadMentionMessageId(null);
-      return;
-    }
-
-    // Các tin nhắn chưa đọc nằm ở cuối mảng (vì messages được render theo thứ tự cũ -> mới)
-    const unreadMessages = messages.slice(-unreadCount);
+    // Quét toàn bộ messages để tìm @tên mình (không giới hạn unread)
+    const escapedName = user.fullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mentionRegex = new RegExp(`@${escapedName}`, 'i');
     
-    // Tìm tin nhắn CŨ NHẤT (xuất hiện sớm nhất trong mảng unread) có chứa tag
-    // Tag format: @Hieu (hoặc tên đầy đủ)
-    const mentionRegex = new RegExp(`@${user.fullName}`, 'i');
-    
-    const taggedMsg = unreadMessages.find(msg => {
+    // Tìm tin nhắn CŨ NHẤT chứa tag (từ đầu mảng - tin cũ nhất)
+    const taggedMsg = messages.find(msg => {
+      if (String(msg.senderId) === String(user.id)) return false; // Bỏ qua tin do mình gửi
       const content = msg.content || msg.text || '';
       return mentionRegex.test(content);
     });
@@ -272,7 +265,7 @@ const MessageList = () => {
     } else {
       setUnreadMentionMessageId(null);
     }
-  }, [messages, activeConversation?.unreadCount, activeConversation?.isGroup, user?.fullName]);
+  }, [messages, activeConversation?.isGroup, user?.fullName, user?.id]);
 
   const handlePressMention = async (userId: string, fullName: string) => {
     try {
@@ -414,7 +407,7 @@ const MessageList = () => {
       const allIds = new Set<string>();
       for (const p of (activeConversation.participants || [])) {
         const uid = String(p.userId || p.contactUserId || p.id || p);
-        if (uid && uid !== user?.id?.toString()) allIds.add(uid);
+        if (uid) allIds.add(uid);
       }
 
       // Also collect IDs from system messages (removed/left members, added members)
@@ -436,8 +429,7 @@ const MessageList = () => {
         }
       }
 
-      // Remove own ID
-      allIds.delete(user?.id?.toString() || '');
+      // Giữ tất cả ID bao gồm cả user hiện tại (cần cho mention matching)
 
       // Fetch all unique IDs
       for (const uid of allIds) {
