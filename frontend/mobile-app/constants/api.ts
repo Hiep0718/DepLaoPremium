@@ -51,8 +51,8 @@ apiClient.interceptors.response.use(
       console.log("Phiên đăng nhập hết hạn hoặc bị lỗi, đang tự động đăng xuất...");
       await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'userId']);
       // Nếu bạn muốn tự động quay về trang login, có thể dùng router từ expo-router
-      // import { router } from 'expo-router';
-      // router.replace("/login");
+      const { router } = require('expo-router');
+      router.replace("/login");
     }
     return Promise.reject(error);
   }

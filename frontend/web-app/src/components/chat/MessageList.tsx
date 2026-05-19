@@ -239,6 +239,41 @@ const MessageList = () => {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [readingMsgId, setReadingMsgId] = useState<string | null>(null);
 
+  // Mention Tag Tracking
+  const [unreadMentionMessageId, setUnreadMentionMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeConversation?.isGroup || !user?.fullName || messages.length === 0) {
+      setUnreadMentionMessageId(null);
+      return;
+    }
+
+    const unreadCount = activeConversation.unreadCount || 0;
+    if (unreadCount <= 0) {
+      setUnreadMentionMessageId(null);
+      return;
+    }
+
+    // Các tin nhắn chưa đọc nằm ở cuối mảng (vì messages được render theo thứ tự cũ -> mới)
+    const unreadMessages = messages.slice(-unreadCount);
+    
+    // Tìm tin nhắn CŨ NHẤT (xuất hiện sớm nhất trong mảng unread) có chứa tag
+    // Tag format: @Hieu (hoặc tên đầy đủ)
+    const mentionRegex = new RegExp(`@${user.fullName}`, 'i');
+    
+    const taggedMsg = unreadMessages.find(msg => {
+      const content = msg.content || msg.text || '';
+      return mentionRegex.test(content);
+    });
+
+    if (taggedMsg) {
+      setUnreadMentionMessageId(taggedMsg._id || taggedMsg.id);
+    } else {
+      setUnreadMentionMessageId(null);
+    }
+  }, [messages, activeConversation?.unreadCount, activeConversation?.isGroup, user?.fullName]);
+
   const handlePressMention = async (userId: string, fullName: string) => {
     try {
       const res = await api.get(`/users/${userId}`);
@@ -434,6 +469,17 @@ const MessageList = () => {
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
+
+  const scrollToMention = useCallback(() => {
+    if (!unreadMentionMessageId) return;
+    const el = document.getElementById(`message-${unreadMentionMessageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(unreadMentionMessageId);
+      // Xoá highlight sau 2 giây (khớp với thời gian animation)
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    }
+  }, [unreadMentionMessageId]);
 
   // Socket listener for revoke and reaction
   useEffect(() => {
@@ -1474,7 +1520,11 @@ const MessageList = () => {
               );
 
               return (
-                <div key={messageId || idx}>
+                <div 
+                  key={messageId || idx} 
+                  id={messageId ? `message-${messageId}` : undefined}
+                  className={highlightedMessageId === messageId ? 'animate-pulse-yellow' : ''}
+                >
                   {/* Date Separator */}
                   {showDateSeparator && (
                     <div className="flex justify-center my-4">
@@ -1954,6 +2004,23 @@ const MessageList = () => {
 
           <div ref={bottomRef} className="h-4" />
 
+          {/* Nút Mentions nổi */}
+          {unreadMentionMessageId && (
+            <button
+              onClick={scrollToMention}
+              className="fixed right-8 w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 z-50 text-[#0068FF] font-bold text-lg"
+              style={{
+                bottom: showScrollToBottom ? '112px' : '72px',
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border-primary)',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+              }}
+              title="Đi đến tin nhắn nhắc đến bạn"
+            >
+              @
+            </button>
+          )}
+
           {/* Scroll to bottom button (Zalo style) */}
           {showScrollToBottom && (
             <button
@@ -1973,6 +2040,14 @@ const MessageList = () => {
           )}
 
           <style>{`
+            @keyframes pulse-yellow {
+              0% { background-color: rgba(255, 235, 59, 0.6); }
+              100% { background-color: transparent; }
+            }
+            .animate-pulse-yellow {
+              animation: pulse-yellow 2s ease-out;
+              border-radius: 8px;
+            }
             @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
             @keyframes aiBounce {
               0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }

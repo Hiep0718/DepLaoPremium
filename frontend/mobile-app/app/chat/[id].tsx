@@ -134,6 +134,57 @@ export default function ChatScreen() {
   const [selectedUserProfile, setSelectedUserProfile] = useState<any | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
 
+  // BỔ SUNG: State cho Mention Tag (nhảy đến tin nhắn @)
+  const [unreadMentionIndex, setUnreadMentionIndex] = useState<number | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [myFullName, setMyFullName] = useState<string | null>(null);
+
+  // Fetch fullName riêng của user hiện tại
+  useEffect(() => {
+    if (!currentUserId) return;
+    const fetchMyName = async () => {
+      try {
+        const res = await apiClient.get(`/users/${currentUserId}`);
+        const name = res.data?.data?.fullName;
+        if (name) {
+          console.log('[Mention] My fullName:', name);
+          setMyFullName(name);
+        }
+      } catch (err) {
+        console.log('[Mention] Failed to fetch my fullName', err);
+      }
+    };
+    fetchMyName();
+  }, [currentUserId]);
+
+  // Quét tin nhắn để tìm @tên mình (quét toàn bộ messages, không giới hạn unread)
+  useEffect(() => {
+    if (!isGroup || !myFullName || messages.length === 0) {
+      setUnreadMentionIndex(null);
+      return;
+    }
+
+    // FlatList inverted: messages[0] = mới nhất, messages[N-1] = cũ nhất
+    const escapedName = myFullName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mentionRegex = new RegExp(`@${escapedName}`, 'i');
+
+    console.log('[Mention] Scanning', messages.length, 'messages for @' + myFullName);
+
+    // Tìm tin nhắn CŨ NHẤT chứa tag (duyệt từ cuối mảng - tin cũ nhất)
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (String(msg.senderId) === String(currentUserId)) continue; // Bỏ qua tin do mình gửi
+      const content = msg.content || '';
+      if (mentionRegex.test(content)) {
+        console.log('[Mention] Found mention at index', i, ':', content.substring(0, 50));
+        setUnreadMentionIndex(i);
+        return;
+      }
+    }
+    console.log('[Mention] No mention found');
+    setUnreadMentionIndex(null);
+  }, [messages, isGroup, currentUserId, myFullName]);
+
   const handleMentionSelect = (fullName: string) => {
     const match = text.match(/(?:^|\s)@([^@]*)$/);
     if (match) {
@@ -842,6 +893,7 @@ export default function ChatScreen() {
                       onPressMention={(fullName, userId) => {
                         setMentionActionUser({ id: userId, name: fullName });
                       }}
+                      isHighlighted={highlightedMessageId === item._id}
                     />
                   )}
                   inverted
@@ -851,7 +903,34 @@ export default function ChatScreen() {
                   onScrollBeginDrag={() => setReactionTooltipId(null)}
                   onScroll={handleScroll}
                   scrollEventThrottle={16}
+                  onScrollToIndexFailed={(info) => {
+                    const wait = new Promise(resolve => setTimeout(resolve, 300));
+                    wait.then(() => {
+                      flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
+                    });
+                  }}
                 />
+
+                {/* Nút @ nổi - nhảy đến tin nhắn nhắc tên */}
+                {unreadMentionIndex !== null && (
+                  <TouchableOpacity
+                    style={[styles.scrollToBottomBtn, { bottom: showScrollToBottom ? 72 : 20 }]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (unreadMentionIndex !== null) {
+                        flatListRef.current?.scrollToIndex({ index: unreadMentionIndex, animated: true, viewPosition: 0.5 });
+                        const msgId = messages[unreadMentionIndex]?._id;
+                        if (msgId) {
+                          setHighlightedMessageId(msgId);
+                          setTimeout(() => setHighlightedMessageId(null), 2500);
+                        }
+                        setUnreadMentionIndex(null);
+                      }
+                    }}
+                  >
+                    <Text style={{ color: '#0068FF', fontWeight: 'bold', fontSize: 18 }}>@</Text>
+                  </TouchableOpacity>
+                )}
 
                 {/* Nút cuộn xuống dưới & Tin nhắn mới */}
                 {showScrollToBottom && (

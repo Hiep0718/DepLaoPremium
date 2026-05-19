@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking, TextInput, Alert } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Dimensions, Platform, Linking, TextInput, Alert, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, Video, ResizeMode } from 'expo-av';
 import { ZaloColors } from '@/constants/zalo';
@@ -35,6 +35,7 @@ interface MessageBubbleProps {
   allMessages?: Message[];
   onJoinCall?: (conversationId: string, isVideo: boolean) => void;
   onPressMention?: (fullName: string, userId: string) => void;
+  isHighlighted?: boolean;
 }
 
 // Helper: render text with clickable links
@@ -181,6 +182,7 @@ export default function MessageBubble({
   allMessages,
   onJoinCall,
   onPressMention,
+  isHighlighted,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -328,8 +330,35 @@ export default function MessageBubble({
     );
   }
 
+  const highlightAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isHighlighted) {
+      Animated.sequence([
+        Animated.timing(highlightAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        Animated.timing(highlightAnim, {
+          toValue: 0,
+          duration: 1700,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    }
+  }, [isHighlighted, highlightAnim]);
+
+  const animatedStyle = {
+    backgroundColor: highlightAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['transparent', 'rgba(255, 235, 59, 0.4)']
+    }),
+    borderRadius: 8,
+  };
+
   return (
-    <View>
+    <Animated.View style={animatedStyle}>
       <View style={[styles.msgWrapper, isMine ? styles.myMsgWrapper : styles.theirMsgWrapper]}>
         {/* Avatar đối phương bên trái */}
         {!isMine && (
@@ -718,7 +747,7 @@ export default function MessageBubble({
           )}
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 

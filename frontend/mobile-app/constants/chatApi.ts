@@ -29,3 +29,17 @@ chatApiClient.interceptors.request.use(
   },
   (error) => Promise.reject(error)
 );
+
+// Interceptor xử lý lỗi trả về (VD: 403, 401 do token hết hạn/lỗi)
+chatApiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      console.log("Phiên đăng nhập hết hạn hoặc bị lỗi (Chat API), đang tự động đăng xuất...");
+      await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'userId']);
+      const { router } = require('expo-router');
+      router.replace("/login");
+    }
+    return Promise.reject(error);
+  }
+);

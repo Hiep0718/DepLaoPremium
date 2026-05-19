@@ -160,7 +160,7 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
 
       for (const msg of messages) {
         // Thu thập senderId của TẤT CẢ tin nhắn (không chỉ system)
-        if (msg.senderId && String(msg.senderId) !== String(currentUserId)) {
+        if (msg.senderId) {
           allIds.add(String(msg.senderId));
         }
 
