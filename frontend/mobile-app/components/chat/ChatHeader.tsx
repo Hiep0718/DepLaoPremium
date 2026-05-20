@@ -15,6 +15,7 @@ interface ChatHeaderProps {
   groupMemberCount?: number;
   isOnline: boolean;
   isOtherTyping: boolean;
+  onOpenSearch?: () => void;
 }
 
 export default function ChatHeader({
@@ -26,6 +27,7 @@ export default function ChatHeader({
   groupMemberCount,
   isOnline,
   isOtherTyping,
+  onOpenSearch,
 }: ChatHeaderProps) {
   const router = useRouter();
   const { currentUserId, socket } = useSocket();
@@ -69,11 +71,14 @@ export default function ChatHeader({
       </View>
       <View style={styles.headerActions}>
         {isCloud ? (
-          <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Tìm kiếm', 'Tìm kiếm tin nhắn trong My Documents')}>
+          <TouchableOpacity style={styles.headerBtn} onPress={onOpenSearch || (() => Alert.alert('Tìm kiếm', 'Tìm kiếm tin nhắn trong My Documents'))}>
             <Ionicons name="search-outline" size={22} color="#fff" />
           </TouchableOpacity>
         ) : (
           <>
+            <TouchableOpacity style={styles.headerBtn} onPress={onOpenSearch}>
+              <Ionicons name="search-outline" size={22} color="#fff" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.headerBtn} onPress={() => handleStartCall(false)}>
               <Ionicons name="call-outline" size={22} color="#fff" />
             </TouchableOpacity>
@@ -88,7 +93,7 @@ export default function ChatHeader({
             pathname: '/chat/options', 
             params: {
               id,
-              name: 'My Documents',
+              name: isCloud ? 'My Documents' : name,
               avatar: avatar as string,
               recipientId: recipientId as string,
               isGroup: isGroup ? 'true' : 'false'

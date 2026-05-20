@@ -10,6 +10,8 @@ const ChatHeader = () => {
   const activeContactInfo = useChatStore((state) => state.activeContactInfo);
   const isInfoPanelOpen = useChatStore((state) => state.isInfoPanelOpen);
   const toggleInfoPanel = useChatStore((state) => state.toggleInfoPanel);
+  const isSearchPanelOpen = useChatStore((state) => state.isSearchPanelOpen);
+  const toggleSearchPanel = useChatStore((state) => state.toggleSearchPanel);
 
   const user = useAuthStore((state) => state.user);
   const currentUserId = String(user?.id || user?._id);
@@ -226,7 +228,7 @@ const ChatHeader = () => {
           {[
             { Icon: Phone, title: 'Gọi thoại', onClick: () => startCall(false) },
             { Icon: Video, title: 'Gọi video', onClick: () => startCall(true) },
-            { Icon: Search, title: 'Tìm kiếm tin nhắn' },
+            { Icon: Search, title: 'Tìm kiếm tin nhắn', onClick: toggleSearchPanel },
           ].map(({ Icon, title, onClick }, i) => (
             <button key={i} className="p-2.5 rounded-lg transition-all duration-150"
               style={{ color: 'var(--text-secondary)' }}

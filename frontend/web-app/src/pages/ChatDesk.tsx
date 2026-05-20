@@ -2,11 +2,13 @@ import ChatHeader from '../components/chat/ChatHeader';
 import MessageList from '../components/chat/MessageList';
 import MessageInput from '../components/chat/MessageInput';
 import ConversationInfoPanel from '../components/chat/ConversationInfoPanel';
+import ConversationSearchPanel from '../components/chat/ConversationSearchPanel';
 import ForwardModal from '../components/chat/ForwardModal';
 import { useChatStore } from '../stores/chatStore';
 
 const ChatDesk = () => {
   const isInfoPanelOpen = useChatStore((state) => state.isInfoPanelOpen);
+  const isSearchPanelOpen = useChatStore((state) => state.isSearchPanelOpen);
   const activeConversation = useChatStore((state) => state.activeConversation);
 
   return (
@@ -27,6 +29,11 @@ const ChatDesk = () => {
       {/* Right Info Panel — slides in */}
       {isInfoPanelOpen && activeConversation && (
         <ConversationInfoPanel />
+      )}
+
+      {/* Right Search Panel */}
+      {isSearchPanelOpen && activeConversation && (
+        <ConversationSearchPanel />
       )}
 
       {/* Global Modals */}

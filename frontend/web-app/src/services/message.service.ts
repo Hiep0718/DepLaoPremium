@@ -28,6 +28,10 @@ export const getConversationHistory = async (conversationId: string, userId: str
   return messagingApi.get(`/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`);
 };
 
+export const searchMessages = async (conversationId: string, query: string) => {
+  return messagingApi.get(`/search/${conversationId}?query=${encodeURIComponent(query)}`);
+};
+
 export const createConversation = async (participants: string[], isGroup = false, groupName?: string, creatorId?: string, groupAvatar?: string) => {
   const conversationId = isGroup 
     ? `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`

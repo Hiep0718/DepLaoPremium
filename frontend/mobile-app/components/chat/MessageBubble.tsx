@@ -36,6 +36,7 @@ interface MessageBubbleProps {
   onJoinCall?: (conversationId: string, isVideo: boolean) => void;
   onPressMention?: (fullName: string, userId: string) => void;
   isHighlighted?: boolean;
+  searchQuery?: string;
 }
 
 // Helper: render text with clickable links
@@ -44,7 +45,8 @@ const renderTextWithLinks = (
   textStyle: any, 
   memberMap?: Record<string, { fullName: string; avatarUrl?: string }>,
   isGroup?: boolean,
-  onPressMention?: (fullName: string, userId: string) => void
+  onPressMention?: (fullName: string, userId: string) => void,
+  searchQuery?: string
 ) => {
   if (!text) return <Text style={textStyle}>{text}</Text>;
 
@@ -63,6 +65,20 @@ const renderTextWithLinks = (
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   const parts = text.split(urlRegex);
   const urlTest = /^https?:\/\//;
+
+  const renderHighlightedText = (str: string, keyPrefix: string) => {
+    if (!searchQuery) return <Text key={keyPrefix}>{str}</Text>;
+    // escape regex
+    const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const searchRegex = new RegExp(`(${escapedQuery})`, 'gi');
+    const searchParts = str.split(searchRegex);
+    return searchParts.map((sp, idx) => {
+      if (sp.toLowerCase() === searchQuery.toLowerCase()) {
+        return <Text key={`${keyPrefix}-${idx}`} style={{ backgroundColor: 'yellow', color: '#000' }}>{sp}</Text>;
+      }
+      return <Text key={`${keyPrefix}-${idx}`}>{sp}</Text>;
+    });
+  };
 
   return (
     <Text style={textStyle}>
@@ -101,12 +117,12 @@ const renderTextWithLinks = (
                   </Text>
                 );
               }
-              return mPart ? <Text key={`text-${i}-${j}`}>{mPart}</Text> : null;
+              return mPart ? renderHighlightedText(mPart, `text-${i}-${j}`) : null;
             });
           }
         }
 
-        return part ? <Text key={`text-${i}`}>{part}</Text> : null;
+        return part ? renderHighlightedText(part, `text-${i}`) : null;
       })}
     </Text>
   );
@@ -183,6 +199,7 @@ export default function MessageBubble({
   onJoinCall,
   onPressMention,
   isHighlighted,
+  searchQuery,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -677,7 +694,7 @@ export default function MessageBubble({
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#f97316' }}>Bếp AI 🍜</Text>
                         </View>
                       )}
-                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent], memberMap, isGroup, onPressMention)}
+                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent], memberMap, isGroup, onPressMention, searchQuery)}
                       {translatedMessages[item._id] && (
                         <View style={styles.translatedWrap}>
                           <Text style={[styles.translatedText, isMine ? styles.myMsgContent : styles.theirMsgContent]}>

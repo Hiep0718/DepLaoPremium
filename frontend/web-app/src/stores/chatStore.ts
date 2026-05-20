@@ -61,6 +61,7 @@ interface ChatState {
   activeContactInfo: ContactInfo | null;
   messages: Message[];
   isInfoPanelOpen: boolean;
+  isSearchPanelOpen: boolean;
   replyingMessage: Message | null;
   forwardingMessage: Message | null;
   isForwardModalOpen: boolean;
@@ -79,6 +80,7 @@ interface ChatState {
   setForwardingMessage: (message: Message | null) => void;
   setForwardModalOpen: (isOpen: boolean) => void;
   toggleInfoPanel: () => void;
+  toggleSearchPanel: () => void;
   clearChat: () => void;
   deleteActiveConversationHistory: (userId: string) => Promise<void>;
   pinnedMessage: any | null;
@@ -95,6 +97,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeContactInfo: null,
   messages: [],
   isInfoPanelOpen: false,
+  isSearchPanelOpen: false,
   replyingMessage: null,
   forwardingMessage: null,
   isForwardModalOpen: false,
@@ -138,7 +141,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setReplyingMessage: (replyingMessage) => set({ replyingMessage }),
   setForwardingMessage: (forwardingMessage) => set({ forwardingMessage, isForwardModalOpen: !!forwardingMessage }),
   setForwardModalOpen: (isForwardModalOpen) => set({ isForwardModalOpen }),
-  toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen })),
+  toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen, isSearchPanelOpen: false })),
+  toggleSearchPanel: () => set((state) => ({ isSearchPanelOpen: !state.isSearchPanelOpen, isInfoPanelOpen: false })),
   clearChat: () => set({
     conversations: [],
     activeConversation: null,

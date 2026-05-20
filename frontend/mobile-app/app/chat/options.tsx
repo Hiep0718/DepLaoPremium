@@ -737,7 +737,15 @@ export default function ChatOptionsScreen() {
           )}
 
           <View style={styles.actionCirclesRow}>
-            <TouchableOpacity style={styles.actionCircleItem}>
+            <TouchableOpacity 
+              style={styles.actionCircleItem}
+              onPress={() => {
+                router.navigate({
+                  pathname: '/chat/[id]',
+                  params: { id, name, avatar, isGroup, openSearch: 'true' }
+                });
+              }}
+            >
               <View style={styles.actionCircle}>
                 <Ionicons name="search-outline" size={24} color="#444" />
               </View>

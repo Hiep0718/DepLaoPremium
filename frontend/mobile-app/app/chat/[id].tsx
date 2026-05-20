@@ -48,6 +48,7 @@ export default function ChatScreen() {
   const avatar = params.avatar as string;
   const isOnline = params.isOnline === 'true';
   const initialUnreadParam = parseInt(params.initialUnreadCount as string) || 0;
+  const openSearch = params.openSearch === 'true';
 
   const { socket, currentUserId } = useSocket();
   const router = useRouter();
@@ -61,6 +62,19 @@ export default function ChatScreen() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [initialUnreadCount, setInitialUnreadCount] = useState(initialUnreadParam);
+
+  // Search State
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<number[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
+
+  useEffect(() => {
+    if (openSearch) {
+      setIsSearchMode(true);
+      router.setParams({ openSearch: undefined });
+    }
+  }, [openSearch]);
 
   // States
   const [text, setText] = useState('');
@@ -116,6 +130,43 @@ export default function ChatScreen() {
      }
      prevMessagesLength.current = messages.length;
   }, [messages, showScrollToBottom, currentUserId]);
+
+  useEffect(() => {
+    if (!isSearchMode || !searchQuery.trim()) {
+      setSearchResults([]);
+      setCurrentSearchIndex(0);
+      return;
+    }
+    const query = searchQuery.toLowerCase();
+    const results: number[] = [];
+    messages.forEach((msg, index) => {
+      if (msg.messageType === 'text' && msg.content && typeof msg.content === 'string' && msg.content.toLowerCase().includes(query)) {
+        results.push(index);
+      }
+    });
+    setSearchResults(results);
+    setCurrentSearchIndex(0);
+    
+    if (results.length > 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({ index: results[0], animated: true, viewPosition: 0.5 });
+      }, 100);
+    }
+  }, [searchQuery, isSearchMode, messages.length]); // depend on messages.length to avoid too frequent re-renders, or just don't re-search on every msg change if not needed
+
+  const handleNextSearch = () => { // "Lên" - older messages (higher index)
+    if (searchResults.length === 0) return;
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+    setCurrentSearchIndex(nextIndex);
+    flatListRef.current?.scrollToIndex({ index: searchResults[nextIndex], animated: true, viewPosition: 0.5 });
+  };
+
+  const handlePrevSearch = () => { // "Xuống" - newer messages (lower index)
+    if (searchResults.length === 0) return;
+    const prevIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+    setCurrentSearchIndex(prevIndex);
+    flatListRef.current?.scrollToIndex({ index: searchResults[prevIndex], animated: true, viewPosition: 0.5 });
+  };
 
   const myRole = React.useMemo(() => participantRoles[String(currentUserId)] || 'member', [participantRoles, currentUserId]);
 
@@ -796,11 +847,27 @@ export default function ChatScreen() {
 
       <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]} edges={['top', 'bottom']}>
         <StatusBar backgroundColor={ZaloColors.blue} style="light" />
-        <ChatHeader
-          id={id} name={dynamicName} avatar={dynamicAvatar} recipientId={recipientId}
-          isGroup={isGroup} groupMemberCount={groupMemberCount}
-          isOnline={isOnline} isOtherTyping={isOtherTyping}
-        />
+        {isSearchMode ? (
+          <View style={{ height: 56, backgroundColor: ZaloColors.blue, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8 }}>
+            <TouchableOpacity style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }} onPress={() => setIsSearchMode(false)}>
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TextInput
+              style={{ flex: 1, backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 6, fontSize: 16, marginLeft: 8 }}
+              placeholder="Nhập từ khóa tìm kiếm..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus
+            />
+          </View>
+        ) : (
+          <ChatHeader
+            id={id} name={dynamicName} avatar={dynamicAvatar} recipientId={recipientId}
+            isGroup={isGroup} groupMemberCount={groupMemberCount}
+            isOnline={isOnline} isOtherTyping={isOtherTyping}
+            onOpenSearch={() => setIsSearchMode(true)}
+          />
+        )}
 
         {/* Pinned Message Banner */}
 
@@ -946,7 +1013,8 @@ export default function ChatScreen() {
                       onPressMention={(fullName, userId) => {
                         setMentionActionUser({ id: userId, name: fullName });
                       }}
-                      isHighlighted={highlightedMessageId === item._id}
+                      isHighlighted={isSearchMode && !!searchQuery && searchResults.includes(messages.indexOf(item))}
+                      searchQuery={isSearchMode ? searchQuery : undefined}
                     />
                   )}
                   inverted
@@ -1039,7 +1107,22 @@ export default function ChatScreen() {
           )}
 
           {/* BỔ SUNG: Bao bọc ChatInputBar và ActionPanels bằng điều kiện isMember và canSendMessage */}
-          {isMember ? (
+          {isSearchMode ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0' }}>
+              <Ionicons name="search" size={24} color="#888" />
+              <Text style={{ fontSize: 16, color: '#555' }}>
+                {searchResults.length > 0 ? `Kết quả thứ ${currentSearchIndex + 1}/${searchResults.length}` : 'Không tìm thấy kết quả'}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 15 }}>
+                <TouchableOpacity onPress={handleNextSearch} disabled={searchResults.length === 0}>
+                  <Ionicons name="chevron-up" size={24} color={searchResults.length > 0 ? ZaloColors.blue : '#ccc'} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handlePrevSearch} disabled={searchResults.length === 0}>
+                  <Ionicons name="chevron-down" size={24} color={searchResults.length > 0 ? ZaloColors.blue : '#ccc'} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : isMember ? (
             canSendMessage ? (
               <>
                 {/* Smart Time Suggestion Banner */}
