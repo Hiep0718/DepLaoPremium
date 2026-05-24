@@ -22,6 +22,10 @@ export interface Message {
     senderId: string;
     messageType: string;
   };
+  seenBy?: {
+    userId: string;
+    timestamp?: string;
+  }[];
   reactions?: {
     userId: string;
     type: string;

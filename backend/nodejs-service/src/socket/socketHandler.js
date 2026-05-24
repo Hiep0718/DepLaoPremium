@@ -184,20 +184,36 @@ const setupSocketEvents = (io) => {
       try {
         const { messageId, conversationId, userId } = data;
 
-        await Message.findByIdAndUpdate(messageId, {
-          status: 'seen',
-          seenAt: new Date(),
-        });
+        const message = await Message.findById(messageId);
+        if (!message) return;
 
-        // Notify sender that message was seen
-        io.emit('message_seen', {
-          messageId,
-          conversationId,
-          seenBy: userId,
-          timestamp: new Date(),
-        });
+        let isNewSeen = false;
+        if (!message.seenBy) message.seenBy = [];
+        
+        const alreadySeen = message.seenBy.some(s => String(s.userId) === String(userId));
+        if (!alreadySeen) {
+          message.seenBy.push({ userId, timestamp: new Date() });
+          message.status = 'seen';
+          await message.save();
+          isNewSeen = true;
+        }
 
-        console.log(`[Socket] Message ${messageId} marked as seen`);
+        if (isNewSeen) {
+          const conversation = await Conversation.findOne({ conversationId });
+          if (conversation && conversation.participants) {
+            conversation.participants.forEach(p => {
+               io.to(`user_${p.userId || p.id}`).emit('message_seen', {
+                 messageId,
+                 conversationId,
+                 seenBy: userId,
+                 seenList: message.seenBy,
+                 timestamp: new Date(),
+               });
+            });
+          }
+        }
+
+        console.log(`[Socket] Message ${messageId} marked as seen by ${userId}`);
       } catch (error) {
         console.error('[Socket] Error marking message as seen:', error);
       }

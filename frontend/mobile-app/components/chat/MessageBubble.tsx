@@ -37,6 +37,7 @@ interface MessageBubbleProps {
   onPressMention?: (fullName: string, userId: string) => void;
   isHighlighted?: boolean;
   searchQuery?: string;
+  latestSeenUsers?: { userId: string, avatarUrl?: string, fullName: string }[];
 }
 
 // Helper: render text with clickable links
@@ -200,6 +201,7 @@ export default function MessageBubble({
   onPressMention,
   isHighlighted,
   searchQuery,
+  latestSeenUsers,
 }: MessageBubbleProps) {
   const isMine = String(item.senderId) === String(currentUserId);
   const showSeenAvatar = isMine && item.status === 'seen' && String(item._id) === String(lastSeenMessageId);
@@ -747,21 +749,31 @@ export default function MessageBubble({
           )}
 
           {isMine && !item.isRevoked && (
-            <View style={styles.statusRow}>
-              <MessageTick status={item.status} />
+            <View style={[styles.statusRow, { marginTop: 4, alignItems: 'flex-end' }]}>
+               {!isGroup ? (
+                 <Text style={{ fontSize: 11, color: '#888' }}>
+                   {item.status === 'seen' ? 'Đã xem' : item.status === 'received' ? 'Đã nhận' : item.status === 'sent' ? 'Đã gửi' : 'Đang gửi...'}
+                 </Text>
+               ) : (
+                 <MessageTick status={item.status} />
+               )}
             </View>
           )}
         </View>
       </View>
 
-      {/* Avatar nhỏ hiện bên phải dưới tin đã được đối phương XEM */}
-      {showSeenAvatar && !item.isRevoked && !isGroup && (
-        <View style={styles.seenAvatarRow}>
-          {avatar && typeof avatar === 'string' && avatar.trim() !== '' ? (
-            <Image source={{ uri: avatar }} style={styles.seenAvatar} />
-          ) : (
-            <View style={styles.seenAvatarDefault}><Ionicons name="person" size={9} color="#888" /></View>
-          )}
+      {/* Avatar nhỏ hiện bên dưới tin đã được đối phương XEM */}
+      {latestSeenUsers && latestSeenUsers.length > 0 && !item.isRevoked && (
+        <View style={{ flexDirection: 'row', justifyContent: isMine ? 'flex-end' : 'flex-start', marginTop: 2, paddingHorizontal: 4, gap: 2 }}>
+          {latestSeenUsers.map((user, idx) => (
+            <View key={`seen-${user.userId}-${idx}`} style={{ width: 14, height: 14, borderRadius: 7, overflow: 'hidden', backgroundColor: '#e0e0e0', justifyContent: 'center', alignItems: 'center' }}>
+              {user.avatarUrl && typeof user.avatarUrl === 'string' && user.avatarUrl.trim() !== '' ? (
+                <Image source={{ uri: user.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <Ionicons name="person" size={10} color="#888" />
+              )}
+            </View>
+          ))}
         </View>
       )}
     </Animated.View>

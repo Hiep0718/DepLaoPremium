@@ -30,6 +30,10 @@ import ActionPanels from '@/components/chat/ActionPanels';
 import ForwardModal from '@/components/ForwardModal';
 import ContactSelectionModal from '@/components/ContactSelectionModal';
 import CreatePollModal from '@/components/chat/CreatePollModal';
+import CloudImageGallery from '@/components/chat/CloudImageGallery';
+import CloudFileGallery from '@/components/chat/CloudFileGallery';
+import CloudLinkGallery from '@/components/chat/CloudLinkGallery';
+import CloudTextGallery from '@/components/chat/CloudTextGallery';
 
 // Hooks
 import { useChatMessages } from '@/hooks/chat/useChatMessages';
@@ -109,6 +113,30 @@ export default function ChatScreen() {
       return true;
     });
   }, [messages, isCloud, cloudFilter]);
+
+  const messageSeenMap = useMemo(() => {
+    const map: Record<string, { userId: string, avatarUrl?: string, fullName: string }[]> = {};
+    const userSeenTracker = new Set<string>();
+
+    for (const msg of filteredMessages) {
+      if (msg.seenBy && msg.seenBy.length > 0) {
+        msg.seenBy.forEach(s => {
+          if (!userSeenTracker.has(s.userId)) {
+            userSeenTracker.add(s.userId);
+            if (String(s.userId) !== String(currentUserId)) {
+              if (!map[msg._id]) map[msg._id] = [];
+              map[msg._id].push({
+                userId: s.userId,
+                avatarUrl: memberMap?.[s.userId]?.avatarUrl,
+                fullName: memberMap?.[s.userId]?.fullName || 'Thành viên'
+              });
+            }
+          }
+        });
+      }
+    }
+    return map;
+  }, [filteredMessages, memberMap, currentUserId]);
 
   const handleScroll = (event: any) => {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -617,7 +645,7 @@ export default function ChatScreen() {
 
     const handleMessageSeen = (data: any) => {
       if (data.conversationId !== id || String(data.seenBy) === String(currentUserId)) return;
-      setMessages(prev => prev.map(m => String(m._id) === String(data.messageId) ? { ...m, status: 'seen' } : m));
+      setMessages(prev => prev.map(m => String(m._id) === String(data.messageId) ? { ...m, status: 'seen', seenBy: data.seenList || [{ userId: data.seenBy, timestamp: data.timestamp }] } : m));
     };
 
     const handleMessageRevoked = (data: any) => {
@@ -980,14 +1008,47 @@ export default function ChatScreen() {
                     </ScrollView>
                   </View>
                 )}
-                <FlatList
-                  ref={flatListRef}
-                  data={filteredMessages}
-                  extraData={filteredMessages}
+                
+                {isCloud && cloudFilter === 'image' ? (
+                  <View style={{ flex: 1 }}>
+                    <CloudImageGallery messages={filteredMessages} onImagePress={setLightboxUrl} />
+                  </View>
+                ) : isCloud && cloudFilter === 'file' ? (
+                  <View style={{ flex: 1 }}>
+                    <CloudFileGallery 
+                      messages={filteredMessages} 
+                      memberMap={memberMap}
+                      currentUserId={currentUserId}
+                      onFilePress={handleDownloadFile}
+                      onFileOptionsPress={(msg) => setActionSheetMessage(msg)}
+                    />
+                  </View>
+                ) : isCloud && cloudFilter === 'link' ? (
+                  <View style={{ flex: 1 }}>
+                    <CloudLinkGallery 
+                      messages={filteredMessages} 
+                      memberMap={memberMap}
+                      currentUserId={currentUserId}
+                      onLinkOptionsPress={(msg) => setActionSheetMessage(msg)}
+                    />
+                  </View>
+                ) : isCloud && cloudFilter === 'text' ? (
+                  <View style={{ flex: 1 }}>
+                    <CloudTextGallery 
+                      messages={filteredMessages} 
+                      onTextLongPress={(msg) => setActionSheetMessage(msg)}
+                    />
+                  </View>
+                ) : (
+                  <FlatList
+                    ref={flatListRef}
+                    data={filteredMessages}
+                    extraData={filteredMessages}
                   keyExtractor={item => item.tempId || item._id}
                   renderItem={({ item }) => (
                     <MessageBubble
                       item={item} currentUserId={currentUserId} lastSeenMessageId={lastSeenMessageId}
+                      latestSeenUsers={messageSeenMap[item._id]}
                       avatar={dynamicAvatar} name={dynamicName} playingAudioId={playingAudioId} audioProgress={audioProgress}
                       translatedMessages={translatedMessages} translatingId={translatingId}
                       memberMap={memberMap} isGroup={isGroup} participantRoles={participantRoles}
@@ -1031,6 +1092,7 @@ export default function ChatScreen() {
                     });
                   }}
                 />
+                )}
 
                 {/* Nút @ nổi - nhảy đến tin nhắn nhắc tên */}
                 {unreadMentionIndex !== null && (

@@ -49,6 +49,12 @@ const messageSchema = new mongoose.Schema(
         type: { type: String, enum: ['like', 'love', 'haha', 'wow', 'sad', 'angry'], required: true },
       }
     ],
+    seenBy: [
+      {
+        userId: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now }
+      }
+    ],
     isEdited: {
       type: Boolean,
       default: false,
