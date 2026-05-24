@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Alert, ActivityIndicator, Modal, TextInput, Linking, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +18,23 @@ export default function ChatOptionsScreen() {
   const router = useRouter();
   const { id, name, avatar, isGroup } = useLocalSearchParams();
   const isCloud = typeof id === 'string' && id.startsWith('cloud_');
+  const [showSettings, setShowSettings] = useState(false);
+  const [isCloudPinned, setIsCloudPinned] = useState(false);
+
+  useEffect(() => {
+    if (isCloud) {
+      AsyncStorage.getItem('cloud_pinned').then(val => {
+        if (val === 'true') setIsCloudPinned(true);
+      }).catch(() => {});
+    }
+  }, [isCloud]);
+
+  const toggleCloudPin = async (val: boolean) => {
+    setIsCloudPinned(val);
+    try {
+      await AsyncStorage.setItem('cloud_pinned', val ? 'true' : 'false');
+    } catch (e) {}
+  };
 
   if (isCloud) {
     return (
@@ -37,93 +55,121 @@ export default function ChatOptionsScreen() {
             <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Trợ giúp', 'Hướng dẫn sử dụng My Documents')}>
               <Ionicons name="help-circle-outline" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Cài đặt', 'Cài đặt My Documents')}>
+            <TouchableOpacity style={styles.headerBtn} onPress={() => setShowSettings(true)}>
               <Ionicons name="settings-outline" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ backgroundColor: '#f4f5f7' }} showsVerticalScrollIndicator={false}>
-          {/* Circular Folder Icon Section */}
-          <View style={{ alignItems: 'center', backgroundColor: '#fff', paddingVertical: 35, paddingHorizontal: 20, marginBottom: 12 }}>
-            <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: '#e8f0fe', justifyContent: 'center', alignItems: 'center', marginBottom: 16, position: 'relative' }}>
-              <Ionicons name="folder" size={56} color="#0068FF" />
-              <View style={{ position: 'absolute', right: 20, bottom: 20, backgroundColor: '#fff', borderRadius: 12, padding: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1 }}>
-                <Ionicons name="cloud" size={18} color="#0068FF" />
+        {showSettings ? (
+          // Settings Interface (Image 2)
+          <View style={{ flex: 1, backgroundColor: '#f4f5f7', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10 }}>
+            <SafeAreaView edges={['top']} style={{ backgroundColor: ZaloColors.blue }}>
+              <View style={styles.header}>
+                <TouchableOpacity style={styles.headerBtn} onPress={() => setShowSettings(false)}>
+                  <Ionicons name="arrow-back" size={24} color="#fff" />
+                </TouchableOpacity>
+                <View style={styles.headerTitleWrap}>
+                  <Text style={[styles.headerTitle, { fontSize: 18, marginLeft: 8 }]}>Cài đặt My Documents</Text>
+                </View>
               </View>
-              <View style={{ position: 'absolute', right: 4, bottom: 4, backgroundColor: '#fff', borderRadius: 12, padding: 1 }}>
-                <Ionicons name="checkmark-circle" size={22} color="#FFB000" />
-              </View>
-            </View>
-            <Text style={{ fontSize: 24, fontWeight: '700', color: '#111', marginBottom: 10 }}>My Documents</Text>
-            <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, paddingHorizontal: 30 }}>
-              Lưu trữ và truy cập nhanh những nội dung quan trọng của bạn ngay trên Zalo
-            </Text>
-          </View>
-
-          {/* Capacity Section */}
-          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>Dung lượng</Text>
-              <Text style={{ fontSize: 14, color: '#666', fontWeight: '500' }}>30,7 MB / 500 MB</Text>
-            </View>
+            </SafeAreaView>
             
-            {/* Multi-colored Progress Bar */}
-            <View style={{ height: 10, borderRadius: 5, backgroundColor: '#f0f0f0', flexDirection: 'row', overflow: 'hidden', marginBottom: 16 }}>
-              <View style={{ width: '6%', backgroundColor: '#ff9800' }} /> {/* Orange for Ảnh */}
-              <View style={{ width: '2%', backgroundColor: '#4caf50' }} /> {/* Green for Video */}
-              <View style={{ width: '1%', backgroundColor: '#ffeb3b' }} /> {/* Yellow for File */}
-            </View>
-
-            {/* Legend dot row */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff9800' }} />
-                <Text style={{ fontSize: 13, color: '#666' }}>Ảnh</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#4caf50' }} />
-                <Text style={{ fontSize: 13, color: '#666' }}>Video</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ffeb3b' }} />
-                <Text style={{ fontSize: 13, color: '#666' }}>File</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#9e9e9e' }} />
-                <Text style={{ fontSize: 13, color: '#666' }}>Khác</Text>
+            <View style={{ backgroundColor: '#fff', marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#f0f0f0' }}>
+                <Text style={{ fontSize: 16, color: '#111' }}>Ghim lên đầu danh sách trò chuyện</Text>
+                <Switch 
+                  value={isCloudPinned} 
+                  onValueChange={toggleCloudPin}
+                  trackColor={{ false: '#d1d1d6', true: '#b3d4ff' }}
+                  thumbColor={isCloudPinned ? '#0068FF' : '#fff'}
+                />
               </View>
             </View>
           </View>
+        ) : (
+          <ScrollView contentContainerStyle={{ backgroundColor: '#f4f5f7' }} showsVerticalScrollIndicator={false}>
+            {/* Circular Folder Icon Section */}
+            <View style={{ alignItems: 'center', backgroundColor: '#fff', paddingVertical: 35, paddingHorizontal: 20, marginBottom: 12 }}>
+              <View style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: '#e8f0fe', justifyContent: 'center', alignItems: 'center', marginBottom: 16, position: 'relative' }}>
+                <Ionicons name="folder" size={56} color="#0068FF" />
+                <View style={{ position: 'absolute', right: 20, bottom: 20, backgroundColor: '#fff', borderRadius: 12, padding: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 1 }}>
+                  <Ionicons name="cloud" size={18} color="#0068FF" />
+                </View>
+                <View style={{ position: 'absolute', right: 4, bottom: 4, backgroundColor: '#fff', borderRadius: 12, padding: 1 }}>
+                  <Ionicons name="checkmark-circle" size={22} color="#FFB000" />
+                </View>
+              </View>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111', marginBottom: 10 }}>My Documents</Text>
+              <Text style={{ fontSize: 14, color: '#666', textAlign: 'center', lineHeight: 22, paddingHorizontal: 30 }}>
+                Lưu trữ và truy cập nhanh những nội dung quan trọng của bạn ngay trên Zalo
+              </Text>
+            </View>
 
-          {/* Upgrade Storage Card */}
-          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Thêm dung lượng với zCloud</Text>
-            <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
-              100 GB dành cho My Documents và toàn bộ dữ liệu trò chuyện
-            </Text>
-            <TouchableOpacity 
-              style={{ backgroundColor: '#e8f0fe', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
-              onPress={() => Alert.alert('Thông báo', 'Chức năng nâng cấp dung lượng zCloud sắp ra mắt!')}
-            >
-              <Text style={{ color: '#0068FF', fontWeight: '600', fontSize: 15 }}>Thêm dung lượng</Text>
-            </TouchableOpacity>
-          </View>
+            {/* Capacity Section */}
+            <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>Dung lượng</Text>
+                <Text style={{ fontSize: 14, color: '#666', fontWeight: '500' }}>30,7 MB / 500 MB</Text>
+              </View>
+              
+              {/* Multi-colored Progress Bar */}
+              <View style={{ height: 10, borderRadius: 5, backgroundColor: '#f0f0f0', flexDirection: 'row', overflow: 'hidden', marginBottom: 16 }}>
+                <View style={{ width: '6%', backgroundColor: '#ff9800' }} /> {/* Orange for Ảnh */}
+                <View style={{ width: '2%', backgroundColor: '#4caf50' }} /> {/* Green for Video */}
+                <View style={{ width: '1%', backgroundColor: '#ffeb3b' }} /> {/* Yellow for File */}
+              </View>
 
-          {/* Cleanup Storage Card */}
-          <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
-            <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Dọn dẹp dữ liệu My Documents</Text>
-            <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
-              Xóa bớt nội dung không cần thiết để có thêm dung lượng trống
-            </Text>
-            <TouchableOpacity 
-              style={{ backgroundColor: '#f0f0f0', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
-              onPress={() => Alert.alert('My Documents', 'My Documents của bạn đang rất gọn gàng!')}
-            >
-              <Text style={{ color: '#333', fontWeight: '600', fontSize: 15 }}>Xem và dọn dẹp</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+              {/* Legend dot row */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ff9800' }} />
+                  <Text style={{ fontSize: 13, color: '#666' }}>Ảnh</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#4caf50' }} />
+                  <Text style={{ fontSize: 13, color: '#666' }}>Video</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ffeb3b' }} />
+                  <Text style={{ fontSize: 13, color: '#666' }}>File</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#9e9e9e' }} />
+                  <Text style={{ fontSize: 13, color: '#666' }}>Khác</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Upgrade Storage Card */}
+            <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Thêm dung lượng với zCloud</Text>
+              <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
+                100 GB dành cho My Documents và toàn bộ dữ liệu trò chuyện
+              </Text>
+              <TouchableOpacity 
+                style={{ backgroundColor: '#e8f0fe', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
+                onPress={() => Alert.alert('Thông báo', 'Chức năng nâng cấp dung lượng zCloud sắp ra mắt!')}
+              >
+                <Text style={{ color: '#0068FF', fontWeight: '600', fontSize: 15 }}>Thêm dung lượng</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Cleanup Storage Card */}
+            <View style={{ backgroundColor: '#fff', padding: 16, marginBottom: 12 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 6 }}>Dọn dẹp dữ liệu My Documents</Text>
+              <Text style={{ fontSize: 14, color: '#666', lineHeight: 20, marginBottom: 16 }}>
+                Xóa bớt nội dung không cần thiết để có thêm dung lượng trống
+              </Text>
+              <TouchableOpacity 
+                style={{ backgroundColor: '#f0f0f0', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}
+                onPress={() => Alert.alert('My Documents', 'My Documents của bạn đang rất gọn gàng!')}
+              >
+                <Text style={{ color: '#333', fontWeight: '600', fontSize: 15 }}>Xem và dọn dẹp</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        )}
       </SafeAreaView>
     );
   }
