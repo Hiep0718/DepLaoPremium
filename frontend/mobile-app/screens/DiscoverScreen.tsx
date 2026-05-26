@@ -3,6 +3,10 @@ import { View, Text, ScrollView, TouchableOpacity } from "react-native"
 import { MiniGameScreen } from "./MiniGameScreen"
 import { MemoryGameScreen } from "./MemoryGameScreen"
 import { GameHubScreen } from "./GameHubScreen"
+import { ClipVideoScreen } from "./ClipVideoScreen"
+import { ZaloShopScreen } from "./ZaloShopScreen"
+import { OfficialAccountScreen } from "./OfficialAccountScreen"
+import { NewsScreen } from "./NewsScreen"
 
 interface Feature {
     id: string
@@ -11,7 +15,7 @@ interface Feature {
     description: string
 }
 
-type Screen = "discover" | "gameHub" | "game2048" | "memory"
+type Screen = "discover" | "gameHub" | "game2048" | "memory" | "clipVideo" | "zaloShop" | "officialAccount" | "news"
 
 export function DiscoverScreen() {
     const [screen, setScreen] = useState<Screen>("discover")
@@ -49,6 +53,22 @@ export function DiscoverScreen() {
         },
     ]
 
+    if (screen === "clipVideo") {
+        return <ClipVideoScreen onBack={() => setScreen("discover")} />
+    }
+
+    if (screen === "zaloShop") {
+        return <ZaloShopScreen onBack={() => setScreen("discover")} />
+    }
+
+    if (screen === "officialAccount") {
+        return <OfficialAccountScreen onBack={() => setScreen("discover")} />
+    }
+
+    if (screen === "news") {
+        return <NewsScreen onBack={() => setScreen("discover")} />
+    }
+
     if (screen === "game2048") {
         return <MiniGameScreen onBack={() => setScreen("gameHub")} />
     }
@@ -70,8 +90,16 @@ export function DiscoverScreen() {
     }
 
     const handleFeaturePress = (feature: Feature) => {
-        if (feature.id === "2") {
+        if (feature.id === "1") {
+            setScreen("clipVideo")
+        } else if (feature.id === "2") {
             setScreen("gameHub")
+        } else if (feature.id === "3") {
+            setScreen("zaloShop")
+        } else if (feature.id === "4") {
+            setScreen("officialAccount")
+        } else if (feature.id === "5") {
+            setScreen("news")
         }
     }
 
