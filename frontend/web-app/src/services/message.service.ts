@@ -28,9 +28,11 @@ export const getConversationHistory = async (conversationId: string, userId: str
   return messagingApi.get(`/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`);
 };
 
-export const createConversation = async (participants: string[], isGroup = false) => {
-  // Generate a deterministic or random conversation UUID
-  // Or simply let backend use it, but since backend requires it we construct one.
+export const searchMessages = async (conversationId: string, query: string) => {
+  return messagingApi.get(`/search/${conversationId}?query=${encodeURIComponent(query)}`);
+};
+
+export const createConversation = async (participants: string[], isGroup = false, groupName?: string, creatorId?: string, groupAvatar?: string) => {
   const conversationId = isGroup 
     ? `group_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`
     : `1on1_${participants.sort().join('_')}`;
@@ -39,6 +41,9 @@ export const createConversation = async (participants: string[], isGroup = false
     conversationId,
     participants,
     isGroup,
+    ...(groupName ? { groupName } : {}),
+    ...(creatorId ? { creatorId } : {}),
+    ...(groupAvatar ? { groupAvatar } : {}),
   });
 };
 
@@ -50,4 +55,125 @@ export const deleteConversationHistory = async (conversationId: string, userId: 
   return messagingApi.delete(`/conversations/${conversationId}/history`, {
     data: { userId }
   });
+};
+
+export const updateMemberRole = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserId: string,
+  newRole: 'leader' | 'deputy' | 'member'
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/role`, {
+    requesterId,
+    targetUserId,
+    newRole,
+  });
+};
+
+export const removeMemberFromGroup = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserId: string
+) => {
+  return messagingApi.delete(`/conversations/${conversationId}/members`, {
+    data: {
+      requesterId,
+      targetUserId,
+    },
+  });
+};
+
+export const addMembersToGroup = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/members`, {
+    requesterId,
+    targetUserIds,
+  });
+};
+
+export const disbandGroup = async (
+  conversationId: string,
+  requesterId: string
+) => {
+  return messagingApi.delete(`/conversations/${conversationId}/disband`, {
+    data: {
+      requesterId,
+    },
+  });
+};
+
+export const updateGroupInfo = async (
+  conversationId: string,
+  requesterId: string,
+  groupName?: string,
+  groupAvatar?: string
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/info`, {
+    requesterId,
+    ...(groupName !== undefined ? { groupName } : {}),
+    ...(groupAvatar !== undefined ? { groupAvatar } : {}),
+  });
+};
+
+export const toggleRequireApproval = async (
+  conversationId: string,
+  requesterId: string,
+  requireApproval: boolean
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/approval-setting`, {
+    requesterId,
+    requireApproval,
+  });
+};
+
+export const approvePendingMember = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/pending/approve`, {
+    requesterId,
+    targetUserIds,
+  });
+};
+
+export const rejectPendingMember = async (
+  conversationId: string,
+  requesterId: string,
+  targetUserIds: string[]
+) => {
+  return messagingApi.post(`/conversations/${conversationId}/pending/reject`, {
+    requesterId,
+    targetUserIds,
+  });
+};
+
+export const updateGroupPermissions = async (
+  conversationId: string,
+  requesterId: string,
+  settings: {
+    sendMessages?: 'all' | 'admin_only';
+    pinAndPolls?: 'all' | 'admin_only';
+    changeInfo?: 'all' | 'admin_only';
+  }
+) => {
+  return messagingApi.put(`/conversations/${conversationId}/permissions`, {
+    requesterId,
+    settings,
+  });
+};
+
+export const getInviteCode = async (conversationId: string) => {
+  return messagingApi.get(`/conversations/${conversationId}/invite`);
+};
+
+export const resetInviteCode = async (conversationId: string, requesterId: string) => {
+  return messagingApi.post(`/conversations/${conversationId}/invite/reset`, { requesterId });
+};
+
+export const joinGroupByInviteCode = async (inviteCode: string, userId: string) => {
+  return messagingApi.post(`/join/${inviteCode}`, { userId });
 };

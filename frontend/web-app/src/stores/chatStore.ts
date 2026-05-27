@@ -24,6 +24,7 @@ export interface Message {
   createdAt?: string;
   _uploading?: boolean;
   _uploadFailed?: boolean;
+  reactions?: any[];
 }
 
 export interface Conversation {
@@ -31,9 +32,22 @@ export interface Conversation {
   _id?: string;
   participants: any[];
   isGroup: boolean;
+
   isAiBot?: boolean;
+
+  groupName?: string;
+  groupAvatar?: string;
+  requireApproval?: boolean;
+  pendingMembers?: any[];
+  groupSettings?: {
+    sendMessages?: string;
+    pinAndPolls?: string;
+    changeInfo?: string;
+  };
+
   lastMessage?: string | any;
   unreadCount?: number;
+  leftAt?: string;
 }
 
 export interface ContactInfo {
@@ -47,6 +61,7 @@ interface ChatState {
   activeContactInfo: ContactInfo | null;
   messages: Message[];
   isInfoPanelOpen: boolean;
+  isSearchPanelOpen: boolean;
   replyingMessage: Message | null;
   forwardingMessage: Message | null;
   isForwardModalOpen: boolean;
@@ -55,8 +70,9 @@ interface ChatState {
   aiStreamingText: string;
   markAsRead: (conversationId: string) => void;
   setConversations: (conversations: Conversation[]) => void;
-  setActiveConversation: (conversation: Conversation) => void;
+  setActiveConversation: (conversation: Conversation | null) => void;
   setActiveContactInfo: (info: ContactInfo) => void;
+  updateActiveConversation: (updates: Partial<Conversation>) => void;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
   updateMessage: (messageId: string, updates: Partial<Message>) => void;
@@ -64,6 +80,7 @@ interface ChatState {
   setForwardingMessage: (message: Message | null) => void;
   setForwardModalOpen: (isOpen: boolean) => void;
   toggleInfoPanel: () => void;
+  toggleSearchPanel: () => void;
   clearChat: () => void;
   deleteActiveConversationHistory: (userId: string) => Promise<void>;
   pinnedMessage: any | null;
@@ -80,6 +97,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeContactInfo: null,
   messages: [],
   isInfoPanelOpen: false,
+  isSearchPanelOpen: false,
   replyingMessage: null,
   forwardingMessage: null,
   isForwardModalOpen: false,
@@ -101,7 +119,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
   setConversations: (conversations) => set({ conversations }),
-  setActiveConversation: (activeConversation) => set({ activeConversation }),
+  setActiveConversation: (activeConversation) => set({ activeConversation, pinnedMessage: null }),
+  updateActiveConversation: (updates) => set((state) => ({
+    activeConversation: state.activeConversation
+      ? { ...state.activeConversation, ...updates }
+      : null,
+    conversations: state.conversations.map(c =>
+      c.conversationId === state.activeConversation?.conversationId
+        ? { ...c, ...updates }
+        : c
+    )
+  })),
   setActiveContactInfo: (activeContactInfo) => set({ activeContactInfo }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
@@ -113,7 +141,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setReplyingMessage: (replyingMessage) => set({ replyingMessage }),
   setForwardingMessage: (forwardingMessage) => set({ forwardingMessage, isForwardModalOpen: !!forwardingMessage }),
   setForwardModalOpen: (isForwardModalOpen) => set({ isForwardModalOpen }),
-  toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen })),
+  toggleInfoPanel: () => set((state) => ({ isInfoPanelOpen: !state.isInfoPanelOpen, isSearchPanelOpen: false })),
+  toggleSearchPanel: () => set((state) => ({ isSearchPanelOpen: !state.isSearchPanelOpen, isInfoPanelOpen: false })),
   clearChat: () => set({
     conversations: [],
     activeConversation: null,

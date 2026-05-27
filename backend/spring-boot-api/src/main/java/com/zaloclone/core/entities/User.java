@@ -3,6 +3,7 @@ package com.zaloclone.core.entities;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
@@ -35,6 +36,20 @@ public class User {
 
     @Enumerated(EnumType.STRING)
     private Role role;
+
+    @Column(columnDefinition = "boolean default false")
+    @Builder.Default
+    private Boolean isLocked = false;
+
+    @Column(updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
 
     public enum Role {
         USER, ADMIN

@@ -68,8 +68,13 @@ export const useSocketSetup = () => {
           // Rút ra khỏi mảng hiện tại
           updatedConversations.splice(targetIndex, 1);
 
-          // Cập nhật nội dung
-          targetConv.lastMessage = data.content || data.text;
+          // Cập nhật nội dung (Để đồng bộ với logic hiển thị "Người dùng: Nội dung" ở Sidebar)
+          targetConv.lastMessage = {
+            content: data.content || data.text,
+            senderId: data.senderId,
+            messageType: (data as any).messageType || 'text',
+            timestamp: data.timestamp || new Date().toISOString()
+          };
 
           // Chỉ tăng biến đếm nếu KHÔNG ĐANG MỞ cửa sổ chat đó
           if (chatState.activeConversation?.conversationId !== data.conversationId) {
@@ -92,14 +97,52 @@ export const useSocketSetup = () => {
             }
           });
         }
-        // 3. ═══ NOTIFICATIONS ═══
+        // 3. ═══ REFRESH CONVERSATION DATA FOR GROUP CHANGES ═══
+        const msgType = (data as any).messageType || 'text';
+        const msgContent = (data as any).content || '';
+        const isGroupChange = msgType === 'system' && (
+          msgContent.startsWith('added_members:') ||
+          msgContent.startsWith('member_left:') ||
+          msgContent.startsWith('member_removed:') ||
+          msgContent.startsWith('group_disbanded:') ||
+          msgContent.startsWith('role_') ||
+          msgContent.startsWith('group_updated:') ||
+          msgContent.startsWith('member_joined_via_link:') ||
+          msgContent === 'Nhóm đã được tạo'
+        );
+
+        if (isGroupChange) {
+          // Reload conversation list to get fresh participant/role data
+          import('../services/message.service').then(({ getConversationsList }) => {
+            if (user?.id) {
+              getConversationsList(user.id.toString()).then(res => {
+                const list = res.data?.data || res.data;
+                if (Array.isArray(list)) {
+                  const freshState = useChatStore.getState();
+                  freshState.setConversations(list);
+
+                  // If the active conversation is affected, update it with fresh data
+                  if (freshState.activeConversation?.conversationId === data.conversationId) {
+                    const freshConv = list.find((c: any) => c.conversationId === data.conversationId);
+                    if (freshConv) {
+                      freshState.setActiveConversation(freshConv);
+                    } else if (msgContent.startsWith('group_disbanded:')) {
+                      // Group was disbanded, clear active
+                      freshState.setActiveConversation(null);
+                    }
+                  }
+                }
+              }).catch(console.error);
+            }
+          });
+        }
+
+        // 4. ═══ NOTIFICATIONS ═══
         // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt
         if (!settingsState.notifyMessages) return;
 
-        const msgType = (data as any).messageType || 'text';
-
         // Nếu user tắt preview (ẩn nội dung), thay thế bằng dòng chữ chung chung
-        const msgContent = settingsState.notifyPreview ? (data.content || data.text || '') : 'Bạn có một tin nhắn mới';
+        const notifyContent = settingsState.notifyPreview ? (data.content || data.text || '') : 'Bạn có một tin nhắn mới';
 
         let senderName = 'Tin nhắn mới';
         let senderAvatar: string | undefined;
@@ -128,11 +171,11 @@ export const useSocketSetup = () => {
         };
 
         // Browser desktop notification (chỉ khi tab mất focus)
-        showMessageNotification(senderName, msgContent, msgType, senderAvatar, handleNotificationClick);
+        showMessageNotification(senderName, notifyContent, msgType, senderAvatar, handleNotificationClick);
 
         // In-app toast (khi đang ở conversation khác)
         if (!isInActiveConv) {
-          let toastMsg = msgContent;
+          let toastMsg = notifyContent;
           if (settingsState.notifyPreview) {
             if (msgType === 'image') toastMsg = '📷 Đã gửi một hình ảnh';
             else if (msgType === 'video') toastMsg = '🎬 Đã gửi một video';
@@ -150,6 +193,30 @@ export const useSocketSetup = () => {
         }
       });
 
+      socket.on('message_reacted', (data: any) => {
+        const state = useChatStore.getState();
+        const msgId = data.messageId;
+        
+        const payload: any = { reactions: data.reactions };
+        if (data.content !== undefined) {
+          payload.content = data.content;
+        }
+
+        state.updateMessage(msgId, payload);
+      });
+
+      socket.on('message_revoked', (data: any) => {
+        const state = useChatStore.getState();
+        state.updateMessage(data.messageId, { isRevoked: true });
+      });
+
+      socket.on('message_deleted', (data: any) => {
+        const state = useChatStore.getState();
+        const currentMessages = state.messages;
+        const filtered = currentMessages.filter(m => m.id !== data.messageId && m._id !== data.messageId);
+        state.setMessages(filtered);
+      });
+
       socket.on('message_sent', (data: any) => {
         const state = useChatStore.getState();
         if (data.tempId && data.messageId) {
@@ -161,6 +228,50 @@ export const useSocketSetup = () => {
             fileSize: data.fileSize,
             messageType: data.messageType,
           });
+        } else if (state.activeConversation?.conversationId === data.conversationId) {
+          // Xử lý trường hợp tin nhắn được server tạo ra (như group_call_start) không có tempId
+          const incomingId = data.messageId || data._id || data.id;
+          const exists = incomingId ? state.messages.find(m => m.id === incomingId || m._id === incomingId) : false;
+          
+          if (!exists) {
+            state.addMessage({
+              ...data,
+              id: incomingId,
+              _id: incomingId,
+              content: data.content || data.text,
+              messageType: data.messageType || 'text',
+            });
+          }
+        }
+
+        // Cập nhật lastMessage và đẩy hội thoại lên đầu danh sách
+        const updatedConversations = [...state.conversations];
+        const targetIndex = updatedConversations.findIndex(c => c.conversationId === data.conversationId);
+
+        if (targetIndex !== -1) {
+          const targetConv = { ...updatedConversations[targetIndex] };
+          updatedConversations.splice(targetIndex, 1);
+
+          targetConv.lastMessage = {
+            content: data.content || data.text,
+            senderId: data.senderId,
+            messageType: data.messageType || 'text',
+            timestamp: data.timestamp || new Date().toISOString()
+          };
+
+          updatedConversations.unshift(targetConv);
+          state.setConversations(updatedConversations);
+        } else {
+          // Nếu không tìm thấy, fetch lại danh sách
+          import('../services/message.service').then(({ getConversationsList }) => {
+            if (user?.id) {
+              getConversationsList(user.id.toString()).then(res => {
+                if (res.data?.success) {
+                  state.setConversations(res.data.data);
+                }
+              });
+            }
+          });
         }
       });
 
@@ -168,17 +279,42 @@ export const useSocketSetup = () => {
         console.log('User online:', data);
       });
 
+
       socket.on('message_pinned', (data: any) => {
         const state = useChatStore.getState();
         if (state.activeConversation?.conversationId === data.conversationId) {
-           state.setPinnedMessage(data.pinnedMessage);
+          state.setPinnedMessage(data.pinnedMessage);
         }
       });
 
       socket.on('message_unpinned', (data: any) => {
         const state = useChatStore.getState();
         if (state.activeConversation?.conversationId === data.conversationId) {
-           state.setPinnedMessage(null);
+          state.setPinnedMessage(null);
+        }
+      });
+
+      socket.on('group_settings_updated', (data: { conversationId: string, settings: any }) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateActiveConversation(data.settings);
+        } else {
+          // Update in conversations list
+          state.setConversations(state.conversations.map(c =>
+            c.conversationId === data.conversationId ? { ...c, ...data.settings } : c
+          ));
+        }
+      });
+
+      socket.on('pending_members_updated', (data: { conversationId: string, pendingMembers: any[] }) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateActiveConversation({ pendingMembers: data.pendingMembers });
+        } else {
+          // Update in conversations list
+          state.setConversations(state.conversations.map(c =>
+            c.conversationId === data.conversationId ? { ...c, pendingMembers: data.pendingMembers } : c
+          ));
         }
       });
 
@@ -186,11 +322,19 @@ export const useSocketSetup = () => {
         socket.off('force_logout');
         socket.off('message_received');
         socket.off('message_sent');
+        socket.off('message_reacted');
+        socket.off('message_revoked');
+        socket.off('message_deleted');
         socket.off('user_online');
+
         socket.off('message_pinned');
         socket.off('message_unpinned');
+
+        socket.off('group_settings_updated');
+        socket.off('pending_members_updated');
+
         disconnectSocket();
       };
     }
   }, [user, addMessage]);
-};
+};

@@ -16,17 +16,16 @@ app.use(cors({
 }));
 
 // Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     service: 'ai-chat-service',
-    message: 'AI Chat service is running 🍜',
-    model: process.env.OLLAMA_MODEL || 'qwen2:1.5b',
-    ollama: process.env.OLLAMA_URL || 'http://localhost:11434',
+    message: 'AI Chat service is running 🍜 (Powered by Google Gemini)',
+    model: 'gemini-2.5-flash',
     timestamp: new Date().toISOString(),
   });
 });
@@ -45,40 +44,15 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ success: false, message: 'Internal server error' });
 });
 
-import { spawn } from 'child_process';
-
-const startOllama = () => {
-  const model = process.env.OLLAMA_MODEL || 'qwen2:1.5b';
-  console.log(`[AI-Chat] Tự động khởi động Ollama model: ${model}...`);
-  
-  const ollamaProcess = spawn('ollama', ['run', model], {
-    shell: true,
-    stdio: 'ignore', // Chạy ngầm, không in log của ollama ra console node
-    detached: true   // Tách riêng process
-  });
-
-  ollamaProcess.on('error', (err) => {
-    console.error(`[AI-Chat] Không thể tự động chạy Ollama:`, err.message);
-    console.log(`[AI-Chat] Vui lòng tự chạy lệnh: ollama run ${model}`);
-  });
-
-  if (ollamaProcess.unref) {
-    ollamaProcess.unref(); // Không block nodejs khi exit
-  }
-};
-
 // Start
 const start = async () => {
   try {
     await connectDB();
     app.listen(PORT, () => {
       console.log(`🍜 AI Chat Service running on port ${PORT}`);
-      console.log(`   Ollama: ${process.env.OLLAMA_URL || 'http://127.0.0.1:11434'}`);
-      console.log(`   Model:  ${process.env.OLLAMA_MODEL || 'qwen2:1.5b'}`);
-      console.log(`   Env:    ${process.env.NODE_ENV}`);
-      
-      // Tự động gọi Ollama khi server boot
-      startOllama();
+      console.log(`   Provider: Google Gemini`);
+      console.log(`   Model:    gemini-2.5-flash`);
+      console.log(`   Env:      ${process.env.NODE_ENV}`);
     });
   } catch (error) {
     console.error('Failed to start AI Chat Service:', error);

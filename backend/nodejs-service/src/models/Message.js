@@ -21,7 +21,9 @@ const messageSchema = new mongoose.Schema(
     },
     messageType: {
       type: String,
-      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker', 'contact', 'system', 'location', 'reminder'],
+
+      enum: ['text', 'image', 'video', 'audio', 'file', 'sticker', 'contact', 'system', 'location', 'reminder', 'group_call', 'poll'],
+
       default: 'text',
     },
     fileUrl: {
@@ -41,11 +43,18 @@ const messageSchema = new mongoose.Schema(
       enum: ['sent', 'received', 'seen'],
       default: 'sent',
     },
-    reaction: {
-      type: String,
-      default: null,
-      enum: [null, 'like', 'love', 'haha', 'wow', 'sad', 'angry'],
-    },
+    reactions: [
+      {
+        userId: { type: String, required: true },
+        type: { type: String, enum: ['like', 'love', 'haha', 'wow', 'sad', 'angry'], required: true },
+      }
+    ],
+    seenBy: [
+      {
+        userId: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now }
+      }
+    ],
     isEdited: {
       type: Boolean,
       default: false,

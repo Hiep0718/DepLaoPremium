@@ -9,10 +9,9 @@ import { useNavigate } from 'react-router-dom';
 interface SearchUserModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUserAdded: () => void;
 }
 
-const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps) => {
+const SearchUserModal = ({ isOpen, onClose }: SearchUserModalProps) => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<UserResponse[]>([]);
@@ -163,10 +162,17 @@ const SearchUserModal = ({ isOpen, onClose, onUserAdded }: SearchUserModalProps)
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
+
                         <p className="font-semibold text-slate-800">{u.fullName}</p>
                         {(u as any).isFriend && (
                           <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">Bạn bè</span>
                         )}
+
+                        <p className="font-semibold text-slate-800">{(u as any).nickname || u.fullName}</p>
+                        {(u as any).isFriend && (
+                          <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full font-bold">Bạn bè</span>
+                        )}
+
                       </div>
                       <p className="text-sm text-slate-500 flex items-center gap-1">
                         <Phone size={12} /> {u.phone}

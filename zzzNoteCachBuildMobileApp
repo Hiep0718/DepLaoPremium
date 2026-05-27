@@ -1,0 +1,83 @@
+đã build săn, chỉ việc cài
+
+fỉle 
+mobile-app.apk
+
+
+run mobile app
+
+npx expo start
+
+ví dụ kết quả
+› Metro waiting on exp+zalo-ui://expo-development-client/?url=http%3A%2F%2F172.20.10.2%3A8081
+› Scan the QR code above to open the project in a development build. Learn more:
+https://expo.fyi/start
+
+› Web is waiting on http://localhost:8081
+
+› Using development build
+› Press s │ switch to Expo Go
+
+› Press a │ open Android
+› Press w │ open web
+
+› Press j │ open debugger
+› Press r │ reload app
+› Press m │ toggle menu
+› shift+m │ more tools
+› Press o │ open project code in your editor
+
+› Press ? │ show all commands
+
+dựa vào kết quả
+host nhập trên điện thoại là
+172.20.10.2:8081
+
+
+
+***Thêm note 
+
+cách build
+B1: vào terminal của mobile app
+git add .
+git commit -m "gì gì đó"
+*****
+ Giải thích thêm: Cơ chế mặc định của Expo (EAS) là nó sẽ dựa vào Git để nén code và đẩy lên server Cloud 
+ (giúp loại bỏ những thư mục cực kỳ nặng như node_modules). 
+ Do đó, việc code được commit là điều kiện bắt buộc của Expo chứ không phải do mình tự ý làm khó bạn đâu nha. 
+ Chúc bạn build thành công file APK!
+*****
+
+
+B2:
+Bước 1: Cài đặt EAS CLI (nếu bạn chưa cài)
+
+npm install -g eas-cli
+
+Bước 2: Chạy lệnh build
+
+eas build -p android --profile development
+
+
+Nếu nó hỏi đăng nhập (Login), hãy nhập email/username và mật khẩu Expo của bạn.
+Nếu nó hỏi "Would you like to automatically create an EAS project for @username/zalo-ui?" ➡️ Chọn Y (Yes).
+Nếu nó hỏi "Generate a new Android Keystore?" ➡️ Chọn Y (Yes) để nó tự tạo khóa bảo mật cho file APK.
+
+build xong được file apk thì cài đặt vô điện thoại ảo
+
+
+*********
+vì có những commit thừa để build
+xem lại các commit
+
+git log -4 --oneline
+
+ví dụ kết quả
+
+25621e3 chore: add easignore
+8938c49 chore: add .npmrc to fix eas build
+514959f feat: add webrtc calling and eas.json
+8be3535 update đồng bộ mobile và web
+
+xem có bao nhiêu commit gần nhất cần xóa thì xóa
+git reset --soft HEAD~3

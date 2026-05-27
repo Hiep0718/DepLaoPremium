@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock } from 'lucide-react';
+import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock, AlertCircle, Trash } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
+import { useChatStore } from '../stores/chatStore';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -225,6 +226,55 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
             </div>
           </div>
 
+          {!isCurrentUser && (
+            <div className="px-4 py-3 flex gap-3 mt-4" style={{ borderBottom: '1px solid var(--border-primary)' }}>
+              <button 
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-medium text-sm transition-colors border"
+                style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}
+                onClick={() => {
+                  alert('Tính năng gọi điện đang được thực hiện qua phòng trò chuyện!');
+                }}
+              >
+                Gọi điện
+              </button>
+              <button 
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-medium text-sm text-white transition-colors"
+                style={{ background: '#0068FF' }}
+                onClick={async () => {
+                  if (!currentUser || !user) return;
+                  const targetUserId = user.id;
+                  const ids = [currentUser.id.toString(), targetUserId.toString()].sort();
+                  const convId = `1to1_${ids[0]}_${ids[1]}`;
+                  try {
+                    const { default: api } = await import('../services/axios');
+                    await api.post('/conversation', {
+                      conversationId: convId,
+                      participants: [currentUser.id.toString(), targetUserId.toString()],
+                      isGroup: false
+                    });
+                    onClose();
+                    const { setActiveConversation } = useChatStore.getState();
+                    setActiveConversation({
+                      conversationId: convId,
+                      name: user.fullName,
+                      avatarUrl: user.avatarUrl,
+                      isGroup: false,
+                      participants: [
+                        { userId: currentUser.id, role: 'member' },
+                        { userId: user.id, role: 'member' }
+                      ]
+                    });
+                  } catch (error) {
+                    console.error("Failed to start direct message conversation", error);
+                    alert("Không thể bắt đầu nhắn tin với người dùng này.");
+                  }
+                }}
+              >
+                Nhắn tin
+              </button>
+            </div>
+          )}
+
           {/* Status messages */}
           {error && (
             <div className="mx-4 mt-3 text-sm text-red-500 p-2.5 rounded-lg"
@@ -273,6 +323,67 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
               Chỉ bạn bè có lưu số của bạn trong danh bạ máy xem được số này
             </p>
           </div>
+
+          {!isCurrentUser && (
+            <>
+              {/* Hình ảnh */}
+              <div className="px-4 py-3" style={{ borderTop: '1px solid var(--border-primary)' }}>
+                <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Hình ảnh</h4>
+                <div className="text-center py-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Chưa có ảnh nào được chia sẻ
+                </div>
+              </div>
+
+              {/* Options */}
+              <div className="px-4 py-2 space-y-1" style={{ borderTop: '1px solid var(--border-primary)' }}>
+                <button className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 rounded-lg px-2" style={{ color: 'var(--text-primary)' }}>
+                  <div className="flex items-center gap-3">
+                    <Users size={16} style={{ color: 'var(--text-secondary)' }} />
+                    <span>Nhóm chung (0)</span>
+                  </div>
+                </button>
+                <button className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 rounded-lg px-2" style={{ color: 'var(--text-primary)' }}>
+                  <div className="flex items-center gap-3">
+                    <Fingerprint size={16} style={{ color: 'var(--text-secondary)' }} />
+                    <span>Chia sẻ danh thiếp</span>
+                  </div>
+                </button>
+                <button 
+                  className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-red-500/10 rounded-lg px-2 text-red-500"
+                  onClick={() => {
+                    alert('Đã chặn tin nhắn và cuộc gọi của người dùng này!');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <Lock size={16} />
+                    <span>Chặn tin nhắn và cuộc gọi</span>
+                  </div>
+                </button>
+                <button 
+                  className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-red-500/10 rounded-lg px-2 text-red-500"
+                  onClick={() => {
+                    alert('Đã báo xấu tài khoản này đến ban quản trị!');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <AlertCircle size={16} />
+                    <span>Báo xấu</span>
+                  </div>
+                </button>
+                <button 
+                  className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-red-500/10 rounded-lg px-2 text-red-500"
+                  onClick={() => {
+                    alert('Đã xóa người dùng khỏi danh sách bạn bè!');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <Trash size={16} />
+                    <span>Xóa khỏi danh sách bạn bè</span>
+                  </div>
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Edit Profile Form */}
           {isEditing && !isEditingPassword && (

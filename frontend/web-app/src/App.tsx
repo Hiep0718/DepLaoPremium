@@ -5,6 +5,8 @@ import MainLayout from './layouts/MainLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ChatDesk from './pages/ChatDesk';
+import JoinGroup from './pages/JoinGroup';
+import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import ToastContainer from './components/chat/ToastContainer';
 import { useThemeStore } from './stores/themeStore';
@@ -12,11 +14,16 @@ import { useSettingsStore } from './stores/settingsStore';
 import { useAuthStore } from './stores/authStore';
 
 import CallManager from './components/call/CallManager';
+import GroupCallManager from './components/call/GroupCallManager';
+import { useFaviconBadge } from './hooks/useFaviconBadge';
 
 function App() {
   const { isDark } = useThemeStore();
   const { user } = useAuthStore();
   const { loadSettings } = useSettingsStore();
+
+  // Dynamic favicon badge with unread count
+  useFaviconBadge();
 
   // Apply dark class
   useEffect(() => {
@@ -44,8 +51,12 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
               <Route path="/" element={<ChatDesk />} />
+              <Route path="/chat" element={<ChatDesk />} />
               <Route path="/contacts" element={<ChatDesk />} />
+              <Route path="/join/:inviteCode" element={<JoinGroup />} />
             </Route>
+            {/* Admin Dashboard — standalone layout (no MainLayout sidebar) */}
+            <Route path="/admin" element={<AdminDashboard />} />
           </Route>
           
           {/* Fallback */}
@@ -57,7 +68,12 @@ function App() {
       <ToastContainer />
       
       {/* Global WebRTC Calling UI */}
-      {user && <CallManager />}
+      {user && (
+        <>
+          <CallManager />
+          <GroupCallManager />
+        </>
+      )}
     </>
   );
 }

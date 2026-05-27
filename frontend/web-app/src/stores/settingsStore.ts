@@ -196,7 +196,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   resetSection: (section) => {
-    const { settings } = get();
     let partial: Partial<UserSettings> = {};
     switch (section) {
       case 'appearance':

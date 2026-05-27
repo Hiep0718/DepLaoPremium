@@ -53,12 +53,14 @@ export const streamAiChat = async (
   content: string,
   onToken: (token: string) => void,
   onDone: () => void,
-  onError: (msg: string) => void
+  onError: (msg: string) => void,
+  imageBase64?: string,
+  imageMimeType?: string
 ): Promise<void> => {
   const res = await fetch(`${AI_BASE}/chat`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ userId, content }),
+    body: JSON.stringify({ userId, content, imageBase64, imageMimeType }),
   });
 
   if (!res.ok || !res.body) {

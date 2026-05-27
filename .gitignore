@@ -53,3 +53,5 @@ frontend/mobile-app/ios/Pods/
 
 # =============== Docker ===============
 docker-compose.override.yml
+
+*.apk
