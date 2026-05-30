@@ -342,6 +342,16 @@ const MessageList = () => {
     setTimeout(() => setCopiedMsgId(null), 2000);
   }, []);
 
+  const handleScrollToPinnedMessage = useCallback(() => {
+    if (!pinnedMessage?.messageId) return;
+    const targetElement = document.getElementById(`message-${pinnedMessage.messageId}`);
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(pinnedMessage.messageId);
+      setTimeout(() => setHighlightedMessageId(null), 2500);
+    }
+  }, [pinnedMessage?.messageId]);
+
   // Regenerate AI response
   const handleRegenerateAi = useCallback(async (aiMsgId: string) => {
     if (!user?.id || !activeConversation) return;
@@ -1323,6 +1333,7 @@ const MessageList = () => {
         )}
         {pinnedMessage && pinnedMessage.messageId && (
           <div className="sticky top-0 z-40 flex items-center justify-between px-4 py-2 mb-2 cursor-pointer"
+            onClick={handleScrollToPinnedMessage}
             style={{ background: 'var(--bg-panel)', borderBottom: '1px solid var(--border-light)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             <div className="flex items-center gap-2.5 overflow-hidden flex-1 min-w-0">
               <Pin size={14} className="text-blue-600 shrink-0" />
