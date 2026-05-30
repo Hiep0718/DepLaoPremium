@@ -391,6 +391,15 @@ const MessageListPanel = () => {
                               return `${actorN} đã thay đổi ${updatesString}`;
                            }
                         }
+                        if (msgType === 'contact') {
+                           return '🏷️ [Danh thiếp]';
+                        }
+                        if (msgType === 'location') {
+                           return '📍 [Vị trí]';
+                        }
+                        if (msgType === 'reminder') {
+                           return '⏰ [Nhắc hẹn]';
+                        }
                         return contentStr;
                     })()}
                   </p>

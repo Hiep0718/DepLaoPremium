@@ -182,6 +182,9 @@ export const useSocketSetup = () => {
             else if (msgType === 'audio') toastMsg = '🎤 Đã gửi một tin nhắn thoại';
             else if (msgType === 'file') toastMsg = '📎 Đã gửi một tệp';
             else if (msgType === 'sticker') toastMsg = '😊 Đã gửi một nhãn dán';
+            else if (msgType === 'contact') toastMsg = '🏷️ Đã gửi một danh thiếp';
+            else if (msgType === 'location') toastMsg = '📍 Đã gửi một vị trí';
+            else if (msgType === 'reminder') toastMsg = '⏰ Đã tạo một nhắc hẹn';
           }
 
           showToast(senderName, toastMsg, 'info', senderAvatar, handleNotificationClick);
