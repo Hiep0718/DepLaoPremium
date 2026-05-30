@@ -253,16 +253,18 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                       isGroup: false
                     });
                     onClose();
-                    const { setActiveConversation } = useChatStore.getState();
+                    const { setActiveConversation, setActiveContactInfo } = useChatStore.getState();
                     setActiveConversation({
                       conversationId: convId,
-                      name: user.fullName,
-                      avatarUrl: user.avatarUrl,
                       isGroup: false,
                       participants: [
                         { userId: currentUser.id, role: 'member' },
                         { userId: user.id, role: 'member' }
                       ]
+                    });
+                    setActiveContactInfo({
+                      name: user.fullName,
+                      avatarUrl: user.avatarUrl
                     });
                   } catch (error) {
                     console.error("Failed to start direct message conversation", error);

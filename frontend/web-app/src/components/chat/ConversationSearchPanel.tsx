@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Search, ChevronDown, FileText } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { searchMessages } from '../../services/message.service';
-import { useAuthStore } from '../../stores/authStore';
+
 
 const ConversationSearchPanel = () => {
   const isSearchPanelOpen = useChatStore((state) => state.isSearchPanelOpen);

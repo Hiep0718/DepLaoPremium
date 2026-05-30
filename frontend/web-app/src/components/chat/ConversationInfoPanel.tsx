@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit, Folder, Cloud, Info } from 'lucide-react';
+import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit, Folder, Info } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { clearAiHistory } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';

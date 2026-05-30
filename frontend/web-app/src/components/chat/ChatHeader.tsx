@@ -10,7 +10,6 @@ const ChatHeader = () => {
   const activeContactInfo = useChatStore((state) => state.activeContactInfo);
   const isInfoPanelOpen = useChatStore((state) => state.isInfoPanelOpen);
   const toggleInfoPanel = useChatStore((state) => state.toggleInfoPanel);
-  const isSearchPanelOpen = useChatStore((state) => state.isSearchPanelOpen);
   const toggleSearchPanel = useChatStore((state) => state.toggleSearchPanel);
 
   const user = useAuthStore((state) => state.user);

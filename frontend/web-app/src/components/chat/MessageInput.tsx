@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Paperclip, Send, Smile, Image as ImageIcon, ThumbsUp, Sticker,
-  ScreenShare, Code, Type, X, FileText, Film, Loader2,
-  Mic, Trash2, Contact, BarChart2, MoreHorizontal, MapPin, CalendarClock, Clock, Navigation
+  X, FileText, Film, Loader2,
+  Mic, Trash2, Contact, BarChart2, MoreHorizontal, MapPin, CalendarClock
 } from 'lucide-react';
 import ContactSelectionModal from './ContactSelectionModal';
 import CreatePollModal from './CreatePollModal';
