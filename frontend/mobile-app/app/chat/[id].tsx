@@ -1317,83 +1317,122 @@ export default function ChatScreen() {
 
         {/* Media Preview Modal */}
         <Modal visible={pendingMedia.length > 0} transparent animationType="fade">
-          <View style={styles.previewOverlay}>
-            <View style={styles.previewBox}>
-              <View style={styles.previewHeader}>
-                <Text style={styles.previewHeaderText}>
-                  {isAi ? 'Gửi ảnh cho Bếp AI' : pendingMedia.length === 1 ? (pendingMedia[0]?.type === 'video' ? 'Xem trước video' : 'Xem trước ảnh') : `Đã chọn ${pendingMedia.length} ảnh/video`}
-                </Text>
+          {isAi ? (
+            /* ═══ AI-specific fullscreen preview — professional Telegram-style ═══ */
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)' }}>
+              {/* Top bar */}
+              <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 }}>
+                  <TouchableOpacity onPress={() => setPendingMedia([])} style={{ padding: 4 }}>
+                    <Ionicons name="close" size={28} color="#fff" />
+                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#f97316' }}>🍜 Bếp AI</Text>
+                  </View>
+                  <View style={{ width: 36 }} />
+                </View>
+              </SafeAreaView>
+
+              {/* Center: Image */}
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12 }}>
+                {pendingMedia[0] && (
+                  <Image 
+                    source={{ uri: pendingMedia[0].uri }} 
+                    style={{ width: '100%', height: '80%', borderRadius: 12 }} 
+                    resizeMode="contain" 
+                  />
+                )}
               </View>
 
-              {pendingMedia.length === 1 ? (
-                pendingMedia[0]?.type === 'video' ? (
-                  <Video source={{ uri: pendingMedia[0].uri }} useNativeControls resizeMode={ResizeMode.CONTAIN} style={styles.previewVideo} />
+              {/* Bottom bar: text input + send */}
+              <SafeAreaView edges={['bottom']} style={{ backgroundColor: 'rgba(30,30,30,0.95)' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingVertical: 10, gap: 10 }}>
+                  <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 22, paddingHorizontal: 16, paddingVertical: 8, minHeight: 42, justifyContent: 'center' }}>
+                    <TextInput
+                      style={{ fontSize: 15, color: '#fff', maxHeight: 100, lineHeight: 20 }}
+                      placeholder="Hỏi Bếp AI về ảnh này..."
+                      placeholderTextColor="rgba(255,255,255,0.45)"
+                      value={text}
+                      onChangeText={setText}
+                      multiline
+                    />
+                  </View>
+                  <TouchableOpacity 
+                    onPress={handleSend}
+                    style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: '#f97316', justifyContent: 'center', alignItems: 'center' }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="send" size={20} color="#fff" style={{ marginLeft: 2 }} />
+                  </TouchableOpacity>
+                </View>
+              </SafeAreaView>
+            </View>
+          ) : (
+            /* ═══ Normal chat preview — unchanged ═══ */
+            <View style={styles.previewOverlay}>
+              <View style={styles.previewBox}>
+                <View style={styles.previewHeader}>
+                  <Text style={styles.previewHeaderText}>
+                    {pendingMedia.length === 1 ? (pendingMedia[0]?.type === 'video' ? 'Xem trước video' : 'Xem trước ảnh') : `Đã chọn ${pendingMedia.length} ảnh/video`}
+                  </Text>
+                </View>
+
+                {pendingMedia.length === 1 ? (
+                  pendingMedia[0]?.type === 'video' ? (
+                    <Video source={{ uri: pendingMedia[0].uri }} useNativeControls resizeMode={ResizeMode.CONTAIN} style={styles.previewVideo} />
+                  ) : (
+                    <Image source={{ uri: pendingMedia[0]?.uri }} style={styles.previewImage} resizeMode="contain" />
+                  )
                 ) : (
-                  <Image source={{ uri: pendingMedia[0]?.uri }} style={styles.previewImage} resizeMode="contain" />
-                )
-              ) : (
-                <ScrollView style={styles.previewGrid} contentContainerStyle={styles.previewGridContent} showsVerticalScrollIndicator={true}>
-                  <View style={styles.previewGridRow}>
-                    {pendingMedia.map((media, index) => (
-                      <View key={`preview-${index}`} style={styles.previewGridItem}>
-                        {media.type === 'video' ? (
-                          <View style={styles.previewGridThumb}>
-                            <Video source={{ uri: media.uri }} resizeMode={ResizeMode.COVER} style={styles.previewGridThumbImg} />
-                            <View style={styles.previewVideoOverlay}>
-                              <Ionicons name="play-circle" size={28} color="#fff" />
+                  <ScrollView style={styles.previewGrid} contentContainerStyle={styles.previewGridContent} showsVerticalScrollIndicator={true}>
+                    <View style={styles.previewGridRow}>
+                      {pendingMedia.map((media, index) => (
+                        <View key={`preview-${index}`} style={styles.previewGridItem}>
+                          {media.type === 'video' ? (
+                            <View style={styles.previewGridThumb}>
+                              <Video source={{ uri: media.uri }} resizeMode={ResizeMode.COVER} style={styles.previewGridThumbImg} />
+                              <View style={styles.previewVideoOverlay}>
+                                <Ionicons name="play-circle" size={28} color="#fff" />
+                              </View>
                             </View>
-                          </View>
-                        ) : (
-                          <Image source={{ uri: media.uri }} style={styles.previewGridThumbImg} />
-                        )}
-                        <TouchableOpacity style={styles.previewGridRemoveBtn} onPress={() => handleRemovePendingMedia(index)}>
-                          <Ionicons name="close-circle" size={22} color="#ff4444" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
+                          ) : (
+                            <Image source={{ uri: media.uri }} style={styles.previewGridThumbImg} />
+                          )}
+                          <TouchableOpacity style={styles.previewGridRemoveBtn} onPress={() => handleRemovePendingMedia(index)}>
+                            <Ionicons name="close-circle" size={22} color="#ff4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                )}
+
+                {uploadingMedia && pendingMedia.length > 1 && (
+                  <View style={styles.uploadProgressWrap}>
+                    <View style={styles.uploadProgressBar}>
+                      <View style={[styles.uploadProgressFill, { width: `${(uploadProgress / pendingMedia.length) * 100}%` }]} />
+                    </View>
+                    <Text style={styles.uploadProgressText}>Đang gửi {uploadProgress}/{pendingMedia.length}...</Text>
                   </View>
-                </ScrollView>
-              )}
+                )}
 
-              {/* AI: Text input to accompany image */}
-              {isAi && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fafafa', borderRadius: 8, marginHorizontal: 8, marginTop: 8 }}>
-                  <TextInput
-                    style={{ flex: 1, fontSize: 14, paddingVertical: 6, color: '#333' }}
-                    placeholder="Nhập câu hỏi kèm ảnh (tùy chọn)..."
-                    placeholderTextColor="#aaa"
-                    value={text}
-                    onChangeText={setText}
-                    multiline
-                  />
+                <View style={styles.previewActions}>
+                  <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingMedia([])} disabled={uploadingMedia}>
+                    <Ionicons name="close" size={22} color="#fff" />
+                    <Text style={styles.previewBtnText}>Hủy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.previewBtn, styles.previewSendBtn, uploadingMedia && { opacity: 0.6 }]} 
+                    onPress={handleSendMedia} 
+                    disabled={uploadingMedia}
+                  >
+                    {uploadingMedia ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
+                    <Text style={styles.previewBtnText}>{pendingMedia.length > 1 ? `Gửi (${pendingMedia.length})` : 'Gửi'}</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
-
-              {uploadingMedia && pendingMedia.length > 1 && (
-                <View style={styles.uploadProgressWrap}>
-                  <View style={styles.uploadProgressBar}>
-                    <View style={[styles.uploadProgressFill, { width: `${(uploadProgress / pendingMedia.length) * 100}%` }]} />
-                  </View>
-                  <Text style={styles.uploadProgressText}>Đang gửi {uploadProgress}/{pendingMedia.length}...</Text>
-                </View>
-              )}
-
-              <View style={styles.previewActions}>
-                <TouchableOpacity style={styles.previewBtn} onPress={() => setPendingMedia([])} disabled={uploadingMedia}>
-                  <Ionicons name="close" size={22} color="#fff" />
-                  <Text style={styles.previewBtnText}>Hủy</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.previewBtn, styles.previewSendBtn, uploadingMedia && { opacity: 0.6 }]} 
-                  onPress={isAi ? handleSend : handleSendMedia} 
-                  disabled={uploadingMedia}
-                >
-                  {uploadingMedia ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
-                  <Text style={styles.previewBtnText}>{isAi ? 'Gửi cho AI' : pendingMedia.length > 1 ? `Gửi (${pendingMedia.length})` : 'Gửi'}</Text>
-                </TouchableOpacity>
               </View>
             </View>
-          </View>
+          )}
         </Modal>
 
         <ForwardModal visible={!!forwardingMessage} message={forwardingMessage} onClose={() => setForwardingMessage(null)} />

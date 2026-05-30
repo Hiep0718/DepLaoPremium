@@ -143,7 +143,7 @@ export function MessagesScreen() {
       // Lọc bỏ những cuộc trò chuyện chưa có tin nhắn nào
       const activeConvs = enrichedConvs.filter(c => c.lastMessage && c.lastMessage.content);
 
-      // Tạo conversation AI mặc định (ghim lên đầu)
+      // Tạo conversation AI (sắp xếp theo thời gian tự nhiên, không ghim đầu)
       const aiData = await fetchAiLastMessage(currentUserId);
       const aiConvId = `ai_food_bot_${currentUserId}`;
       const aiConv: Conversation = {
@@ -168,7 +168,13 @@ export function MessagesScreen() {
         }
       };
 
-      setConversations([aiConv, ...activeConvs]);
+      // Gộp AI conversation vào danh sách và sắp xếp theo thời gian mới nhất
+      const allConvs = [aiConv, ...activeConvs].sort((a, b) => {
+        const timeA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
+        const timeB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+        return timeB - timeA;
+      });
+      setConversations(allConvs);
     } catch (error) {
       console.log('Error loading conversations', error);
     } finally {
