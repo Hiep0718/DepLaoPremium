@@ -4,6 +4,7 @@ export interface UserResponse {
   id: number;
   phone: string;
   fullName: string;
+  email?: string;
   avatarUrl: string;
   coverUrl: string;
   gender: string;
@@ -44,6 +45,7 @@ export interface UpdateProfileData {
   coverUrl?: string;
   gender?: string;
   birthday?: string;
+  email?: string;
 }
 
 export const contactService = {
