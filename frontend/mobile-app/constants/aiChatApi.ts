@@ -2,8 +2,9 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_IP } from './api';
 
-const AI_PORT = '3002';
-export const AI_BASE_URL = `http://${API_IP}:${AI_PORT}/api/ai-chat`;
+const AI_PORT = __DEV__ ? ':3002' : '';
+const PROTOCOL = __DEV__ ? 'http://' : 'https://';
+export const AI_BASE_URL = `${PROTOCOL}${API_IP}${AI_PORT}/api/ai-chat`;
 
 export const aiChatApiClient = axios.create({
   baseURL: AI_BASE_URL,

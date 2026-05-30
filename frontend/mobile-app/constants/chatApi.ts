@@ -3,8 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_IP } from './api';
 
 const NODE_PORT = __DEV__ ? ':3001' : '';
-export const NODE_BASE_URL = `http://${API_IP}${NODE_PORT}/api/messages`;
-export const SOCKET_URL = `ws://${API_IP}${NODE_PORT}`;
+const PROTOCOL = __DEV__ ? 'http://' : 'https://';
+const WS_PROTOCOL = __DEV__ ? 'ws://' : 'wss://';
+
+export const NODE_BASE_URL = `${PROTOCOL}${API_IP}${NODE_PORT}/api/messages`;
+export const SOCKET_URL = `${WS_PROTOCOL}${API_IP}${NODE_PORT}`;
 
 export const chatApiClient = axios.create({
   baseURL: NODE_BASE_URL,

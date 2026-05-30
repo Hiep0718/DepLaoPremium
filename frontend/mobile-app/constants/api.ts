@@ -11,13 +11,14 @@ const getLocalIp = () => {
       return hostUri.split(':')[0];
     }
   }
-  return '192.168.1.110'; // Fallback nếu không xác định được hoặc khi build production
+  return 'deplaopremium.io.vn'; // Fallback nếu không xác định được hoặc khi build production
 };
 
 export const API_IP = getLocalIp();
 
-const API_PORT = __DEV__ ? ':8082' : ''; // Nginx proxy ở port 80 trên EC2 không cần port
-const BASE_URL = `http://${API_IP}${API_PORT}/api`;
+const API_PORT = __DEV__ ? ':8082' : ''; // Nginx proxy trên EC2 không cần port
+const PROTOCOL = __DEV__ ? 'http://' : 'https://';
+const BASE_URL = `${PROTOCOL}${API_IP}${API_PORT}/api`;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
