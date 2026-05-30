@@ -103,7 +103,7 @@ services:
     container_name: deplao-web
     restart: always
     ports:
-      - "80:80"
+      - "8080:80"
     mem_limit: 30m
     depends_on:
       - spring-boot-api
