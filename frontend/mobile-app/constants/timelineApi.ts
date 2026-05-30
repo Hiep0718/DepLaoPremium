@@ -2,8 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_IP } from './api';
 
-const NODE_PORT = '3001';
-export const TIMELINE_BASE_URL = `http://${API_IP}:${NODE_PORT}/api`;
+const NODE_PORT = __DEV__ ? ':3001' : '';
+export const TIMELINE_BASE_URL = `http://${API_IP}${NODE_PORT}/api`;
 
 export const timelineApiClient = axios.create({
   baseURL: TIMELINE_BASE_URL,

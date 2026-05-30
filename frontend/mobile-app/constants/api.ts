@@ -16,8 +16,8 @@ const getLocalIp = () => {
 
 export const API_IP = getLocalIp();
 
-const API_PORT = '8082'; // Port mặc định của Spring Boot API
-const BASE_URL = `http://${API_IP}:${API_PORT}/api`;
+const API_PORT = __DEV__ ? ':8082' : ''; // Nginx proxy ở port 80 trên EC2 không cần port
+const BASE_URL = `http://${API_IP}${API_PORT}/api`;
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
