@@ -43,6 +43,7 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: sapassword
       JWT_SECRET: ${JWT_SECRET:-zalo-clone-secret-key-very-long-string-for-jwt-signing-operations-please-change-in-production}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
     depends_on:
       - mariadb
     networks:
