@@ -16,7 +16,7 @@ fi
 
 echo ""
 echo "📦 Step 1: Pulling latest code..."
-git pull origin merge-feature
+git pull origin main
 
 echo ""
 echo "🔨 Step 2: Building Docker images..."

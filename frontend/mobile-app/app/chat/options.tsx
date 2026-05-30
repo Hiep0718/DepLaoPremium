@@ -11,7 +11,7 @@ import AddMemberModal from '@/components/chat/AddMemberModal';
 import CreatePollModal from '@/components/chat/CreatePollModal';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
-import apiClient from '@/constants/api';
+import apiClient, { API_IP } from '@/constants/api';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function ChatOptionsScreen() {
@@ -1116,13 +1116,13 @@ export default function ChatOptionsScreen() {
                   </Text>
                   <View style={styles.inviteLinkRow}>
                     <Text style={styles.inviteLinkText} numberOfLines={1}>
-                      {inviteCode ? `https://localhost:5173/join/${inviteCode}` : 'Đang tải...'}
+                      {inviteCode ? `http://${API_IP}/join/${inviteCode}` : 'Đang tải...'}
                     </Text>
                     <TouchableOpacity 
                       style={styles.copyBtn}
                       onPress={async () => {
                         if (!inviteCode) return;
-                        const link = `https://localhost:5173/join/${inviteCode}`;
+                        const link = `http://${API_IP}/join/${inviteCode}`;
                         await Clipboard.setStringAsync(link);
                         Alert.alert('Thành công', 'Đã sao chép link tham gia nhóm!');
                       }}
@@ -1135,7 +1135,7 @@ export default function ChatOptionsScreen() {
                       style={[styles.resetLinkBtn, { flex: 1, justifyContent: 'center' }]}
                       onPress={async () => {
                         if (!inviteCode) return;
-                        const link = `https://localhost:5173/join/${inviteCode}`;
+                        const link = `http://${API_IP}/join/${inviteCode}`;
                         try {
                           await Share.share({
                             message: `Tham gia nhóm chat: ${link}`,

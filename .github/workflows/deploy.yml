@@ -2,7 +2,7 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [merge-feature]
+    branches: [main]
 
 jobs:
   deploy:
@@ -16,6 +16,6 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/deplao
-            git pull origin merge-feature
+            git pull origin main
             docker compose -f docker-compose.prod.yml up -d --build
             docker image prune -f
