@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock, AlertCircle, Trash } from 'lucide-react';
+import { X, Save, Phone, Fingerprint, Pencil, Camera, Calendar, Users, Lock, AlertCircle, Trash, Mail } from 'lucide-react';
 import { contactService, type UserResponse } from '../services/contactService';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
@@ -13,6 +13,7 @@ interface ProfileModalProps {
 
 const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) => {
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [gender, setGender] = useState('');
@@ -42,6 +43,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
       setCoverUrl(user.coverUrl || '');
       setGender(user.gender || '');
       setBirthday(user.birthday || '');
+      setEmail(user.email || '');
     }
   }, [user]);
 
@@ -115,6 +117,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
         coverUrl: coverUrl || undefined,
         gender: gender || undefined,
         birthday: birthday || undefined,
+        email: email || undefined,
       });
       setUser(updated);
       setSuccess('Cập nhật thành công!');
@@ -306,6 +309,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                 </div>
               </div>
               <div className="flex items-start gap-3">
+                <Mail size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
+                <div className="flex-1">
+                  <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Email</div>
+                  <div className="text-sm" style={{ color: 'var(--text-primary)' }}>{user?.email || 'Chưa cập nhật'}</div>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
                 <Phone size={16} className="mt-0.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
                 <div className="flex-1">
                   <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Điện thoại</div>
@@ -417,6 +427,15 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
                 <input type="date" value={birthday}
                   onChange={(e) => setBirthday(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer"
+                  style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Email khôi phục</label>
+                <input type="email" value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Để trống nếu không muốn liên kết email"
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                   style={{ background: 'var(--bg-search)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)' }} />
               </div>
 

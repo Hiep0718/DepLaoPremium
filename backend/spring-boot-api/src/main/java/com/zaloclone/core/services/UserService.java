@@ -80,6 +80,9 @@ public class UserService {
         if (request.getBirthday() != null) {
             user.setBirthday(request.getBirthday());
         }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail().trim().isEmpty() ? null : request.getEmail().trim());
+        }
 
         User updatedUser = userRepository.save(user);
         return toUserResponse(updatedUser);
@@ -214,6 +217,7 @@ public class UserService {
         return UserResponse.builder()
                 .id(user.getId())
                 .phone(user.getPhone())
+                .email(user.getEmail())
                 .fullName(user.getFullName())
                 .avatarUrl(user.getAvatarUrl())
                 .coverUrl(user.getCoverUrl())

@@ -23,4 +23,5 @@ public class UpdateUserProfileRequest {
     private String coverUrl;
     private String gender;    // "Nam", "Nữ", "Khác"
     private LocalDate birthday;
+    private String email;
 }

@@ -22,12 +22,14 @@ export function ProfileScreen() {
   const [editName, setEditName] = useState('');
   const [editGender, setEditGender] = useState('');
   const [editBirthday, setEditBirthday] = useState('');
+  const [editEmail, setEditEmail] = useState('');
   const [saving, setSaving] = useState(false);
 
   const openEdit = () => {
     setEditName(profile?.fullName ?? '');
     setEditGender(profile?.gender ?? '');
     setEditBirthday(profile?.birthday ?? '');
+    setEditEmail(profile?.email ?? '');
     setEditVisible(true);
   };
 
@@ -40,7 +42,8 @@ export function ProfileScreen() {
     const ok = await updateProfile({ 
       fullName: editName.trim(), 
       gender: editGender, 
-      birthday: editBirthday 
+      birthday: editBirthday,
+      email: editEmail.trim(),
     });
     setSaving(false);
     if (ok) {
@@ -188,6 +191,10 @@ export function ProfileScreen() {
             <Text style={styles.infoValue}>{profile?.gender || 'Chưa cập nhật'}</Text>
           </View>
           <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Email</Text>
+            <Text style={styles.infoValue}>{profile?.email || 'Chưa cập nhật'}</Text>
+          </View>
+          <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Ngày sinh</Text>
             <Text style={styles.infoValue}>{formatBirthday(profile?.birthday || '')}</Text>
           </View>
@@ -244,6 +251,16 @@ export function ProfileScreen() {
                 onChangeText={setEditName}
                 placeholder="Nhập tên của bạn"
                 maxLength={100}
+              />
+
+              <Text style={styles.label}>Email khôi phục</Text>
+              <TextInput
+                style={styles.input}
+                value={editEmail}
+                onChangeText={setEditEmail}
+                placeholder="VD: email@gmail.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
 
               <Text style={styles.label}>Giới tính</Text>

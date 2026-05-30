@@ -7,6 +7,7 @@ export interface UserProfile {
   id: string;
   fullName: string;
   phone: string;
+  email?: string;
   avatarUrl?: string;
   coverUrl?: string;
   gender?: string;
@@ -42,6 +43,7 @@ export function useProfile() {
         coverUrl: data.coverUrl ?? profile?.coverUrl,
         gender: data.gender ?? profile?.gender,
         birthday: data.birthday ?? profile?.birthday,
+        email: data.email ?? profile?.email,
       });
       setProfile(res.data?.data);
       return true;
