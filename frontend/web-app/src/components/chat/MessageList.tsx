@@ -241,6 +241,7 @@ const MessageList = () => {
   }, [messages, isCloudConversation, cloudFilter]);
   const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuDirection, setMenuDirection] = useState<'up' | 'down'>('up');
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [activeProfile, setActiveProfile] = useState<any>(null);
@@ -258,6 +259,7 @@ const MessageList = () => {
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
   const [unreadCountToShow, setUnreadCountToShow] = useState<number>(0);
   const [reactionTooltipId, setReactionTooltipId] = useState<string | null>(null);
+  const [tooltipDirection, setTooltipDirection] = useState<'up' | 'down'>('up');
 
   // AI action states
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
@@ -1500,14 +1502,32 @@ const MessageList = () => {
               const actionMenu = !msg.isRevoked && (
                 <div className={`flex items-center opacity-0 group-hover:opacity-100 transition-opacity mx-2 relative ${clusterMessages.length > 1 ? 'self-end' : ''}`}>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setReactionTooltipId(reactionTooltipId === messageId ? null : messageId); setOpenMenuId(null); }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      if (reactionTooltipId === messageId) {
+                        setReactionTooltipId(null);
+                      } else {
+                        setReactionTooltipId(messageId);
+                        setTooltipDirection(e.clientY < 250 ? 'down' : 'up');
+                      }
+                      setOpenMenuId(null); 
+                    }}
                     className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                     title="Bày tỏ cảm xúc"
                   >
                     <Smile size={18} />
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === messageId ? null : messageId); setReactionTooltipId(null); }}
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      if (openMenuId === messageId) {
+                        setOpenMenuId(null);
+                      } else {
+                        setOpenMenuId(messageId);
+                        setMenuDirection(e.clientY < 300 ? 'down' : 'up');
+                      }
+                      setReactionTooltipId(null); 
+                    }}
                     className="p-1.5 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
                   >
                     <MoreHorizontal size={18} />
@@ -1515,7 +1535,7 @@ const MessageList = () => {
 
                   {/* Reaction Tooltip */}
                   {reactionTooltipId === messageId && (
-                    <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 bg-white border border-[#e6e8eb] shadow-xl rounded-full p-1 z-[100] animate-bounce-in`}
+                    <div className={`absolute ${tooltipDirection === 'down' ? 'top-full mt-2' : 'bottom-full mb-2'} ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 bg-white border border-[#e6e8eb] shadow-xl rounded-full p-1 z-[100] animate-bounce-in`}
                       onClick={(e) => e.stopPropagation()}>
                       {REACTION_EMOJIS.map((emoji) => (
                         <button
@@ -1531,7 +1551,7 @@ const MessageList = () => {
                   )}
 
                   {openMenuId === messageId && (
-                    <div className={`absolute bottom-full mb-1 ${isMe ? 'right-0' : 'left-0'} w-36 bg-[var(--bg-panel)] border border-[var(--border-light)] shadow-lg rounded-lg py-1 z-50 text-sm`}
+                    <div className={`absolute ${menuDirection === 'down' ? 'top-full mt-1' : 'bottom-full mb-1'} ${isMe ? 'right-0' : 'left-0'} w-36 bg-[var(--bg-panel)] border border-[var(--border-light)] shadow-lg rounded-lg py-1 z-50 text-sm`}
                       onClick={(e) => e.stopPropagation()}>
                       <button className="w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
                         onClick={() => { setReplyingMessage(msg); setOpenMenuId(null); }}>
