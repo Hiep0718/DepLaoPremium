@@ -157,7 +157,21 @@ export const streamChat = async (req, res) => {
 
   } catch (error) {
     console.error('[AI-Chat] Gemini API error:', error.message);
-    res.write(`data: ${JSON.stringify({ error: 'Cannot connect to Gemini AI API.' })}\n\n`);
+    
+    let fallbackMessage = "";
+    if (!fullReply.trim()) {
+      fallbackMessage = "Xin lỗi bạn, hiện tại Bếp AI đang bị quá tải lượt hỏi hoặc gặp sự cố kết nối với hệ thống. Bạn vui lòng thử lại sau ít phút nhé! 🥺";
+    } else {
+      fallbackMessage = "\n\n*(Xin lỗi bạn, kết nối bị ngắt quãng giữa chừng. Bạn vui lòng thử lại sau nhé!)*";
+    }
+
+    // Gửi dòng thông báo lỗi như một phần tin nhắn bình thường để UI hiển thị chuyên nghiệp
+    res.write(`data: ${JSON.stringify({ token: fallbackMessage })}\n\n`);
+    fullReply += fallbackMessage;
+
+    // Báo cho frontend đã xong (để tắt trạng thái loading)
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+
   } finally {
     // Lưu AI reply vào MongoDB dù có lỗi hay không (nếu có nội dung)
     if (fullReply.trim()) {
