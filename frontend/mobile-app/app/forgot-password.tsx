@@ -19,12 +19,13 @@ import { Ionicons } from "@expo/vector-icons"
 import { ZaloColors } from "@/constants/zalo"
 import apiClient from "@/constants/api"
 
-type Step = "phone" | "otp"
+type Step = "phone" | "email" | "otp"
 
 export default function ForgotPasswordScreen() {
     const router = useRouter()
     const [step, setStep] = useState<Step>("phone")
     const [phone, setPhone] = useState("")
+    const [email, setEmail] = useState("")
     const [otp, setOtp] = useState("")
     const [newPassword, setNewPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
@@ -85,9 +86,16 @@ export default function ForgotPasswordScreen() {
             Alert.alert("Thông báo", "Vui lòng nhập số điện thoại")
             return
         }
+        if (step === "email" && !email.trim()) {
+            Alert.alert("Thông báo", "Vui lòng nhập địa chỉ email")
+            return
+        }
         setIsLoading(true)
         try {
-            const { data } = await apiClient.post("/auth/forgot-password/send-otp", { phone: p })
+            const payload: any = { phone: p }
+            if (step === "email") payload.email = email.trim()
+            
+            const { data } = await apiClient.post("/auth/forgot-password/send-otp", payload)
             if (data.success) {
                 setCountdown(60)
                 animateTransition(() => setStep("otp"))
@@ -96,10 +104,15 @@ export default function ForgotPasswordScreen() {
                 Alert.alert("Lỗi", data.message || "Không thể gửi mã OTP")
             }
         } catch (err: any) {
-            Alert.alert(
-                "Lỗi",
-                err?.response?.data?.message || "Số điện thoại không tồn tại trong hệ thống"
-            )
+            const errMsg = err?.response?.data?.message
+            if (errMsg === 'REQUIRE_EMAIL') {
+                animateTransition(() => setStep("email"))
+            } else {
+                Alert.alert(
+                    "Lỗi",
+                    errMsg || "Số điện thoại không tồn tại trong hệ thống"
+                )
+            }
         } finally {
             setIsLoading(false)
         }
@@ -109,7 +122,9 @@ export default function ForgotPasswordScreen() {
         if (countdown > 0) return
         setIsLoading(true)
         try {
-            const { data } = await apiClient.post("/auth/forgot-password/send-otp", { phone: phone.trim() })
+            const payload: any = { phone: phone.trim() }
+            if (email.trim()) payload.email = email.trim()
+            const { data } = await apiClient.post("/auth/forgot-password/send-otp", payload)
             if (data.success) {
                 setCountdown(60)
                 Alert.alert("Thành công", "Mã OTP mới đã được gửi")
@@ -148,11 +163,14 @@ export default function ForgotPasswordScreen() {
         Keyboard.dismiss()
         setIsLoading(true)
         try {
-            const { data } = await apiClient.post("/auth/forgot-password/reset", {
+            const payload: any = {
                 phone: phone.trim(),
                 otp: otpVal,
                 newPassword: pwdVal,
-            })
+            }
+            if (email.trim()) payload.email = email.trim()
+            
+            const { data } = await apiClient.post("/auth/forgot-password/reset", payload)
             if (data.success) {
                 Alert.alert(
                     "Thành công 🎉",
@@ -180,10 +198,15 @@ export default function ForgotPasswordScreen() {
     const handleGoBack = () => {
         if (step === "otp") {
             animateTransition(() => {
-                setStep("phone")
+                setStep(email.trim() ? "email" : "phone")
                 setOtp("")
                 setNewPassword("")
                 setConfirmPassword("")
+            })
+        } else if (step === "email") {
+            animateTransition(() => {
+                setStep("phone")
+                setEmail("")
             })
         } else {
             router.back()
@@ -246,6 +269,56 @@ export default function ForgotPasswordScreen() {
                 activeOpacity={0.8}
                 onPress={handleSendOtp}
                 disabled={!phone.trim() || isLoading}
+            >
+                {isLoading ? (
+                    <ActivityIndicator color="#fff" />
+                ) : (
+                    <View style={styles.btnContent}>
+                        <Text style={styles.primaryBtnText}>Gửi mã OTP</Text>
+                        <Ionicons name="arrow-forward" size={18} color="#fff" />
+                    </View>
+                )}
+            </TouchableOpacity>
+        </View>
+    )
+
+    const renderEmailStep = () => (
+        <View style={styles.stepContent}>
+            <View style={styles.iconCircle}>
+                <Ionicons name="mail-outline" size={32} color={ZaloColors.blue} />
+            </View>
+            <Text style={styles.stepTitle}>Nhập email khôi phục</Text>
+            <Text style={styles.stepDesc}>
+                Tài khoản chưa có email. Nhập email của bạn để chúng tôi gửi mã OTP xác minh.
+            </Text>
+
+            <View style={styles.inputGroup}>
+                <View style={styles.inputWrap}>
+                    <Ionicons
+                        name="mail-outline"
+                        size={20}
+                        color={ZaloColors.blue}
+                        style={styles.inputIcon}
+                    />
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Địa chỉ email"
+                        placeholderTextColor="#aaa"
+                        keyboardType="email-address"
+                        value={email}
+                        onChangeText={setEmail}
+                        editable={!isLoading}
+                        autoCapitalize="none"
+                        autoFocus
+                    />
+                </View>
+            </View>
+
+            <TouchableOpacity
+                style={[styles.primaryBtn, email.trim() ? styles.primaryBtnActive : null]}
+                activeOpacity={0.8}
+                onPress={handleSendOtp}
+                disabled={!email.trim() || isLoading}
             >
                 {isLoading ? (
                     <ActivityIndicator color="#fff" />
@@ -472,7 +545,7 @@ export default function ForgotPasswordScreen() {
                         { opacity: fadeAnim, transform: [{ translateX: slideAnim }] },
                     ]}
                 >
-                    {step === "phone" ? renderPhoneStep() : renderOtpStep()}
+                    {step === "phone" ? renderPhoneStep() : step === "email" ? renderEmailStep() : renderOtpStep()}
                 </Animated.View>
             </KeyboardAvoidingView>
         </SafeAreaView>

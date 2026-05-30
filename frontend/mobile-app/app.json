@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "zalo-ui",
-    "slug": "zalo-ui",
+    "name": "DepLao",
+    "slug": "deplao",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "zaloui",
+    "scheme": "deplao",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -32,7 +32,7 @@
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH"
       ],
-      "package": "com.anonymous.zaloui"
+      "package": "com.deplao.app"
     },
     "web": {
       "output": "static",
@@ -67,7 +67,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "1dd19f16-bb38-4084-8c17-d299dc4b6e29"
+        "projectId": "dca44a08-dca8-4057-acc4-d22a81e2fcb4"
       }
     }
   }

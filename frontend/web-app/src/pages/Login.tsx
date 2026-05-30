@@ -6,7 +6,7 @@ import { useChatStore } from '../stores/chatStore';
 import { contactService } from '../services/contactService';
 import { connectQRSocket, disconnectQRSocket } from '../services/socket';
 import { QRCodeSVG } from 'qrcode.react';
-import { Phone, Lock, RefreshCw, ChevronRight, Smartphone, CheckCircle, Loader2 } from 'lucide-react';
+import { Phone, Lock, RefreshCw, ChevronRight, Smartphone, CheckCircle, Loader2, Mail } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 
 type LoginMode = 'qr' | 'password' | 'forgot_password';
@@ -382,8 +382,9 @@ const PasswordPanel = ({ onSwitchToQR, onSwitchToForgot }: { onSwitchToQR: () =>
 
 /* ─── Forgot Password panel ─── */
 const ForgotPasswordPanel = ({ onBack }: { onBack: () => void }) => {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 1.5 | 2>(1);
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
@@ -393,15 +394,26 @@ const ForgotPasswordPanel = ({ onBack }: { onBack: () => void }) => {
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone) { setError('Vui lòng nhập số điện thoại'); return; }
+    if (step === 1.5 && !email) { setError('Vui lòng nhập email'); return; }
     setLoading(true); setError('');
     try {
-      const { data } = await axios.post('/auth/forgot-password/send-otp', { phone });
+      const payload: any = { phone };
+      if (step === 1.5) payload.email = email;
+      const { data } = await axios.post('/auth/forgot-password/send-otp', payload);
       if (data.success) {
         setStep(2);
-        setSuccess('Mã OTP đã được gửi đến số điện thoại của bạn');
-        setTimeout(() => setSuccess(''), 3000);
+        setSuccess(data.message || 'Mã OTP đã được gửi đến email của bạn');
+        setTimeout(() => setSuccess(''), 5000);
       } else { setError(data.message || 'Không thể gửi mã OTP'); }
-    } catch (err: any) { setError(err?.response?.data?.message || 'Số điện thoại không tồn tại'); }
+    } catch (err: any) { 
+      const errMsg = err?.response?.data?.message;
+      if (errMsg === 'REQUIRE_EMAIL') {
+        setStep(1.5);
+        setError('Tài khoản chưa liên kết email. Vui lòng nhập email để nhận mã OTP.');
+      } else {
+        setError(errMsg || 'Số điện thoại không tồn tại');
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -410,7 +422,9 @@ const ForgotPasswordPanel = ({ onBack }: { onBack: () => void }) => {
     if (!otp || !newPassword) { setError('Vui lòng nhập mã OTP và mật khẩu mới'); return; }
     setLoading(true); setError('');
     try {
-      const { data } = await axios.post('/auth/forgot-password/reset', { phone, otp, newPassword });
+      const payload: any = { phone, otp, newPassword };
+      if (email) payload.email = email;
+      const { data } = await axios.post('/auth/forgot-password/reset', payload);
       if (data.success) {
         setSuccess('Đặt lại mật khẩu thành công!');
         setTimeout(() => onBack(), 2000);
@@ -439,16 +453,27 @@ const ForgotPasswordPanel = ({ onBack }: { onBack: () => void }) => {
         </div>
       )}
 
-      {step === 1 ? (
+      {step === 1 || step === 1.5 ? (
         <form onSubmit={handleSendOtp} className="space-y-4">
           <div className="relative group">
             <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-[#0068FF] transition-colors" />
             <input
               type="text" placeholder="Số điện thoại đã đăng ký" value={phone}
               onChange={e => setPhone(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all"
+              disabled={step === 1.5}
+              className={`w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all ${step === 1.5 ? 'opacity-60 cursor-not-allowed' : ''}`}
             />
           </div>
+          {step === 1.5 && (
+            <div className="relative group animate-fadeIn">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-focus-within:text-[#0068FF] transition-colors" />
+              <input
+                type="email" placeholder="Nhập địa chỉ Email mới" value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm placeholder-gray-400 text-gray-900 bg-gray-50 focus:bg-white focus:outline-none focus:border-[#0068FF] focus:ring-2 focus:ring-[#0068FF]/10 transition-all"
+              />
+            </div>
+          )}
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onBack} disabled={loading} className="w-1/3 py-3 border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold text-sm rounded-xl transition-all">
               Hủy

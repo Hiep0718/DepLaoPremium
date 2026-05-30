@@ -100,6 +100,13 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("Số điện thoại không tồn tại ghép nối trong hệ thống!"));
 
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        
+        if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
+            if (user.getEmail() == null || user.getEmail().trim().isEmpty()) {
+                user.setEmail(request.getEmail().trim());
+            }
+        }
+        
         userRepository.save(user);
     }
 

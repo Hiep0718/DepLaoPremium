@@ -20,6 +20,9 @@ public class User {
     @Column(unique = true, nullable = false, length = 15)
     private String phone;
 
+    @Column(unique = true, length = 100)
+    private String email;
+
     @Column(nullable = false)
     private String passwordHash;
 

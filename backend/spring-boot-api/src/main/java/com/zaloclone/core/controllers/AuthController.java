@@ -23,7 +23,7 @@ public class AuthController {
     @PostMapping(value = "/send-otp", consumes = "application/json")
     public ResponseEntity<ApiResponse<?>> sendOtp(@Valid @RequestBody SendOtpRequest request) {
         try {
-            otpService.generateAndSendOtp(request.getPhone());
+            otpService.generateAndSendOtp(request.getPhone(), null);
             return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP thành công", null));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Lỗi khi gửi mã OTP: " + e.getMessage()));
@@ -48,13 +48,30 @@ public class AuthController {
     @PostMapping(value = "/forgot-password/send-otp", consumes = "application/json")
     public ResponseEntity<ApiResponse<?>> sendForgotPasswordOtp(@Valid @RequestBody SendOtpRequest request) {
         try {
-            // Kiểm tra số điện thoại có tồn tại không trước khi gửi OTP
-            userService.getUserByPhone(request.getPhone());
-            otpService.generateAndSendOtp(request.getPhone());
-            return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP thành công", null));
+            User user = userService.getUserByPhone(request.getPhone());
+            
+            String emailToSend = user.getEmail();
+            if (request.getEmail() != null && !request.getEmail().trim().isEmpty()) {
+                emailToSend = request.getEmail().trim();
+            } else if (emailToSend == null || emailToSend.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("REQUIRE_EMAIL"));
+            }
+            
+            otpService.generateAndSendOtp(request.getPhone(), emailToSend);
+            
+            String maskedEmail = maskEmail(emailToSend);
+            return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP về email " + maskedEmail, null));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Số điện thoại không tồn tại trong hệ thống"));
         }
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || !email.contains("@")) return "";
+        String[] parts = email.split("@");
+        if (parts[0].length() <= 2) return parts[0] + "@" + parts[1];
+        return parts[0].substring(0, 2) + "***" + parts[0].substring(parts[0].length() - 1) + "@" + parts[1];
     }
 
     @PostMapping(value = "/forgot-password/reset", consumes = "application/json")

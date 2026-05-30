@@ -25,6 +25,7 @@ Thumbs.db
 backend/spring-boot-api/target/
 *.class
 *.jar
+!frontend/mobile-app/android/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 
