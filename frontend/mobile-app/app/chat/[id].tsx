@@ -709,23 +709,55 @@ export default function ChatScreen() {
   // ─── Typing indicator ──────────────────────────────────────────────────────
 
   // Derived actions — override for AI conversations
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !currentUserId) return;
+    if (!currentUserId) return;
 
     if (isAi) {
       // ── AI Chat Route — gửi qua AI service, không qua socket ──
+      // Lấy ảnh đầu tiên nếu có (AI chỉ hỗ trợ 1 ảnh)
+      const aiImage = pendingMedia.length > 0 ? pendingMedia[0] : null;
+      const hasImage = !!aiImage;
+      const hasText = !!trimmed;
+
+      // Phải có ít nhất text hoặc ảnh
+      if (!hasText && !hasImage) return;
+
+      const displayContent = hasImage
+        ? (hasText ? trimmed : 'Dựa vào ảnh này, hãy gợi ý cho tôi các món ăn có thể nấu.')
+        : trimmed;
+
+      // User message hiển thị trên UI
       const userMsg: Message = {
         _id: `user_${Date.now()}`,
         senderId: currentUserId,
         recipientId: 'ai_food_bot',
-        content: trimmed,
-        messageType: 'text',
+        content: displayContent,
+        messageType: hasImage ? 'image' : 'text',
+        imageUrl: hasImage ? aiImage.uri : undefined,
         createdAt: new Date().toISOString(),
         status: 'sent',
       };
       setMessages(prev => [userMsg, ...prev]);
       setText('');
+      setPendingMedia([]); // Xóa ảnh pending
+
+      // Đọc ảnh thành base64 nếu có
+      let imageBase64: string | undefined;
+      let imageMimeType: string | undefined;
+      if (hasImage && aiImage) {
+        try {
+          const base64Data = await FileSystem.readAsStringAsync(aiImage.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          imageBase64 = base64Data;
+          // Detect mime type from extension
+          const ext = aiImage.uri.split('.').pop()?.toLowerCase() || 'jpeg';
+          imageMimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        } catch (err) {
+          console.log('[AI] Failed to read image as base64:', err);
+        }
+      }
 
       // Start AI streaming
       setIsAiStreaming(true);
@@ -733,7 +765,7 @@ export default function ChatScreen() {
 
       streamAiChatMobile(
         currentUserId,
-        trimmed,
+        displayContent,
         (token) => {
           aiResponse += token;
           // Update streaming message in real-time
@@ -770,7 +802,9 @@ export default function ChatScreen() {
           console.log('AI Error:', errMsg);
           // Remove streaming message on error
           setMessages(prev => prev.filter(m => m._id !== '__ai_streaming__'));
-        }
+        },
+        imageBase64,
+        imageMimeType
       );
     } else {
       // ── Normal Chat Route — gửi qua socket ──
@@ -1287,15 +1321,15 @@ export default function ChatScreen() {
             <View style={styles.previewBox}>
               <View style={styles.previewHeader}>
                 <Text style={styles.previewHeaderText}>
-                  {pendingMedia.length === 1 ? (pendingMedia[0].type === 'video' ? 'Xem trước video' : 'Xem trước ảnh') : `Đã chọn ${pendingMedia.length} ảnh/video`}
+                  {isAi ? 'Gửi ảnh cho Bếp AI' : pendingMedia.length === 1 ? (pendingMedia[0]?.type === 'video' ? 'Xem trước video' : 'Xem trước ảnh') : `Đã chọn ${pendingMedia.length} ảnh/video`}
                 </Text>
               </View>
 
               {pendingMedia.length === 1 ? (
-                pendingMedia[0].type === 'video' ? (
+                pendingMedia[0]?.type === 'video' ? (
                   <Video source={{ uri: pendingMedia[0].uri }} useNativeControls resizeMode={ResizeMode.CONTAIN} style={styles.previewVideo} />
                 ) : (
-                  <Image source={{ uri: pendingMedia[0].uri }} style={styles.previewImage} resizeMode="contain" />
+                  <Image source={{ uri: pendingMedia[0]?.uri }} style={styles.previewImage} resizeMode="contain" />
                 )
               ) : (
                 <ScrollView style={styles.previewGrid} contentContainerStyle={styles.previewGridContent} showsVerticalScrollIndicator={true}>
@@ -1321,6 +1355,20 @@ export default function ChatScreen() {
                 </ScrollView>
               )}
 
+              {/* AI: Text input to accompany image */}
+              {isAi && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#fafafa', borderRadius: 8, marginHorizontal: 8, marginTop: 8 }}>
+                  <TextInput
+                    style={{ flex: 1, fontSize: 14, paddingVertical: 6, color: '#333' }}
+                    placeholder="Nhập câu hỏi kèm ảnh (tùy chọn)..."
+                    placeholderTextColor="#aaa"
+                    value={text}
+                    onChangeText={setText}
+                    multiline
+                  />
+                </View>
+              )}
+
               {uploadingMedia && pendingMedia.length > 1 && (
                 <View style={styles.uploadProgressWrap}>
                   <View style={styles.uploadProgressBar}>
@@ -1335,9 +1383,13 @@ export default function ChatScreen() {
                   <Ionicons name="close" size={22} color="#fff" />
                   <Text style={styles.previewBtnText}>Hủy</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.previewBtn, styles.previewSendBtn, uploadingMedia && { opacity: 0.6 }]} onPress={handleSendMedia} disabled={uploadingMedia}>
+                <TouchableOpacity 
+                  style={[styles.previewBtn, styles.previewSendBtn, uploadingMedia && { opacity: 0.6 }]} 
+                  onPress={isAi ? handleSend : handleSendMedia} 
+                  disabled={uploadingMedia}
+                >
                   {uploadingMedia ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
-                  <Text style={styles.previewBtnText}>{pendingMedia.length > 1 ? `Gửi (${pendingMedia.length})` : 'Gửi'}</Text>
+                  <Text style={styles.previewBtnText}>{isAi ? 'Gửi cho AI' : pendingMedia.length > 1 ? `Gửi (${pendingMedia.length})` : 'Gửi'}</Text>
                 </TouchableOpacity>
               </View>
             </View>

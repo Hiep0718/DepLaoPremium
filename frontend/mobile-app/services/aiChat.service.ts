@@ -45,13 +45,16 @@ export const fetchAiLastMessage = async (userId: string) => {
 
 /**
  * Hàm gửi tin nhắn AI và nhận Stream qua XMLHttpRequest (tương thích trên React Native)
+ * Hỗ trợ gửi kèm ảnh (imageBase64) cùng text trong 1 request
  */
 export const streamAiChatMobile = async (
   userId: string,
   content: string,
   onToken: (token: string) => void,
   onDone: () => void,
-  onError: (msg: string) => void
+  onError: (msg: string) => void,
+  imageBase64?: string,
+  imageMimeType?: string
 ) => {
   const token = await AsyncStorage.getItem('accessToken');
   
@@ -120,6 +123,6 @@ export const streamAiChatMobile = async (
       reject(new Error('Network error'));
     };
 
-    xhr.send(JSON.stringify({ userId, content }));
+    xhr.send(JSON.stringify({ userId, content, imageBase64, imageMimeType }));
   });
 };

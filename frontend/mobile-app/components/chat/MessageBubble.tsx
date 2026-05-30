@@ -5,6 +5,7 @@ import { Audio, Video, ResizeMode } from 'expo-av';
 import { ZaloColors } from '@/constants/zalo';
 import { Message } from '@/types/chat';
 import MessageTick from './MessageTick';
+import AiMarkdown from './AiMarkdown';
 
 interface MessageBubbleProps {
   item: Message;
@@ -696,7 +697,11 @@ export default function MessageBubble({
                           <Text style={{ fontSize: 11, fontWeight: '700', color: '#f97316' }}>Bếp AI 🍜</Text>
                         </View>
                       )}
-                      {renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent], memberMap, isGroup, onPressMention, searchQuery)}
+                      {isAiBot ? (
+                        <AiMarkdown content={safeContent} />
+                      ) : (
+                        renderTextWithLinks(safeContent, [styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent], memberMap, isGroup, onPressMention, searchQuery)
+                      )}
                       {translatedMessages[item._id] && (
                         <View style={styles.translatedWrap}>
                           <Text style={[styles.translatedText, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
