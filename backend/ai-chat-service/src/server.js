@@ -51,7 +51,7 @@ const start = async () => {
     app.listen(PORT, () => {
       console.log(`🍜 AI Chat Service running on port ${PORT}`);
       console.log(`   Provider: Google Gemini`);
-      console.log(`   Model:    gemini-2.5-flash`);
+      console.log(`   Model:    gemini-1.5-flash`);
       console.log(`   Env:      ${process.env.NODE_ENV}`);
     });
   } catch (error) {
