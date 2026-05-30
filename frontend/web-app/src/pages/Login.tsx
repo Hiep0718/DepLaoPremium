@@ -555,11 +555,15 @@ const Login = () => {
                 <p className="text-blue-200 text-sm leading-snug">nhanh chóng và bảo mật.</p>
               </div>
               <div className="flex gap-2">
-                {['App Store', 'Google Play'].map(s => (
-                  <div key={s} className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 cursor-pointer transition-colors rounded-lg px-3 py-2 border border-white/10">
-                    <span className="text-white text-[11px] font-semibold">{s}</span>
-                  </div>
-                ))}
+                <a 
+                  href="https://drive.google.com/drive/folders/1bscNgWcYlN0DV18k3ps-Ntv7oFXVYfga?usp=sharing"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 cursor-pointer transition-colors rounded-lg px-3 py-2 border border-white/10"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-white" />
+                  <span className="text-white text-[11px] font-semibold">Tải bản APK (Android)</span>
+                </a>
               </div>
             </div>
           </div>
