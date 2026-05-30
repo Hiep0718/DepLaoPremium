@@ -71,9 +71,9 @@ export const sendMessage = async (req, res) => {
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { page = 1, limit = 50, userId } = req.query;
+    const { page = 1, limit = 50, userId, cursor } = req.query;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = cursor ? 0 : (parseInt(page) - 1) * parseInt(limit);
     let query = { conversationId };
     let pinnedMessage = null;
 
@@ -99,8 +99,12 @@ export const getMessages = async (req, res) => {
       query.deletedBy = { $ne: userId };
     }
 
+    if (cursor) {
+      query._id = { $lt: cursor };
+    }
+
     const messages = await Message.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ _id: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
@@ -115,6 +119,7 @@ export const getMessages = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         pages: Math.ceil(total / parseInt(limit)),
+        nextCursor: messages.length > 0 ? messages[messages.length - 1]._id : null,
       },
     });
   } catch (error) {

@@ -54,8 +54,6 @@ const ContactListPanel = () => {
   }, [activeMenu]);
 
   useEffect(() => {
-    if (!socket.connected) return;
-    
     const handleFriendAction = () => {
       fetchContacts();
       if (activeMenu === 'invites') {

@@ -24,8 +24,12 @@ export const getConversationsList = async (userId: string) => {
   return messagingApi.get(`/conversations/${userId}`);
 };
 
-export const getConversationHistory = async (conversationId: string, userId: string, page = 1, limit = 50) => {
-  return messagingApi.get(`/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`);
+export const getConversationHistory = async (conversationId: string, userId: string, page = 1, limit = 50, cursor?: string) => {
+  let url = `/conversation/${conversationId}?userId=${userId}&page=${page}&limit=${limit}`;
+  if (cursor) {
+    url += `&cursor=${cursor}`;
+  }
+  return messagingApi.get(url);
 };
 
 export const searchMessages = async (conversationId: string, query: string) => {

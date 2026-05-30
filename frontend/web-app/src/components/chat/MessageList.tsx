@@ -270,6 +270,11 @@ const MessageList = () => {
   const [unreadMentionMessageId, setUnreadMentionMessageId] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
+  // Pagination states
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+
   useEffect(() => {
     if (!activeConversation?.isGroup || !user?.fullName || messages.length === 0) {
       setUnreadMentionMessageId(null);
@@ -419,6 +424,8 @@ const MessageList = () => {
           if (res.data && Array.isArray(res.data.data)) {
             setMessages(res.data.data);
             setPinnedMessage(res.data.pinnedMessage || null);
+            setNextCursor(res.data.pagination?.nextCursor || null);
+            setHasMore(!!res.data.pagination?.nextCursor);
           }
         }
       } catch (err) {
@@ -487,13 +494,51 @@ const MessageList = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  // Scroll-to-bottom tracking
-  const handleScroll = useCallback(() => {
+  // Scroll-to-bottom and load-more tracking
+  const handleScroll = useCallback(async () => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollToBottom(distanceFromBottom > 200);
-  }, []);
+
+    // Load more when reaching top
+    if (el.scrollTop < 100 && hasMore && !loadingMore && nextCursor && activeConversation?.conversationId && user?.id) {
+      if (activeConversation.conversationId.startsWith('ai_')) return;
+
+      setLoadingMore(true);
+      const previousScrollHeight = el.scrollHeight;
+      try {
+        const res = await getConversationHistory(activeConversation.conversationId, user.id.toString(), 1, 50, nextCursor);
+        if (res.data && Array.isArray(res.data.data)) {
+          const newMessages = res.data.data;
+          // Zustand setMessages in chatStore just replaces the array, so we must merge
+          const { messages: currentMessages, setMessages: updateMsgs } = useChatStore.getState();
+          // Assuming older messages are appended to the end of the array, or prepended?
+          // The initial fetch sets `messages` to `res.data.data`.
+          // `messageController` returns messages in chronological order!
+          // Wait, `messageController.js` says: `data: messages.reverse(), // Return in chronological order`
+          // So the array returned has oldest first, newest last.
+          // Therefore, the "older page" (nextCursor) contains messages older than the oldest message in our current state.
+          // We must PREPEND them.
+          updateMsgs([...newMessages, ...currentMessages]);
+          
+          setNextCursor(res.data.pagination?.nextCursor || null);
+          setHasMore(!!res.data.pagination?.nextCursor);
+
+          // Restore scroll position so user doesn't jump to top
+          setTimeout(() => {
+            if (scrollContainerRef.current) {
+              scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight - previousScrollHeight;
+            }
+          }, 0);
+        }
+      } catch (err) {
+        console.error('Error loading more messages', err);
+      } finally {
+        setLoadingMore(false);
+      }
+    }
+  }, [hasMore, loadingMore, nextCursor, activeConversation, user]);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1303,6 +1348,11 @@ const MessageList = () => {
       )}
 
       <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+        {loadingMore && (
+          <div className="flex justify-center py-2">
+            <Loader2 size={24} className="animate-spin text-[#0068FF]" />
+          </div>
+        )}
         {isCloudConversation && (
           <div className="sticky top-0 z-[45] flex items-center justify-start gap-2 py-2 px-3 mb-2 rounded-xl bg-white/95 dark:bg-gray-800/95 backdrop-blur border shadow-sm select-none"
             style={{ borderColor: 'var(--border-light)' }}>

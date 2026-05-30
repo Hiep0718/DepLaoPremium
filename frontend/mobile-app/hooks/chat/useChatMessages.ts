@@ -7,6 +7,10 @@ import { Socket } from 'socket.io-client';
 export function useChatMessages(id: string, currentUserId: string | null, socket: Socket | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  
   const [pinnedMessage, setPinnedMessage] = useState<any>(null);
   const [groupMemberCount, setGroupMemberCount] = useState<number>(0);
   const [participantRoles, setParticipantRoles] = useState<Record<string, string>>({});
@@ -105,6 +109,9 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
         } else {
           const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}`);
           const history: any[] = res.data?.data || [];
+          
+          setNextCursor(res.data?.pagination?.nextCursor || null);
+          setHasMore(!!res.data?.pagination?.nextCursor);
 
           if (res.data?.pinnedMessage) {
             setPinnedMessage(res.data.pinnedMessage);
@@ -148,6 +155,37 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     };
     fetchHistory();
   }, [id, currentUserId, socket]);
+
+  const fetchMore = useCallback(async () => {
+    if (!hasMore || isLoadingMore || !nextCursor || !currentUserId || !id || id.startsWith('ai_')) return;
+    setIsLoadingMore(true);
+    try {
+      const res = await chatApiClient.get(`/conversation/${id}?page=1&limit=50&userId=${currentUserId}&cursor=${nextCursor}`);
+      const history: any[] = res.data?.data || [];
+      const mapped: Message[] = history.reverse().map((m: any) => ({
+        _id: m._id,
+        senderId: String(m.senderId),
+        recipientId: String(m.recipientId || ''),
+        content: m.content,
+        messageType: m.messageType || 'text',
+        fileUrl: m.fileUrl,
+        fileName: m.fileName,
+        fileSize: m.fileSize,
+        isRevoked: m.isRevoked || false,
+        createdAt: m.createdAt || m.timestamp,
+        status: m.status || 'sent',
+        replyTo: m.replyTo,
+        reactions: m.reactions || [],
+      }));
+      setMessages(prev => [...prev, ...mapped]);
+      setNextCursor(res.data?.pagination?.nextCursor || null);
+      setHasMore(!!res.data?.pagination?.nextCursor);
+    } catch (err) {
+      console.log('Fetch more error', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [hasMore, isLoadingMore, nextCursor, currentUserId, id]);
 
   // Fetch participant info for system messages
   const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
@@ -225,6 +263,8 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
     messages,
     setMessages,
     isLoading,
+    isLoadingMore,
+    fetchMore,
     pinnedMessage,
     setPinnedMessage,
     groupMemberCount,

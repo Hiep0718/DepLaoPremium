@@ -87,7 +87,7 @@ export default function ChatScreen() {
   const [showMoreActions, setShowMoreActions] = useState(false);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
-  const { messages, setMessages, isLoading, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles, groupName, groupAvatar, groupSettings } = useChatMessages(id, currentUserId, socket);
+  const { messages, setMessages, isLoading, isLoadingMore, fetchMore, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles, groupName, groupAvatar, groupSettings } = useChatMessages(id, currentUserId, socket);
   const { isOtherTyping, lastSeenMessageId } = useChatSocket({ socket, id, currentUserId, setMessages, setPinnedMessage });
 
   const [cloudFilter, setCloudFilter] = useState<'all' | 'image' | 'file' | 'link' | 'text' | 'collection'>('all');
@@ -1125,6 +1125,9 @@ export default function ChatScreen() {
                       flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
                     });
                   }}
+                  onEndReached={fetchMore}
+                  onEndReachedThreshold={0.5}
+                  ListFooterComponent={isLoadingMore ? <ActivityIndicator size="small" color="#0068FF" style={{ marginVertical: 10 }} /> : null}
                 />
                 )}
 
