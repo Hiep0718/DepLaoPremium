@@ -72,11 +72,27 @@ public class UserController {
      * Lấy thông tin user theo ID
      */
     @GetMapping("/{userId}")
-    public ResponseEntity<ApiResponse<?>> getUserById(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<?>> getUserById(@PathVariable String userId) {
         try {
-            var user = userService.getUserById(userId);
+            if ("system".equalsIgnoreCase(userId)) {
+                UserResponse systemUser = new UserResponse();
+                systemUser.setId(0L);
+                systemUser.setFullName("Hệ thống");
+                return ResponseEntity.ok(ApiResponse.success("Lấy thông tin user thành công", systemUser));
+            }
+            if ("ai_food_bot".equalsIgnoreCase(userId)) {
+                UserResponse aiUser = new UserResponse();
+                aiUser.setId(0L);
+                aiUser.setFullName("Bếp AI");
+                return ResponseEntity.ok(ApiResponse.success("Lấy thông tin user thành công", aiUser));
+            }
+            Long id = Long.parseLong(userId);
+            var user = userService.getUserById(id);
             UserResponse userResponse = userService.getUserProfile(user);
             return ResponseEntity.ok(ApiResponse.success("Lấy thông tin user thành công", userResponse));
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("ID người dùng không hợp lệ"));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error("Lấy thông tin user thất bại: " + e.getMessage()));
