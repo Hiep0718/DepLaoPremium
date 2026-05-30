@@ -475,9 +475,18 @@ export default function MessageBubble({
                   </View>
                 </TouchableOpacity>
               ) : isImage ? (
-                <TouchableOpacity activeOpacity={0.9} onPress={() => imgSrc && setLightboxUrl(imgSrc)} onLongPress={() => handleMessageLongPress(item)}>
-                  {imgSrc ? <Image source={{ uri: imgSrc }} style={styles.msgImage} resizeMode="cover" /> : <View style={[styles.msgImage, { backgroundColor: '#ddd' }]} />}
-                </TouchableOpacity>
+                <View style={[isMine ? styles.myMsgBubble : styles.theirMsgBubble, { borderRadius: 12, overflow: 'hidden', padding: (typeof item.content === 'string' && item.content && item.content !== imgSrc) ? 4 : 0 }]}>
+                  <TouchableOpacity activeOpacity={0.9} onPress={() => imgSrc && setLightboxUrl(imgSrc)} onLongPress={() => handleMessageLongPress(item)}>
+                    {imgSrc ? <Image source={{ uri: imgSrc }} style={[styles.msgImage, (typeof item.content === 'string' && item.content && item.content !== imgSrc) ? { borderRadius: 8 } : {}]} resizeMode="cover" /> : <View style={[styles.msgImage, { backgroundColor: '#ddd' }]} />}
+                  </TouchableOpacity>
+                  {typeof item.content === 'string' && item.content && item.content !== imgSrc && (
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                      <Text style={[styles.msgContent, isMine ? styles.myMsgContent : styles.theirMsgContent]}>
+                        {item.content}
+                      </Text>
+                    </View>
+                  )}
+                </View>
               ) : isVideo ? (
                 <VideoMessage item={item} handleMessageLongPress={handleMessageLongPress} />
               ) : isFile ? (
