@@ -366,10 +366,14 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
                 {/* Current user */}
                 <div className="flex flex-col items-center gap-1">
                   <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm"
-                    style={{ background: '#10b981' }}
+                    className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm overflow-hidden"
+                    style={{ background: user?.avatarUrl ? 'transparent' : '#10b981' }}
                   >
-                    {(user as any)?.fullName?.charAt(0)?.toUpperCase() || 'B'}
+                    {user?.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="Bạn" className="w-full h-full object-cover" />
+                    ) : (
+                      (user as any)?.fullName?.charAt(0)?.toUpperCase() || 'B'
+                    )}
                   </div>
                   <span className="text-[10px]" style={{ color: 'var(--text-secondary, #6b7280)' }}>Bạn</span>
                 </div>
