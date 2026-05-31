@@ -442,6 +442,7 @@ const MessageList = () => {
     };
 
     if (!activeConversation.conversationId.startsWith('new_') && !activeConversation.conversationId.startsWith('contact_')) {
+      setMessages([]); // Clear old messages immediately to prevent flickering/leaking
       fetchHistory();
     } else {
       setMessages([]);
