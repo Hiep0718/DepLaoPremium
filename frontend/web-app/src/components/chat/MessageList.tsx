@@ -8,6 +8,8 @@ import remarkGfm from 'remark-gfm';
 
 import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2, Copy, Check, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 
+import { useThemeStore } from '../../stores/themeStore';
+import { confirmAlert } from '../../stores/confirmStore';
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
 import { fetchAiMessages, streamAiChat } from '../../services/aiChat.service';
@@ -1130,9 +1132,13 @@ const MessageList = () => {
       });
     };
 
-    const handleRevokePoll = (e: React.MouseEvent) => {
+    const handleRevokePoll = async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (confirm('Bạn có muốn xóa bình chọn này?')) {
+      const isConfirm = await confirmAlert('Bạn có chắc chắn muốn xóa bình chọn này?', {
+        isDanger: true,
+        confirmText: 'Xóa bình chọn'
+      });
+      if (isConfirm) {
         socket.emit('revoke_message', {
           messageId: msg._id || msg.id,
           conversationId: activeConversation.conversationId,

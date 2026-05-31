@@ -9,6 +9,7 @@ import JoinGroup from './pages/JoinGroup';
 import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import ToastContainer from './components/chat/ToastContainer';
+import ConfirmModal from './components/ConfirmModal';
 import { useThemeStore } from './stores/themeStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useAuthStore } from './stores/authStore';
@@ -66,6 +67,7 @@ function App() {
 
       {/* Global Toast Notifications */}
       <ToastContainer />
+      <ConfirmModal />
       
       {/* Global WebRTC Calling UI */}
       {user && (

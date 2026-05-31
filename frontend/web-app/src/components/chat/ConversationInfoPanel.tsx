@@ -9,6 +9,7 @@ import { contactService } from '../../services/contactService';
 import { updateMemberRole, getConversationsList, removeMemberFromGroup, addMembersToGroup, disbandGroup, updateGroupInfo, toggleRequireApproval, approvePendingMember, rejectPendingMember, updateGroupPermissions, getInviteCode, resetInviteCode } from '../../services/message.service';
 import AddMemberModal from './AddMemberModal';
 import MediaArchiveModal from './MediaArchiveModal';
+import { confirmAlert } from '../../stores/confirmStore';
 
 const ConversationInfoPanel = () => {
   const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations } = useChatStore();
@@ -69,7 +70,8 @@ const ConversationInfoPanel = () => {
       ? `Bạn có chắc muốn trao quyền Trưởng nhóm? Bạn sẽ trở thành Thành viên.`
       : `Đổi vai trò thành ${roleLabels[newRole]}?`;
 
-    if (!window.confirm(confirmMsg)) return;
+    const isConfirm = await confirmAlert(confirmMsg, { isDanger: newRole === 'leader', confirmText: 'Đồng ý' });
+    if (!isConfirm) return;
 
     try {
       await updateMemberRole(
@@ -96,7 +98,8 @@ const ConversationInfoPanel = () => {
 
   const handleRemoveMember = async (targetUserId: string) => {
     if (!activeConversation?.conversationId || !user?.id) return;
-    if (!window.confirm('Bạn có chắc chắn muốn xóa thành viên này khỏi nhóm?')) return;
+    const isConfirm = await confirmAlert('Bạn có chắc chắn muốn xóa thành viên này khỏi nhóm?', { isDanger: true, confirmText: 'Xóa thành viên' });
+    if (!isConfirm) return;
 
     try {
       await removeMemberFromGroup(
@@ -266,7 +269,8 @@ const ConversationInfoPanel = () => {
       ? "Bạn là trưởng nhóm. Nếu rời nhóm, quyền trưởng nhóm sẽ được tự động chuyển cho phó nhóm hoặc thành viên vào sớm nhất. Bạn có chắc chắn muốn rời?"
       : "Bạn có chắc chắn muốn rời khỏi nhóm này không?";
 
-    if (!window.confirm(confirmMessage)) return;
+    const isConfirm = await confirmAlert(confirmMessage, { isDanger: true, confirmText: 'Rời nhóm' });
+    if (!isConfirm) return;
 
     try {
       await removeMemberFromGroup(
@@ -289,7 +293,8 @@ const ConversationInfoPanel = () => {
 
   const handleDisbandGroup = async () => {
     if (!activeConversation?.conversationId || !user?.id) return;
-    if (!window.confirm("CẢNH BÁO: Bạn có chắc chắn muốn giải tán nhóm này? Toàn bộ thành viên sẽ bị xóa và không thể khôi phục lại nhóm.")) return;
+    const isConfirm = await confirmAlert("CẢNH BÁO: Bạn có chắc chắn muốn giải tán nhóm này?\nToàn bộ thành viên sẽ bị xóa và không thể khôi phục lại nhóm.", { isDanger: true, confirmText: 'Giải tán nhóm' });
+    if (!isConfirm) return;
 
     try {
       await disbandGroup(activeConversation.conversationId, String(user.id));
@@ -366,7 +371,8 @@ const ConversationInfoPanel = () => {
 
   const handleResetInvite = async () => {
     if (!activeConversation?.conversationId || !user?.id) return;
-    if (!window.confirm("Bạn có chắc chắn muốn đổi link tham gia mới? Link cũ sẽ không còn hiệu lực.")) return;
+    const isConfirm = await confirmAlert("Bạn có chắc chắn muốn đổi link tham gia mới?\nLink cũ sẽ không còn hiệu lực.", { isDanger: true, confirmText: 'Đổi link' });
+    if (!isConfirm) return;
     try {
       const res = await resetInviteCode(activeConversation.conversationId, String(user.id));
       setInviteCode(res.data?.data?.inviteCode);
@@ -565,7 +571,8 @@ const ConversationInfoPanel = () => {
                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 onClick={async () => {
-                  if (window.confirm("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ và lịch sử của AI không?")) {
+                  const isConfirm = await confirmAlert("Bạn có chắc chắn muốn xóa toàn bộ bộ nhớ và lịch sử của AI không?", { isDanger: true, confirmText: 'Xóa bộ nhớ' });
+                  if (isConfirm) {
                     const userId = useAuthStore.getState().user?.id?.toString();
                     if (userId) {
                       try {
@@ -1237,7 +1244,8 @@ const ConversationInfoPanel = () => {
                     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     onClick={async () => {
-                      if (window.confirm("Bạn có chắc chắn muốn xóa lịch sử trò chuyện này? Thao tác này sẽ xóa toàn bộ tin nhắn đối với bạn.")) {
+                      const isConfirm = await confirmAlert("Bạn có chắc chắn muốn xóa lịch sử trò chuyện này?\nThao tác này sẽ xóa toàn bộ tin nhắn đối với bạn.", { isDanger: true, confirmText: 'Xóa lịch sử' });
+                      if (isConfirm) {
                         const { useAuthStore } = await import('../../stores/authStore');
                         const userId = useAuthStore.getState().user?.id?.toString();
                         if (userId) {

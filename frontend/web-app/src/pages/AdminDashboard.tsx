@@ -12,6 +12,7 @@ import {
   Users, MessageCircle, UserPlus, ShieldCheck, Search, ChevronLeft, ChevronRight,
   Lock, Unlock, Trash2, LogOut, ArrowLeft, TrendingUp, MessagesSquare, UsersRound, BarChart3, RefreshCw,
 } from 'lucide-react';
+import { confirmAlert } from '../stores/confirmStore';
 
 /* ────────────────────────── Mini Bar Chart (SVG) ────────────────────────── */
 const MiniBarChart = ({ data, color = '#6366f1' }: { data: { label: string; value: number }[]; color?: string }) => {
@@ -134,7 +135,11 @@ export default function AdminDashboard() {
 
   // Actions
   const handleLock = async (u: UserItem) => {
-    if (!confirm(`${u.isLocked ? 'Mở khóa' : 'Khóa'} tài khoản "${u.fullName}"?`)) return;
+    const isConfirm = await confirmAlert(`${u.isLocked ? 'Mở khóa' : 'Khóa'} tài khoản "${u.fullName}"?`, {
+      isDanger: !u.isLocked,
+      confirmText: u.isLocked ? 'Mở khóa' : 'Khóa'
+    });
+    if (!isConfirm) return;
     setActionLoading(u.id);
     try {
       await adminService.lockUser(u.id, !u.isLocked);
@@ -145,7 +150,11 @@ export default function AdminDashboard() {
   };
 
   const handleDelete = async (u: UserItem) => {
-    if (!confirm(`Xóa vĩnh viễn tài khoản "${u.fullName}" (${u.phone})?\n\nHành động này không thể hoàn tác!`)) return;
+    const isConfirm = await confirmAlert(`Xóa vĩnh viễn tài khoản "${u.fullName}" (${u.phone})?\n\nHành động này không thể hoàn tác!`, {
+      isDanger: true,
+      confirmText: 'Xóa vĩnh viễn'
+    });
+    if (!isConfirm) return;
     setActionLoading(u.id);
     try {
       await adminService.deleteUser(u.id);
