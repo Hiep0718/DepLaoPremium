@@ -4,7 +4,7 @@ import { X, Zap, Loader2, Bot } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import api from '../../services/axios';
-import { Message } from '../../stores/chatStore';
+import type { Message } from '../../stores/chatStore';
 
 interface SummarizeModalProps {
   isOpen: boolean;

@@ -2261,7 +2261,7 @@ const MessageList = () => {
           onClose={() => setIsSummarizeModalOpen(false)}
           messages={messages}
           memberMap={memberMap}
-          unreadCount={localUnreadCount}
+          unreadCount={unreadCountToShow}
         />
       </div>
     </>
