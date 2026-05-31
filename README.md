@@ -2,6 +2,8 @@
 
 Dự án **DepLao Premium** là ứng dụng nhắn tin real-time clone theo Zalo, được xây dựng trên kiến trúc **Polyglot Microservices**. File README này cung cấp đầy đủ thông tin về dự án, đặc tả các chức năng chi tiết để phục vụ cho việc **vẽ sơ đồ UML** trong các chương Phân tích và Thiết kế.
 
+🌐 **Trải nghiệm ứng dụng thực tế tại:** [https://deplaopremium.io.vn](https://deplaopremium.io.vn)
+
 ---
 
 ## 🌟 1. Tổng Quan Kỹ Thuật (Tech Stack)
