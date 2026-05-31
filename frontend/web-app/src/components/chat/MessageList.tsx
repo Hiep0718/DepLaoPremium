@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 
 import { MoreHorizontal, Download, FileText, Loader2, AlertCircle, Pin, Video, Phone, Smile, BarChart2, Trash2, Copy, Check, RefreshCw, Volume2, VolumeX } from 'lucide-react';
 
-import { useThemeStore } from '../../stores/themeStore';
+
 import { confirmAlert } from '../../stores/confirmStore';
 import { useChatStore } from '../../stores/chatStore';
 import { getConversationHistory } from '../../services/message.service';
