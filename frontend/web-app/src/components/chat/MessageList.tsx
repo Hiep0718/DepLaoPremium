@@ -18,6 +18,7 @@ import { contactService } from '../../services/contactService';
 import api from '../../services/axios';
 import ProfileModal from '../ProfileModal';
 import CreatePollModal from './CreatePollModal';
+import SummarizeModal from './SummarizeModal';
 
 const BUBBLE_RADIUS = {
   modern: { normal: '18px', corner: '6px' },
@@ -265,6 +266,13 @@ const MessageList = () => {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [readingMsgId, setReadingMsgId] = useState<string | null>(null);
+  const [isSummarizeModalOpen, setIsSummarizeModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleOpenSummarize = () => setIsSummarizeModalOpen(true);
+    window.addEventListener('open-summarize-modal', handleOpenSummarize);
+    return () => window.removeEventListener('open-summarize-modal', handleOpenSummarize);
+  }, []);
 
   // Mention Tag Tracking
   const [unreadMentionMessageId, setUnreadMentionMessageId] = useState<string | null>(null);
@@ -2242,6 +2250,14 @@ const MessageList = () => {
           />,
           document.body
         )}
+        {/* AI Summarize Modal */}
+        <SummarizeModal
+          isOpen={isSummarizeModalOpen}
+          onClose={() => setIsSummarizeModalOpen(false)}
+          messages={messages}
+          memberMap={memberMap}
+          unreadCount={localUnreadCount}
+        />
       </div>
     </>
   );

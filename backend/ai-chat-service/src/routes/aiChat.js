@@ -1,5 +1,5 @@
 import express from 'express';
-import { getMessages, streamChat, clearHistory, getLastMessage } from '../controllers/aiChatController.js';
+import { getMessages, streamChat, clearHistory, getLastMessage, summarizeGroupChat } from '../controllers/aiChatController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -15,6 +15,9 @@ router.get('/last-message/:userId', getLastMessage);
 
 // POST gửi message + stream response
 router.post('/chat', streamChat);
+
+// POST tóm tắt nhóm chat
+router.post('/summarize', summarizeGroupChat);
 
 // DELETE xóa lịch sử
 router.delete('/history/:userId', clearHistory);

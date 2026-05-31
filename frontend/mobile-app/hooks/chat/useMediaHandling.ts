@@ -26,7 +26,7 @@ export function useMediaHandling({
   replyingMessage,
   setReplyingMessage,
 }: UseMediaHandlingProps) {
-  const [pendingMedia, setPendingMedia] = useState<{ uri: string; type: 'image' | 'video' }[]>([]);
+  const [pendingMedia, setPendingMedia] = useState<{ uri: string; type: 'image' | 'video', base64?: string | null }[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -45,11 +45,13 @@ export function useMediaHandling({
       videoMaxDuration: 300,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
       orderedSelection: true,
+      base64: true, // Thêm dòng này để lấy base64 trực tiếp
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
       const items = result.assets.map(asset => ({
         uri: asset.uri,
         type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+        base64: asset.base64, // Lưu trữ base64
       }));
       setPendingMedia(items);
     }

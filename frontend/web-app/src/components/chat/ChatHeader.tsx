@@ -1,4 +1,4 @@
-import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Loader2, Users, MoreHorizontal, Cloud } from 'lucide-react';
+import { Phone, Video, Search, PanelRightOpen, PanelRightClose, Loader2, Users, MoreHorizontal, Cloud, Zap } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { useCallStore } from '../../stores/callStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -245,6 +245,24 @@ const ChatHeader = () => {
               <Icon size={20} strokeWidth={1.5} />
             </button>
           ))}
+
+          {/* Summarize AI button */}
+          {activeConversation?.isGroup && (
+            <button
+              onClick={() => window.dispatchEvent(new Event('open-summarize-modal'))}
+              className="p-2.5 rounded-lg transition-all duration-150"
+              style={{ color: '#f59e0b' }} // Yellow color
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(245, 158, 11, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+              title="Tóm tắt nhóm chat (AI)"
+            >
+              <Zap size={20} strokeWidth={1.5} />
+            </button>
+          )}
 
           {/* Info Panel Toggle */}
           <button

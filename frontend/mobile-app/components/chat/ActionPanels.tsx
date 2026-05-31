@@ -20,6 +20,8 @@ interface ActionPanelsProps {
   handlePickImage: () => void;
   setShowPollModal: (show: boolean) => void;
   canCreatePoll: boolean;
+  isGroup: boolean;
+  handleSummarize: () => void;
 }
 
 export default function ActionPanels({
@@ -39,6 +41,8 @@ export default function ActionPanels({
   handlePickImage,
   setShowPollModal,
   canCreatePoll,
+  isGroup,
+  handleSummarize,
 }: ActionPanelsProps) {
   return (
     <>
@@ -169,6 +173,15 @@ export default function ActionPanels({
                     <Ionicons name="stats-chart" size={26} color="#fff" />
                   </View>
                   <Text style={styles.moreActionLabel}>Bình chọn</Text>
+                </TouchableOpacity>
+              )}
+
+              {isGroup && (
+                <TouchableOpacity style={styles.moreActionItem} onPress={() => { toggleMoreActions(false); handleSummarize(); }}>
+                  <View style={[styles.moreActionIcon, { backgroundColor: '#f59e0b' }]}>
+                    <Ionicons name="flash" size={26} color="#fff" />
+                  </View>
+                  <Text style={styles.moreActionLabel}>Tóm tắt AI</Text>
                 </TouchableOpacity>
               )}
 

@@ -110,6 +110,11 @@ export const getMessages = async (req, res) => {
 
     const total = await Message.countDocuments(query);
 
+    let nextCursor = null;
+    if (messages.length === parseInt(limit)) {
+      nextCursor = messages[messages.length - 1]._id;
+    }
+
     res.status(200).json({
       success: true,
       data: messages.reverse(), // Return in chronological order
@@ -119,7 +124,7 @@ export const getMessages = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         pages: Math.ceil(total / parseInt(limit)),
-        nextCursor: messages.length > 0 ? messages[messages.length - 1]._id : null,
+        nextCursor,
       },
     });
   } catch (error) {

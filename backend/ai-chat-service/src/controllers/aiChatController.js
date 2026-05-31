@@ -230,3 +230,47 @@ export const getLastMessage = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Failed to get last message' });
   }
 };
+
+/**
+ * POST /api/ai-chat/summarize
+ * Body: { transcript: string }
+ * Tóm tắt đoạn hội thoại do frontend gửi lên.
+ */
+export const summarizeGroupChat = async (req, res) => {
+  try {
+    const { transcript } = req.body;
+
+    if (!transcript || !transcript.trim()) {
+      return res.status(400).json({ success: false, message: 'Transcript is required' });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ success: false, message: 'GEMINI_API_KEY is not configured' });
+    }
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `Dưới đây là đoạn trích lịch sử chat nhóm:
+"""
+${transcript}
+"""
+
+Nhiệm vụ của bạn là:
+1. Tóm tắt ngắn gọn các ý chính, quyết định, hoặc công việc được giao (nếu có).
+2. Lọc bỏ các tin nhắn chào hỏi, tán gẫu không quan trọng.
+3. Dùng gạch đầu dòng rõ ràng, dễ đọc.
+4. KHÔNG sử dụng Markdown code block. CHỈ trả về văn bản bằng tiếng Việt thân thiện.`;
+
+    const result = await model.generateContent(prompt);
+    const summary = result.response.text();
+
+    return res.status(200).json({
+      success: true,
+      data: summary
+    });
+  } catch (error) {
+    console.error('[AI-Chat] summarizeGroupChat error:', error.message);
+    return res.status(500).json({ success: false, message: 'Failed to summarize conversation' });
+  }
+};

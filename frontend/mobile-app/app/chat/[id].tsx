@@ -85,6 +85,10 @@ export default function ChatScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const [showSummarizeModal, setShowSummarizeModal] = useState(false);
+  const [summarizeResult, setSummarizeResult] = useState('');
+  const [summarizeLoading, setSummarizeLoading] = useState(false);
+  const [summarizeError, setSummarizeError] = useState('');
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [replyingMessage, setReplyingMessage] = useState<Message | null>(null);
   const { messages, setMessages, isLoading, isLoadingMore, fetchMore, pinnedMessage, setPinnedMessage, groupMemberCount, isGroup, memberMap, participantRoles, groupName, groupAvatar, groupSettings } = useChatMessages(id, currentUserId, socket);
@@ -709,6 +713,58 @@ export default function ChatScreen() {
   // ─── Typing indicator ──────────────────────────────────────────────────────
 
   // Derived actions — override for AI conversations
+  const handleSummarize = async () => {
+    setShowSummarizeModal(true);
+    setSummarizeLoading(true);
+    setSummarizeResult('');
+    setSummarizeError('');
+
+    try {
+      // 1. Lấy tin nhắn cần tóm tắt
+      const summarizeCount = Math.max(initialUnreadCount, 10);
+      // messages đang theo thứ tự từ mới nhất đến cũ nhất
+      const recentMessages = [...messages].slice(0, summarizeCount).reverse(); // Lấy N tin mới nhất và đảo ngược về thời gian
+
+      // 2. Lọc rác
+      const validMessages = recentMessages.filter(m => {
+        if (m.isRevoked) return false;
+        if (m.messageType === 'system') return false;
+        if (m.messageType === 'text') {
+          const content = (m.content || '').trim();
+          if (content.length < 2) return false;
+        }
+        return true;
+      });
+
+      if (validMessages.length === 0) {
+        setSummarizeError('Không có đủ dữ liệu hội thoại để tóm tắt.');
+        setSummarizeLoading(false);
+        return;
+      }
+
+      // 3. Tạo transcript
+      const transcript = validMessages.map(m => {
+        const name = memberMap?.[m.senderId]?.fullName || (m.senderId === currentUserId ? 'Tôi' : 'Thành viên');
+        const typeStr = m.messageType !== 'text' ? `[Gửi ${m.messageType}]` : '';
+        const content = m.content || '';
+        return `${name}: ${typeStr} ${content}`;
+      }).join('\n');
+
+      // 4. Gọi API
+      const res = await apiClient.post('/api/ai-chat/summarize', { transcript });
+      if (res.data?.success) {
+        setSummarizeResult(res.data.data);
+      } else {
+        throw new Error(res.data?.message || 'Có lỗi xảy ra');
+      }
+    } catch (err: any) {
+      console.error('Lỗi tóm tắt:', err);
+      setSummarizeError(err.message || 'Không thể kết nối đến Bếp AI.');
+    } finally {
+      setSummarizeLoading(false);
+    }
+  };
+
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!currentUserId) return;
@@ -742,21 +798,13 @@ export default function ChatScreen() {
       setText('');
       setPendingMedia([]); // Xóa ảnh pending
 
-      // Đọc ảnh thành base64 nếu có
+      // Sử dụng base64 từ ImagePicker thay vì đọc lại bằng FileSystem để tránh lỗi trên Android 13+
       let imageBase64: string | undefined;
       let imageMimeType: string | undefined;
-      if (hasImage && aiImage) {
-        try {
-          const base64Data = await FileSystem.readAsStringAsync(aiImage.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          imageBase64 = base64Data;
-          // Detect mime type from extension
-          const ext = aiImage.uri.split('.').pop()?.toLowerCase() || 'jpeg';
-          imageMimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-        } catch (err) {
-          console.log('[AI] Failed to read image as base64:', err);
-        }
+      if (hasImage && aiImage && aiImage.base64) {
+        imageBase64 = aiImage.base64;
+        const ext = aiImage.uri.split('.').pop()?.toLowerCase() || 'jpeg';
+        imageMimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
       }
 
       // Start AI streaming
@@ -1266,7 +1314,6 @@ export default function ChatScreen() {
                           <TouchableOpacity 
                             key={uid} 
                             style={styles.mentionItem}
-                            keyboardShouldPersistTaps="always"
                             onPress={() => handleMentionSelect(user.fullName)}
                           >
                             <Image source={{ uri: user.avatarUrl || 'https://via.placeholder.com/40' }} style={styles.mentionAvatar} />
@@ -1292,6 +1339,7 @@ export default function ChatScreen() {
                   handleSendLocation={handleSendLocation} handlePickDocument={handlePickDocument} setShowReminderModal={setShowReminderModal}
                   setShowContactModal={setShowContactModal} handlePickImage={handlePickImage}
                   setShowPollModal={setShowPollModal} canCreatePoll={canCreatePoll}
+                  isGroup={isGroup} handleSummarize={handleSummarize}
                 />
               </>
             ) : (
@@ -1451,6 +1499,55 @@ export default function ChatScreen() {
               <Ionicons name="download-outline" size={26} color="#fff" />
             </TouchableOpacity>
             {lightboxUrl && <Image source={{ uri: lightboxUrl }} style={styles.lightboxImage} resizeMode="contain" />}
+          </View>
+        </Modal>
+
+        {/* AI Summarize Modal */}
+        <Modal visible={showSummarizeModal} transparent animationType="slide" onRequestClose={() => setShowSummarizeModal(false)}>
+          <View style={styles.summarizeModalOverlay}>
+            <View style={styles.summarizeModalContainer}>
+              {/* Header */}
+              <View style={styles.summarizeModalHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="flash" size={20} color="#fff" />
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#333' }}>AI Tóm Tắt</Text>
+                    <Text style={{ fontSize: 12, color: '#888' }}>
+                      {initialUnreadCount > 0 ? `Tóm tắt ${Math.max(initialUnreadCount, 10)} tin nhắn chưa đọc` : `Tóm tắt 10 tin nhắn gần nhất`}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setShowSummarizeModal(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Content */}
+              <ScrollView style={{ flex: 1, padding: 16 }} contentContainerStyle={{ paddingBottom: 20 }}>
+                {summarizeLoading ? (
+                  <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 16 }}>
+                    <ActivityIndicator size="large" color="#f59e0b" />
+                    <Text style={{ color: '#888', fontWeight: '500' }}>Bếp AI đang phân tích hội thoại...</Text>
+                  </View>
+                ) : summarizeError ? (
+                  <View style={{ backgroundColor: '#fef2f2', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#fecaca', flexDirection: 'row', gap: 10 }}>
+                    <Ionicons name="warning" size={24} color="#ef4444" />
+                    <Text style={{ color: '#ef4444', flex: 1, fontWeight: '500' }}>{summarizeError}</Text>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 15, lineHeight: 24, color: '#333' }}>{summarizeResult}</Text>
+                )}
+              </ScrollView>
+
+              {/* Footer */}
+              <View style={styles.summarizeModalFooter}>
+                <TouchableOpacity style={styles.summarizeModalBtn} onPress={() => setShowSummarizeModal(false)}>
+                  <Text style={styles.summarizeModalBtnText}>Đóng</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </Modal>
 
@@ -2217,5 +2314,43 @@ const styles = StyleSheet.create({
   filterTabTextActive: {
     color: '#fff',
     fontWeight: '600',
-  }
+  },
+  // --- AI Summarize Modal ---
+  summarizeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  summarizeModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '75%',
+    flexDirection: 'column',
+  },
+  summarizeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  summarizeModalFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  summarizeModalBtn: {
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 12,
+    paddingHorizontal: 40,
+    borderRadius: 24,
+  },
+  summarizeModalBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
 });
