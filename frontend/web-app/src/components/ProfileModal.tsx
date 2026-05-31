@@ -348,13 +348,23 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, user }) =>
 
               {/* Options */}
               <div className="px-4 py-2 space-y-1" style={{ borderTop: '1px solid var(--border-primary)' }}>
-                <button className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 rounded-lg px-2" style={{ color: 'var(--text-primary)' }}>
+                <button 
+                  className="w-full flex items-center justify-between py-3 text-sm text-left rounded-lg px-2 transition-colors" 
+                  style={{ color: 'var(--text-primary)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
                   <div className="flex items-center gap-3">
                     <Users size={16} style={{ color: 'var(--text-secondary)' }} />
                     <span>Nhóm chung (0)</span>
                   </div>
                 </button>
-                <button className="w-full flex items-center justify-between py-3 text-sm text-left hover:bg-black/5 dark:hover:bg-white/5 rounded-lg px-2" style={{ color: 'var(--text-primary)' }}>
+                <button 
+                  className="w-full flex items-center justify-between py-3 text-sm text-left rounded-lg px-2 transition-colors" 
+                  style={{ color: 'var(--text-primary)' }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                >
                   <div className="flex items-center gap-3">
                     <Fingerprint size={16} style={{ color: 'var(--text-secondary)' }} />
                     <span>Chia sẻ danh thiếp</span>

@@ -1363,8 +1363,8 @@ const MessageList = () => {
           </div>
         )}
         {isCloudConversation && (
-          <div className="sticky top-0 z-[45] flex items-center justify-start gap-2 py-2 px-3 mb-2 rounded-xl bg-white/95 dark:bg-gray-800/95 backdrop-blur border shadow-sm select-none"
-            style={{ borderColor: 'var(--border-light)' }}>
+          <div className="sticky top-0 z-[45] flex items-center justify-start gap-2 py-2 px-3 mb-2 rounded-xl backdrop-blur border shadow-sm select-none"
+            style={{ background: 'var(--bg-panel)', borderColor: 'var(--border-light)' }}>
             {[
               { key: 'all', label: 'Tất cả' },
               { key: 'image', label: 'Ảnh' },
@@ -1378,11 +1378,12 @@ const MessageList = () => {
                 <button
                   key={tab.key}
                   onClick={() => setCloudFilter(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
-                    isActive 
-                      ? 'bg-[#0068FF] text-white border-[#0068FF]' 
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 border-transparent'
-                  }`}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer`}
+                  style={{
+                    background: isActive ? 'var(--zalo-blue)' : 'var(--bg-search)',
+                    color: isActive ? '#fff' : 'var(--text-primary)',
+                    borderColor: isActive ? 'var(--zalo-blue)' : 'transparent'
+                  }}
                 >
                   {tab.label}
                 </button>
@@ -1605,12 +1606,15 @@ const MessageList = () => {
 
                   {/* Reaction Tooltip */}
                   {reactionTooltipId === messageId && (
-                    <div className={`absolute ${tooltipDirection === 'down' ? 'top-full mt-2' : 'bottom-full mb-2'} ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 bg-white border border-[#e6e8eb] shadow-xl rounded-full p-1 z-[100] animate-bounce-in`}
+                    <div className={`absolute ${tooltipDirection === 'down' ? 'top-full mt-2' : 'bottom-full mb-2'} ${isMe ? 'right-0' : 'left-0'} flex items-center gap-1 shadow-xl rounded-full p-1 z-[100] animate-bounce-in`}
+                      style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-light)' }}
                       onClick={(e) => e.stopPropagation()}>
                       {REACTION_EMOJIS.map((emoji) => (
                         <button
                           key={emoji.type}
-                          className="p-2 hover:scale-125 transition-all duration-200 rounded-full hover:bg-gray-100 flex items-center justify-center"
+                          className="p-2 hover:scale-125 transition-all duration-200 rounded-full flex items-center justify-center"
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                           onClick={() => handleReactMessage(messageId, emoji.type)}
                           title={emoji.type}
                         >

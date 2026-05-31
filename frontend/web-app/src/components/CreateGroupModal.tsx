@@ -210,7 +210,7 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
                     <span
                       key={c.id}
                       className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
-                      style={{ background: '#EBF2FF', color: '#0068FF' }}
+                      style={{ background: 'var(--bg-active, #EBF2FF)', color: 'var(--text-accent, #0068FF)' }}
                     >
                       {c.nickname || c.fullName}
                       <button
@@ -246,13 +246,13 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
                       onClick={() => toggleSelect(c.contactUserId)}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-150"
                       style={{
-                        background: isSelected ? '#EBF2FF' : 'transparent',
+                        background: isSelected ? 'var(--bg-active, #EBF2FF)' : 'transparent',
                       }}
                       onMouseEnter={(e) => {
                         if (!isSelected) e.currentTarget.style.background = 'var(--bg-hover, #f3f4f6)';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isSelected ? '#EBF2FF' : 'transparent';
+                        e.currentTarget.style.background = isSelected ? 'var(--bg-active, #EBF2FF)' : 'transparent';
                       }}
                     >
                       {/* Avatar */}

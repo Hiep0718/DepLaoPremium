@@ -1149,7 +1149,9 @@ const MessageInput = () => {
                     <button
                       key={uid}
                       type="button"
-                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors"
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       onClick={() => handleMentionSelect(userObj.fullName)}
                     >
                       <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm">
