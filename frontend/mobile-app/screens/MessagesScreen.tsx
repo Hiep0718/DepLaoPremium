@@ -17,6 +17,7 @@ export interface Conversation {
     content: string;
     senderId: string;
     timestamp: string;
+    messageType?: string;
   };
   isGroup: boolean;
   groupName?: string;
@@ -280,11 +281,29 @@ export function MessagesScreen() {
     return userNameCache[uid] || 'Thành viên';
   };
 
-  const formatLastMessage = (content: string, senderId?: string): string => {
+  const formatLastMessage = (content: string, senderId?: string, msgType?: string): string => {
     if (!content) return 'Chưa có tin nhắn';
+
+    // ── Xử lý messageType đặc biệt (giống web app) ──
+    if (msgType === 'contact') return '🏷️ [Danh thiếp]';
+    if (msgType === 'location') return '📍 [Vị trí]';
+    if (msgType === 'reminder') return '⏰ [Nhắc hẹn]';
+    if (msgType === 'image') return '📷 [Hình ảnh]';
+    if (msgType === 'video') return '🎬 [Video]';
+    if (msgType === 'audio') return '🎤 [Tin nhắn thoại]';
+    if (msgType === 'file' || msgType === 'document') return '📎 [Tệp đính kèm]';
+    if (msgType === 'sticker' || msgType === 'sticker-message') return '😊 [Nhãn dán]';
+    if (msgType === 'poll') {
+      try {
+        const pollData = typeof content === 'string' && content.startsWith('{') ? JSON.parse(content) : null;
+        if (pollData?.question) return `📊 Bình chọn: ${pollData.question}`;
+      } catch {}
+      return '📊 [Bình chọn]';
+    }
 
     const actor = getName(String(senderId));
 
+    // ── Xử lý system messages ──
     if (content === 'Nhóm đã được tạo') {
       return '🎉 Nhóm đã được tạo';
     }
@@ -323,6 +342,17 @@ export function MessagesScreen() {
       return `${actor} đã cập nhật thông tin nhóm`;
     }
 
+    // ── Phát hiện JSON content chưa xử lý → hiện fallback thân thiện ──
+    if (typeof content === 'string' && content.startsWith('{') && content.includes('"')) {
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed.fullName) return '🏷️ [Danh thiếp]';
+        if (parsed.latitude) return '📍 [Vị trí]';
+        if (parsed.reminderTime) return '⏰ [Nhắc hẹn]';
+        if (parsed.question) return `📊 Bình chọn: ${parsed.question}`;
+      } catch {}
+    }
+
     return content;
   };
 
@@ -344,9 +374,11 @@ export function MessagesScreen() {
     const unreadCount = item.unreadCount || 0;
     const isUnread = unreadCount > 0;
     const lastContent = item.lastMessage?.content || '';
+    const lastMsgType = (item.lastMessage as any)?.messageType;
     const isSystem = isSystemContent(lastContent);
-    const displayContent = isSystem
-      ? formatLastMessage(lastContent, item.lastMessage?.senderId)
+    const isSpecialType = lastMsgType && lastMsgType !== 'text';
+    const displayContent = (isSystem || isSpecialType)
+      ? formatLastMessage(lastContent, item.lastMessage?.senderId, lastMsgType)
       : lastContent;
 
     return (
