@@ -34,8 +34,8 @@ public class OtpService {
             try {
                 SimpleMailMessage message = new SimpleMailMessage();
                 message.setTo(email);
-                message.setSubject("Mã OTP Khôi Phục Mật Khẩu - DepLao Premium");
-                message.setText("Xin chào,\n\nMã OTP để khôi phục mật khẩu của bạn là: " + otp + "\n\nVui lòng không chia sẻ mã này cho bất kỳ ai.\n\nTrân trọng,\nDepLao Premium Team");
+                message.setSubject("Mã xác thực OTP - DepLao Premium");
+                message.setText("Xin chào,\n\nMã OTP của bạn là: " + otp + "\n\nMã có hiệu lực trong 5 phút.\nVui lòng không chia sẻ mã này cho bất kỳ ai.\n\nTrân trọng,\nDepLao Premium Team");
                 mailSender.send(message);
                 logger.info("Đã gửi email OTP thành công đến {}", email);
             } catch (Exception e) {

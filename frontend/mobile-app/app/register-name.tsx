@@ -8,7 +8,7 @@ import apiClient from "@/constants/api"
 
 export default function RegisterNameScreen() {
     const router = useRouter()
-    const { phone } = useLocalSearchParams<{ phone: string }>()
+    const { phone, email } = useLocalSearchParams<{ phone: string; email: string }>()
     const [name, setName] = useState("")
     const [password, setPassword] = useState("")
     const [isLoading, setIsLoading] = useState(false)
@@ -25,7 +25,8 @@ export default function RegisterNameScreen() {
             await apiClient.post('/auth/register', { 
                 phone: p, 
                 fullName: n, 
-                password: pwd 
+                password: pwd,
+                email: email || undefined,
             });
             Alert.alert("Thành công", "Đăng ký thành công! Hãy đăng nhập để tiếp tục.", [
                 { text: "OK", onPress: () => router.replace("/login") }

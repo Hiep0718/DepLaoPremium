@@ -32,6 +32,8 @@ public class UserService {
                 .phone(request.getPhone())
                 .fullName(request.getFullName())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .email(request.getEmail() != null && !request.getEmail().trim().isEmpty()
+                       ? request.getEmail().trim() : null)
                 .role(User.Role.USER)
                 .isLocked(false)
                 .build();

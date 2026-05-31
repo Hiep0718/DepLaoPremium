@@ -23,8 +23,11 @@ public class AuthController {
     @PostMapping(value = "/send-otp", consumes = "application/json")
     public ResponseEntity<ApiResponse<?>> sendOtp(@Valid @RequestBody SendOtpRequest request) {
         try {
-            otpService.generateAndSendOtp(request.getPhone(), null);
-            return ResponseEntity.ok(ApiResponse.success("Đã gửi mã OTP thành công", null));
+            otpService.generateAndSendOtp(request.getPhone(), request.getEmail());
+            String msg = (request.getEmail() != null && !request.getEmail().trim().isEmpty())
+                ? "Đã gửi mã OTP về email " + maskEmail(request.getEmail())
+                : "Đã gửi mã OTP thành công";
+            return ResponseEntity.ok(ApiResponse.success(msg, null));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(ApiResponse.error("Lỗi khi gửi mã OTP: " + e.getMessage()));
         }
