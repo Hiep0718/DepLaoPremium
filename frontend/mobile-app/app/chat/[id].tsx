@@ -4,7 +4,8 @@ import {
   FlatList, ActivityIndicator, Text, TouchableOpacity, Modal, Image, ScrollView,
   TextInput, Linking, Animated as RNAnimated, TouchableWithoutFeedback, Keyboard, Alert
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
@@ -82,6 +83,60 @@ export default function ChatScreen() {
 
   // States
   const [text, setText] = useState('');
+  const [wallpaper, setWallpaper] = useState<string | null>(null);
+  const [customName, setCustomName] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (id) {
+        AsyncStorage.getItem(`wallpaper_${id}`)
+          .then(val => {
+            setWallpaper(val);
+          })
+          .catch(err => console.log('Lỗi khi đọc hình nền:', err));
+
+        // Load contact nickname for 1-1 chats
+        if (isGroup !== 'true' && !id.startsWith('cloud_')) {
+          const targetId = recipientId || id;
+          if (targetId && typeof targetId === 'string' && !targetId.startsWith('cloud_')) {
+            apiClient.get('/contacts?page=0&size=100')
+              .then(contactsRes => {
+                const contacts = contactsRes.data?.data?.content || contactsRes.data?.data || [];
+                const contact = contacts.find((c: any) => String(c.contactUserId) === String(targetId));
+                if (contact && contact.nickname) {
+                  setCustomName(contact.nickname);
+                } else if (contact) {
+                  setCustomName(contact.fullName);
+                }
+              })
+              .catch(err => console.log('Lỗi khi tải nickname trong chat:', err));
+          }
+        }
+      }
+    }, [id, recipientId, isGroup])
+  );
+
+  // Listen for real-time wallpaper updates from backend
+  useEffect(() => {
+    if (!socket || !id) return;
+
+    const handleWallpaperUpdated = (data: any) => {
+      if (data.conversationId === id) {
+        setWallpaper(data.wallpaper);
+        if (data.wallpaper) {
+          AsyncStorage.setItem(`wallpaper_${id}`, data.wallpaper).catch(() => {});
+        } else {
+          AsyncStorage.removeItem(`wallpaper_${id}`).catch(() => {});
+        }
+      }
+    };
+
+    socket.on('wallpaper_updated', handleWallpaperUpdated);
+    return () => {
+      socket.off('wallpaper_updated', handleWallpaperUpdated);
+    };
+  }, [socket, id]);
+
   const [isTyping, setIsTyping] = useState(false);
   const [showStickers, setShowStickers] = useState(false);
   const [showMoreActions, setShowMoreActions] = useState(false);
@@ -227,7 +282,7 @@ export default function ChatScreen() {
       setIsMember(!!participantRoles[String(currentUserId)]);
     }
   }, [isGroup, participantRoles, currentUserId]);
-  const dynamicName = isCloud ? 'Cloud của tôi' : (isGroup ? (groupName || name) : name);
+  const dynamicName = isCloud ? 'Cloud của tôi' : (isGroup ? (groupName || name) : (customName || name));
   const dynamicAvatar = isCloud ? 'cloud' : (isGroup ? (groupAvatar || avatar) : avatar);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [actionSheetMessage, setActionSheetMessage] = useState<Message | null>(null);
@@ -480,6 +535,16 @@ export default function ChatScreen() {
   });
 
   const [reactionTooltipId, setReactionTooltipId] = useState<string | null>(null);
+
+  const handleScrollToPinnedMessage = useCallback(() => {
+    if (!pinnedMessage?.messageId || !flatListRef.current) return;
+    const index = messages.findIndex(m => String(m._id) === String(pinnedMessage.messageId));
+    if (index !== -1) {
+      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+    } else {
+      Alert.alert('Không tìm thấy', 'Tin nhắn này đã quá cũ hoặc không còn tồn tại trong lịch sử tải về.');
+    }
+  }, [pinnedMessage?.messageId, messages]);
 
   const REACTION_EMOJIS = [
     { type: 'love', icon: '❤️' },
@@ -986,15 +1051,28 @@ export default function ChatScreen() {
         {
           pinnedMessage && pinnedMessage.messageId && (pinnedMessage.content || pinnedMessage.messageType) && (
             <View style={styles.pinnedBanner}>
-              <Ionicons name="pricetag" size={16} color={ZaloColors.blue} style={{ marginRight: 8 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.pinnedBannerTitle}>Tin nhắn đã ghim</Text>
-                <Text style={styles.pinnedBannerContent} numberOfLines={1}>
-                  {pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
-                    pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
-                      pinnedMessage.content}
-                </Text>
-              </View>
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
+                onPress={handleScrollToPinnedMessage}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="pricetag" size={16} color={ZaloColors.blue} style={{ marginRight: 8 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pinnedBannerTitle}>Tin nhắn đã ghim</Text>
+                  <Text style={styles.pinnedBannerContent} numberOfLines={1}>
+                    {pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
+                      pinnedMessage.messageType === 'image' ? '[Hình ảnh]' :
+                        pinnedMessage.messageType === 'video' ? '[Video]' :
+                          pinnedMessage.messageType === 'audio' ? '[Tin nhắn thoại]' :
+                            pinnedMessage.messageType === 'file' || pinnedMessage.messageType === 'document' ? '[Tệp]' :
+                              pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
+                                pinnedMessage.messageType === 'location' ? '[Vị trí]' :
+                                  pinnedMessage.messageType === 'reminder' ? '[Nhắc hẹn]' :
+                                    pinnedMessage.messageType === 'poll' ? '[Bình chọn]' :
+                                      pinnedMessage.content}
+                  </Text>
+                </View>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.unpinBtn}
                 onPress={() => socket?.emit('unpin_message', { conversationId: id, userId: currentUserId })}
@@ -1006,9 +1084,19 @@ export default function ChatScreen() {
         }
 
         <KeyboardAvoidingView
-          style={[styles.chatArea, { backgroundColor: '#e2e9f1' }]}
+          style={[
+            styles.chatArea,
+            { backgroundColor: wallpaper && wallpaper.startsWith('#') ? wallpaper : '#e2e9f1' }
+          ]}
           behavior="padding"
         >
+          {wallpaper && !wallpaper.startsWith('#') && (
+            <Image
+              source={{ uri: wallpaper }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+            />
+          )}
           {/* Nút nhảy đến tin nhắn chưa đọc đầu tiên (khi mới vào) */}
           {initialUnreadCount > 0 && initialUnreadCount <= messages.length && (
             <TouchableOpacity 

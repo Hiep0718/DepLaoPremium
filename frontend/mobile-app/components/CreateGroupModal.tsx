@@ -22,11 +22,12 @@ interface Contact {
 interface CreateGroupModalProps {
   visible: boolean;
   onClose: () => void;
+  preselectedUserId?: string;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function CreateGroupModal({ visible, onClose }: CreateGroupModalProps) {
+export default function CreateGroupModal({ visible, onClose, preselectedUserId }: CreateGroupModalProps) {
   const router = useRouter();
   const { socket, currentUserId } = useSocket();
   
@@ -50,7 +51,12 @@ export default function CreateGroupModal({ visible, onClose }: CreateGroupModalP
         const res = await apiClient.get('/contacts');
         const data = res.data?.data?.content || [];
         setContacts(data);
-        setFilteredContacts(data);
+        
+        let selectables = data;
+        if (preselectedUserId) {
+          selectables = selectables.filter((c: any) => String(c.contactUserId) !== String(preselectedUserId));
+        }
+        setFilteredContacts(selectables);
       } catch (err) {
         console.log('Error loading contacts for group creation', err);
       } finally {
@@ -59,31 +65,36 @@ export default function CreateGroupModal({ visible, onClose }: CreateGroupModalP
     };
     
     loadContacts();
-  }, [visible]);
+  }, [visible, preselectedUserId]);
 
   // Reset state when closing/opening
   useEffect(() => {
     if (visible) {
       setSearchTerm('');
       setGroupName('');
-      setSelectedUserIds(new Set());
+      setSelectedUserIds(new Set(preselectedUserId ? [preselectedUserId] : []));
     }
-  }, [visible]);
+  }, [visible, preselectedUserId]);
 
   // Handle Search
   useEffect(() => {
+    let selectables = contacts;
+    if (preselectedUserId) {
+      selectables = selectables.filter((c: any) => String(c.contactUserId) !== String(preselectedUserId));
+    }
+
     if (!searchTerm.trim()) {
-      setFilteredContacts(contacts);
+      setFilteredContacts(selectables);
       return;
     }
     const lower = searchTerm.toLowerCase();
-    const filtered = contacts.filter((c) => {
+    const filtered = selectables.filter((c) => {
       const name = (c.nickname || c.fullName || '').toLowerCase();
       const phone = (c.phone || '').toLowerCase();
       return name.includes(lower) || phone.includes(lower);
     });
     setFilteredContacts(filtered);
-  }, [searchTerm, contacts]);
+  }, [searchTerm, contacts, preselectedUserId]);
 
   const toggleSelectUser = (user: Contact) => {
     const uid = user.contactUserId || user.id;

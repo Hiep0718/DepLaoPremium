@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
@@ -31,6 +32,7 @@ export interface Conversation {
   isAiBot?: boolean;
 
   unreadCount?: number;
+  isPinned?: boolean;
 
 }
 
@@ -41,6 +43,7 @@ export function MessagesScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userNameCache, setUserNameCache] = useState<Record<string, string>>({});
+  const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
 
   // Fetch a user's name and cache it
   const getUserName = async (uid: string): Promise<string> => {
@@ -85,6 +88,15 @@ export function MessagesScreen() {
       return;
     }
     try {
+      // 1. Fetch contacts list first to check nicknames
+      let contacts: any[] = [];
+      try {
+        const contactsRes = await apiClient.get('/contacts?page=0&size=100');
+        contacts = contactsRes.data?.data?.content || contactsRes.data?.data || [];
+      } catch (err) {
+        console.log('Error fetching contacts in MessagesScreen:', err);
+      }
+
       // Gọi Node API để lấy list Box Chat của mình
       const res = await chatApiClient.get(`/conversations/${currentUserId}`);
       let convs = res.data?.data || [];
@@ -109,7 +121,15 @@ export function MessagesScreen() {
             if (otherUserId) {
               try {
                 const userRes = await apiClient.get(`/users/${otherUserId}`);
-                conv.otherUser = userRes.data?.data;
+                const uData = userRes.data?.data;
+                if (uData) {
+                  // Override fullName with nickname if custom contact nickname exists!
+                  const matchedContact = contacts.find((c: any) => String(c.contactUserId) === String(otherUserId));
+                  if (matchedContact && matchedContact.nickname) {
+                    uData.fullName = matchedContact.nickname;
+                  }
+                  conv.otherUser = uData;
+                }
               } catch (e) {
                 console.log('Failed to fetch user', otherUserId);
                 conv.otherUser = { id: otherUserId, fullName: 'Người dùng Zalo' };
@@ -169,12 +189,38 @@ export function MessagesScreen() {
         }
       };
 
-      // Gộp AI conversation vào danh sách và sắp xếp theo thời gian mới nhất
+      // Gộp AI conversation vào danh sách và sắp xếp theo:
+      // 1. isPinned (Ghim trước, thường sau)
+      // 2. Thời gian tin nhắn cuối cùng mới nhất
       const allConvs = [aiConv, ...activeConvs].sort((a, b) => {
+        const pinA = a.isPinned ? 1 : 0;
+        const pinB = b.isPinned ? 1 : 0;
+        if (pinA !== pinB) {
+          return pinB - pinA;
+        }
         const timeA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
         const timeB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
         return timeB - timeA;
       });
+
+      // Tải trạng thái tắt tiếng và đồng bộ ghim của các cuộc trò chuyện
+      const muteStates: Record<string, boolean> = {};
+      await Promise.all(
+        allConvs.map(async (conv) => {
+          try {
+            const val = await AsyncStorage.getItem(`muted_${conv.conversationId}`);
+            muteStates[conv.conversationId] = val === 'true';
+          } catch (e) {}
+
+          if (conv.isPinned !== undefined) {
+            try {
+              await AsyncStorage.setItem(`pinned_${conv.conversationId}`, conv.isPinned ? 'true' : 'false');
+            } catch (e) {}
+          }
+        })
+      );
+      setMutedMap(muteStates);
+
       setConversations(allConvs);
     } catch (error) {
       console.log('Error loading conversations', error);
@@ -184,9 +230,11 @@ export function MessagesScreen() {
     }
   };
 
-  useEffect(() => {
-    loadConversations();
-  }, [currentUserId]);
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [currentUserId])
+  );
 
   // Lắng nghe Message mới bắn về để cập nhật "Tin nhắn mới nhất"
   useEffect(() => {
@@ -252,14 +300,46 @@ export function MessagesScreen() {
       });
     };
 
+    const handleConversationPinned = (data: any) => {
+      console.log('[Socket] ★ conversation_pinned received on mobile:', data);
+      if (!data || !data.conversationId) return;
+
+      // Update AsyncStorage cache too
+      AsyncStorage.setItem(`pinned_${data.conversationId}`, data.isPinned ? 'true' : 'false').catch(() => {});
+
+      setConversations(prev => {
+        const idx = prev.findIndex(c => c.conversationId === data.conversationId);
+        if (idx > -1) {
+          const updatedConv = { ...prev[idx], isPinned: data.isPinned };
+          const newList = [...prev];
+          newList[idx] = updatedConv;
+
+          // Resort the list immediately
+          return newList.sort((a, b) => {
+            const pinA = a.isPinned ? 1 : 0;
+            const pinB = b.isPinned ? 1 : 0;
+            if (pinA !== pinB) {
+              return pinB - pinA;
+            }
+            const timeA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
+            const timeB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+            return timeB - timeA;
+          });
+        }
+        return prev;
+      });
+    };
+
     socket.on('message_received', handleNewMessage);
     socket.on('message_sent', handleNewMessage);
     socket.on('group_updated', handleGroupUpdated);
+    socket.on('conversation_pinned', handleConversationPinned);
 
     return () => {
       socket.off('message_received', handleNewMessage);
       socket.off('message_sent', handleNewMessage);
       socket.off('group_updated', handleGroupUpdated);
+      socket.off('conversation_pinned', handleConversationPinned);
     };
   }, [socket]);
 
@@ -383,7 +463,7 @@ export function MessagesScreen() {
 
     return (
       <TouchableOpacity
-        style={styles.chatRow}
+        style={[styles.chatRow, item.isPinned && { backgroundColor: '#f5f8ff' }]}
         activeOpacity={0.7}
         onPress={async () => {
           // Đặt lại số đếm unread về 0 trên UI khi click vào
@@ -434,8 +514,18 @@ export function MessagesScreen() {
         )}
         <View style={styles.chatInfo}>
           <View style={styles.chatHeader}>
-            <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{name}</Text>
-            <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+              {item.isPinned && (
+                <Ionicons name="pin" size={14} color="#0068FF" style={{ marginRight: 4, transform: [{ rotate: '45deg' }] }} />
+              )}
+              <Text style={[styles.chatName, isUnread && styles.chatNameUnread]} numberOfLines={1}>{name}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {mutedMap[item.conversationId] && (
+                <Ionicons name="notifications-off-outline" size={13} color="#a0a0a0" />
+              )}
+              <Text style={styles.chatTime}>{formatTime(item.lastMessage?.timestamp)}</Text>
+            </View>
           </View>
           <View style={styles.chatPreviewRow}>
             <Text style={[styles.chatPreview, isUnread && styles.chatPreviewUnread, isSystem && styles.chatPreviewSystem]} numberOfLines={1}>

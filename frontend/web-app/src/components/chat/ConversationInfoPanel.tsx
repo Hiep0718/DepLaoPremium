@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Bell, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit, Folder, Info } from 'lucide-react';
+import { X, Bell, BellOff, Pin, UserPlus, Clock, Users, Image as ImageIcon, FileText, Link, Shield, Eye, AlertTriangle, Trash2, ChevronDown, MoreHorizontal, Crown, UserCheck, UserMinus, Settings, LogOut, Sparkles, MessageSquare, Edit, Folder, Info } from 'lucide-react';
 import { useChatStore } from '../../stores/chatStore';
 import { clearAiHistory } from '../../services/aiChat.service';
 import { useAuthStore } from '../../stores/authStore';
@@ -12,12 +12,14 @@ import MediaArchiveModal from './MediaArchiveModal';
 import { confirmAlert } from '../../stores/confirmStore';
 
 const ConversationInfoPanel = () => {
-  const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations } = useChatStore();
+  const { activeConversation, activeContactInfo, toggleInfoPanel, messages, setActiveConversation, setConversations, conversations } = useChatStore();
   const { user } = useAuthStore();
   const [expandedMedia, setExpandedMedia] = useState(true);
   const [expandedFiles, setExpandedFiles] = useState(true);
   const [expandedLinks, setExpandedLinks] = useState(true);
   const [expandedMembers, setExpandedMembers] = useState(false);
+  const [isCommonGroupsModalOpen, setIsCommonGroupsModalOpen] = useState(false);
+  const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string }>>({});
   const [menuOpenUid, setMenuOpenUid] = useState<string | null>(null);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
@@ -32,7 +34,110 @@ const ConversationInfoPanel = () => {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [isInviteExpanded, setIsInviteExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [isMuted, setIsMuted] = useState(false);
+
+  const handleSelectColorWallpaper = async (color: string) => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    try {
+      await api.put(`/messages/conversations/${activeConversation.conversationId}/wallpaper`, {
+        userId: user.id.toString(),
+        wallpaper: color
+      });
+      useChatStore.getState().updateActiveConversation({ wallpaper: color });
+      setIsWallpaperModalOpen(false);
+    } catch (err) {
+      console.error('Failed to select wallpaper color:', err);
+      alert('Không thể lưu màu nền mới.');
+    }
+  };
+
+  const handleResetWallpaper = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    try {
+      await api.put(`/messages/conversations/${activeConversation.conversationId}/wallpaper`, {
+        userId: user.id.toString(),
+        wallpaper: null
+      });
+      useChatStore.getState().updateActiveConversation({ wallpaper: null });
+      setIsWallpaperModalOpen(false);
+    } catch (err) {
+      console.error('Failed to reset wallpaper:', err);
+      alert('Không thể xóa hình nền.');
+    }
+  };
+
+  const handleUploadWallpaperFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!activeConversation?.conversationId || !user?.id || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const uploadRes = await api.post(`/upload/chat`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const newUrl = uploadRes.data?.data?.url;
+      if (!newUrl) throw new Error("Không nhận được URL hình nền");
+
+      await api.put(`/messages/conversations/${activeConversation.conversationId}/wallpaper`, {
+        userId: user.id.toString(),
+        wallpaper: newUrl
+      });
+
+      useChatStore.getState().updateActiveConversation({ wallpaper: newUrl });
+      setIsWallpaperModalOpen(false);
+      alert('Đổi hình nền cuộc trò chuyện thành công!');
+    } catch (err) {
+      console.error('Failed to upload custom wallpaper:', err);
+      alert('Không thể tải lên ảnh nền.');
+    }
+  };
+
+  // Load muted state từ localStorage khi thay đổi hội thoại
+  useEffect(() => {
+    if (activeConversation?.conversationId) {
+      setIsMuted(localStorage.getItem(`muted_${activeConversation.conversationId}`) === 'true');
+    }
+  }, [activeConversation?.conversationId]);
+
+  // Toggle trạng thái tắt thông báo
+  const handleToggleMute = () => {
+    if (!activeConversation?.conversationId) return;
+    const newMuted = !isMuted;
+    setIsMuted(newMuted);
+    if (newMuted) {
+      localStorage.setItem(`muted_${activeConversation.conversationId}`, 'true');
+    } else {
+      localStorage.removeItem(`muted_${activeConversation.conversationId}`);
+    }
+    window.dispatchEvent(new CustomEvent('mute_status_changed', {
+      detail: { conversationId: activeConversation.conversationId, isMuted: newMuted }
+    }));
+  };
+
+  // Toggle trạng thái ghim hội thoại
+  const handleTogglePin = async () => {
+    if (!activeConversation?.conversationId || !user?.id) return;
+    const isCurrentlyPinned = !!activeConversation.isPinned;
+    const nextPinned = !isCurrentlyPinned;
+    try {
+      await api.put(`/messages/conversations/${activeConversation.conversationId}/pin`, {
+        userId: user.id.toString(),
+        isPinned: nextPinned
+      });
+      useChatStore.getState().updateActiveConversation({ isPinned: nextPinned });
+      
+      const updatedList = conversations.map((c: any) => 
+        c.conversationId === activeConversation.conversationId ? { ...c, isPinned: nextPinned } : c
+      );
+      setConversations(updatedList);
+    } catch (err) {
+      console.error('Failed to toggle pin state:', err);
+      alert('Không thể thực hiện ghim/bỏ ghim cuộc trò chuyện.');
+    }
+  };
 
   // Đóng menu khi click ngoài
   useEffect(() => {
@@ -44,6 +149,25 @@ const ConversationInfoPanel = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // ID của đối phương trong chat 1-1
+  const recipientId = useMemo(() => {
+    if (!activeConversation || activeConversation.isGroup) return null;
+    const otherP = activeConversation.participants?.find(
+      (p: any) => String(p.userId || p.id || p) !== String(user?.id)
+    );
+    return otherP ? String(otherP.userId || otherP.id || otherP) : null;
+  }, [activeConversation, user?.id]);
+
+  // Danh sách nhóm chung của 2 người
+  const commonGroups = useMemo(() => {
+    if (!recipientId || !conversations) return [];
+    return conversations.filter((c: any) => 
+      c.isGroup && 
+      c.participants && 
+      c.participants.some((p: any) => String(p.userId || p.id || p) === String(recipientId))
+    );
+  }, [recipientId, conversations]);
 
   // Xác định user hiện tại có phải leader không
   const myRole = useMemo(() => {
@@ -654,22 +778,21 @@ const ConversationInfoPanel = () => {
               {/* Quick Actions */}
               <div className="flex justify-center gap-6 py-4 px-4" style={{ borderBottom: '6px solid var(--border-light)' }}>
                 {(activeConversation.isGroup ? [
-                  { icon: Bell, label: 'Tắt thông\nbáo' },
-                  { icon: Pin, label: 'Ghim hội\nthoại' },
+                  { icon: isMuted ? BellOff : Bell, label: isMuted ? 'Bật thông\nbáo' : 'Tắt thông\nbáo', action: handleToggleMute, isActive: isMuted },
+                  { icon: Pin, label: activeConversation.isPinned ? 'Bỏ ghim\nhội thoại' : 'Ghim hội\nthoại', action: handleTogglePin, isActive: !!activeConversation.isPinned },
                   { icon: UserPlus, label: 'Thêm thành\nviên', action: () => setIsAddMemberOpen(true) },
                   { icon: Settings, label: 'Quản lý\nnhóm', action: () => setIsGroupManagementModalOpen(true) },
                 ] : [
-                  { icon: Bell, label: 'Tắt thông\nbáo' },
-                  { icon: Pin, label: 'Ghim hội\nthoại' },
+                  { icon: isMuted ? BellOff : Bell, label: isMuted ? 'Bật thông\nbáo' : 'Tắt thông\nbáo', action: handleToggleMute, isActive: isMuted },
+                  { icon: Pin, label: activeConversation.isPinned ? 'Bỏ ghim\nhội thoại' : 'Ghim hội\nthoại', action: handleTogglePin, isActive: !!activeConversation.isPinned },
                   { icon: UserPlus, label: 'Tạo nhóm\ntrò chuyện' },
-                ]).map(({ icon: Icon, label, action }, i) => (
+                ]).map(({ icon: Icon, label, action, isActive }, i) => (
                   <button key={i} className="flex flex-col items-center gap-1.5 group cursor-pointer" onClick={action}>
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center transition-colors"
-                      style={{ background: 'var(--bg-hover)' }}>
-                      <Icon size={18} style={{ color: 'var(--text-secondary)' }} />
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isActive ? 'bg-[#e8f0fe] text-[#0068FF]' : 'bg-[var(--bg-hover)] text-[var(--text-secondary)]'}`}>
+                      <Icon size={18} />
                     </div>
                     <span className="text-[11px] text-center leading-tight whitespace-pre-line"
-                      style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                      style={{ color: isActive ? '#0068FF' : 'var(--text-secondary)' }}>{label}</span>
                   </button>
                 ))}
               </div>
@@ -851,11 +974,19 @@ const ConversationInfoPanel = () => {
                       <Clock size={18} style={{ color: 'var(--text-secondary)' }} />
                       <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Danh sách nhắc hẹn</span>
                     </button>
-                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left"
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left cursor-pointer"
+                      onClick={() => setIsCommonGroupsModalOpen(true)}
                       onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
                       onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
                       <Users size={18} style={{ color: 'var(--text-secondary)' }} />
-                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>1 nhóm chung</span>
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{commonGroups.length} nhóm chung</span>
+                    </button>
+                    <button className="w-full flex items-center gap-3 px-4 py-2.5 transition-colors text-left cursor-pointer"
+                      onClick={() => setIsWallpaperModalOpen(true)}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-hover)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                      <ImageIcon size={18} style={{ color: 'var(--text-secondary)' }} />
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Hình nền trò chuyện</span>
                     </button>
                   </>
                 )}
@@ -1457,6 +1588,142 @@ const ConversationInfoPanel = () => {
         conversationId={activeConversation.conversationId}
         initialTab={initialArchiveTab}
       />
+
+      {/* Hidden File Input for Custom Wallpaper */}
+      <input
+        type="file"
+        ref={wallpaperInputRef}
+        className="hidden"
+        accept="image/*"
+        onChange={handleUploadWallpaperFile}
+      />
+
+      {/* Modal Xem Nhóm Chung */}
+      {isCommonGroupsModalOpen && createPortal(
+        <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
+            style={{ background: 'var(--bg-panel)' }}>
+            <div className="p-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Nhóm chung ({commonGroups.length})</h3>
+              <button
+                onClick={() => setIsCommonGroupsModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:rotate-90"
+                style={{ background: 'var(--bg-hover)' }}>
+                <X size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div className="p-2 overflow-y-auto max-h-[60vh] flex flex-col gap-1">
+              {commonGroups.length === 0 ? (
+                <div className="text-center py-8 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Không có nhóm chung nào giữa 2 người.
+                </div>
+              ) : (
+                commonGroups.map((group: any) => {
+                  const gName = group.groupName || 'Nhóm trò chuyện';
+                  const gAvatar = group.groupAvatar;
+                  const gAvatarLetter = gName.charAt(0).toUpperCase();
+                  const gMemberCount = group.participants?.length || 0;
+
+                  return (
+                    <div
+                      key={group.conversationId}
+                      onClick={() => {
+                        setActiveConversation(group);
+                        setIsCommonGroupsModalOpen(false);
+                      }}
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
+                    >
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 overflow-hidden"
+                        style={{ background: gAvatar ? 'transparent' : 'var(--accent-primary)' }}>
+                        {gAvatar ? <img src={gAvatar} alt={gName} className="w-full h-full object-cover" /> : gAvatarLetter}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{gName}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{gMemberCount} thành viên</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal Chọn Hình Nền */}
+      {isWallpaperModalOpen && createPortal(
+        <div className="fixed inset-0 bg-black/60 z-[999] flex items-center justify-center backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-[springUp_0.4s_ease-out]"
+            style={{ background: 'var(--bg-panel)' }}>
+            <div className="p-4 border-b flex items-center justify-between"
+              style={{ borderColor: 'var(--border-primary)' }}>
+              <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Hình nền trò chuyện</h3>
+              <button
+                onClick={() => setIsWallpaperModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:rotate-90"
+                style={{ background: 'var(--bg-hover)' }}>
+                <X size={18} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+            </div>
+
+            <div className="p-5 flex flex-col gap-6">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider block mb-3" style={{ color: 'var(--text-secondary)' }}>Màu đơn sắc nhã nhặn</span>
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { label: 'Mặc định', color: '#e2e9f1', isDefault: true },
+                    { label: 'Xanh dương', color: '#e3f2fd' },
+                    { label: 'Hồng đào', color: '#ffe0b2' },
+                    { label: 'Hồng phấn', color: '#f8bbd0' },
+                    { label: 'Xanh lá', color: '#e8f5e9' },
+                    { label: 'Oải hương', color: '#f3e5f5' },
+                    { label: 'Xám tối', color: '#263238' },
+                  ].map((item, idx) => {
+                    const isSelected = (!activeConversation.wallpaper && item.isDefault) || activeConversation.wallpaper === item.color;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => item.isDefault ? handleResetWallpaper() : handleSelectColorWallpaper(item.color)}
+                        className={`w-full aspect-square rounded-xl transition-all relative hover:scale-105 shadow-sm border border-black/5 cursor-pointer flex items-center justify-center`}
+                        style={{ backgroundColor: item.color }}
+                        title={item.label}
+                      >
+                        {isSelected && (
+                          <div className="w-5 h-5 rounded-full bg-white flex items-center justify-center shadow-md">
+                            <span className="text-blue-600 text-xs font-bold font-sans">✓</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border-t pt-4 flex flex-col gap-2" style={{ borderColor: 'var(--border-light)' }}>
+                <button
+                  onClick={() => wallpaperInputRef.current?.click()}
+                  className="w-full py-2.5 bg-[#e8f0fe] hover:bg-blue-100 text-[#0068FF] font-semibold rounded-xl text-sm transition-colors text-center cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ImageIcon size={18} />
+                  Tải ảnh từ máy tính
+                </button>
+                {activeConversation.wallpaper && (
+                  <button
+                    onClick={handleResetWallpaper}
+                    className="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-500 font-semibold rounded-xl text-sm transition-colors text-center cursor-pointer"
+                  >
+                    Xóa hình nền hiện tại
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

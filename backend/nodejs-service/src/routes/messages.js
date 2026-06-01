@@ -21,6 +21,8 @@ import {
   getInviteCode,
   resetInviteCode,
   joinGroupByInviteCode,
+  updateConversationWallpaper,
+  updateConversationPin,
 } from '../controllers/messageController.js';
 import authMiddleware from '../middleware/authMiddleware.js';
 
@@ -39,6 +41,8 @@ router.get('/conversation/:conversationId/media', getConversationMedia);
 // Conversation endpoints
 router.post('/conversation', createConversation);
 router.get('/conversations/:userId', getConversations);
+router.put('/conversations/:conversationId/wallpaper', updateConversationWallpaper);
+router.put('/conversations/:conversationId/pin', updateConversationPin);
 router.put('/conversations/:conversationId/read', markConversationAsRead);
 router.put('/conversations/:conversationId/role', updateMemberRole);
 router.put('/conversations/:conversationId/info', updateGroupInfo);

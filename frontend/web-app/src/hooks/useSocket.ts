@@ -138,6 +138,10 @@ export const useSocketSetup = () => {
         }
 
         // 4. ═══ NOTIFICATIONS ═══
+        // Kiểm tra xem cuộc trò chuyện có bị tắt thông báo không (Muted)
+        const isMuted = localStorage.getItem(`muted_${data.conversationId}`) === 'true';
+        if (isMuted) return;
+
         // Dừng lại nếu người dùng đã tắt thông báo tin nhắn trong cài đặt
         if (!settingsState.notifyMessages) return;
 
@@ -321,6 +325,17 @@ export const useSocketSetup = () => {
         }
       });
 
+      socket.on('conversation_pinned', (data: { conversationId: string, isPinned: boolean }) => {
+        console.log('[Socket] ★ conversation_pinned received:', data);
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateActiveConversation({ isPinned: data.isPinned });
+        }
+        state.setConversations(state.conversations.map(c =>
+          c.conversationId === data.conversationId ? { ...c, isPinned: data.isPinned } : c
+        ));
+      });
+
       return () => {
         socket.off('force_logout');
         socket.off('message_received');
@@ -335,6 +350,7 @@ export const useSocketSetup = () => {
 
         socket.off('group_settings_updated');
         socket.off('pending_members_updated');
+        socket.off('conversation_pinned');
 
         disconnectSocket();
       };

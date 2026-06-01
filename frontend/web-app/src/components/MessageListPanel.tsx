@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, UserPlus, Users as UsersIcon, Cloud } from 'lucide-react';
+import { Search, UserPlus, Users as UsersIcon, Cloud, BellOff, Pin } from 'lucide-react';
 import { contactService, type ContactResponse } from '../services/contactService';
 import { getConversationsList } from '../services/message.service';
 import { fetchAiLastMessage } from '../services/aiChat.service';
@@ -21,6 +21,16 @@ const MessageListPanel = () => {
   const [searchText, setSearchText] = useState('');
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [mutedUpdates, setMutedUpdates] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const handleMuteChange = (e: Event) => {
+      const { conversationId, isMuted } = (e as CustomEvent).detail;
+      setMutedUpdates(prev => ({ ...prev, [conversationId]: isMuted }));
+    };
+    window.addEventListener('mute_status_changed', handleMuteChange);
+    return () => window.removeEventListener('mute_status_changed', handleMuteChange);
+  }, []);
 
   // Build userId→name map
   useEffect(() => {
@@ -173,6 +183,15 @@ const MessageListPanel = () => {
       return name.toLowerCase().includes(lowerSearch);
     }
     return true;
+  }).sort((a, b) => {
+    const pinA = a.isPinned ? 1 : 0;
+    const pinB = b.isPinned ? 1 : 0;
+    if (pinA !== pinB) {
+      return pinB - pinA;
+    }
+    const tA = a.lastMessage?.timestamp ? new Date(a.lastMessage.timestamp).getTime() : 0;
+    const tB = b.lastMessage?.timestamp ? new Date(b.lastMessage.timestamp).getTime() : 0;
+    return tB - tA;
   });
 
   return (
@@ -277,14 +296,30 @@ const MessageListPanel = () => {
               }
             };
 
+            const isMuted = mutedUpdates[conv.conversationId] !== undefined
+              ? mutedUpdates[conv.conversationId]
+              : localStorage.getItem(`muted_${conv.conversationId}`) === 'true';
+
             return (
               <div
                 key={conv.conversationId}
                 onClick={handleItemClick}
                 className="flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors"
-                style={{ background: isActive ? 'var(--bg-active)' : 'transparent' }}
+                style={{ 
+                  background: isActive 
+                    ? 'var(--bg-active)' 
+                    : conv.isPinned 
+                      ? 'rgba(0, 104, 255, 0.03)' 
+                      : 'transparent' 
+                }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)'; }}
-                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                onMouseLeave={(e) => { 
+                  if (!isActive) {
+                    e.currentTarget.style.background = conv.isPinned 
+                      ? 'rgba(0, 104, 255, 0.03)' 
+                      : 'transparent'; 
+                  }
+                }}
               >
                 <div className="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center font-bold text-white overflow-hidden"
                   style={{
@@ -307,8 +342,11 @@ const MessageListPanel = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline mb-0.5">
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <h3 className={`text-sm truncate flex items-center gap-1 ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: 'var(--text-primary)' }}>
-                        {displayName}
+                      <h3 className={`text-sm truncate flex items-center gap-1.5 ${hasUnread ? 'font-bold' : 'font-semibold'}`} style={{ color: 'var(--text-primary)' }}>
+                        {conv.isPinned && (
+                          <Pin size={12} className="text-[#0068FF] shrink-0" style={{ transform: 'rotate(45deg)', fill: 'currentColor' }} />
+                        )}
+                        <span className="truncate">{displayName}</span>
                         {conv.conversationId?.startsWith('cloud_') && (
                           <span className="w-3.5 h-3.5 bg-[#FFB000] rounded-full flex items-center justify-center text-white shrink-0 select-none" style={{ fontSize: '8px', fontWeight: 'bold' }}>✓</span>
                         )}
@@ -317,11 +355,16 @@ const MessageListPanel = () => {
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: 'rgba(249,115,22,0.15)', color: '#f97316' }}>AI</span>
                       )}
                     </div>
-                    <span className={`text-[11px] shrink-0 ml-2 ${hasUnread ? 'font-bold text-blue-500' : ''}`} style={{ color: hasUnread ? '' : 'var(--text-secondary)' }}>
-                      {conv.lastMessage?.timestamp
-                        ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : ''}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      {isMuted && (
+                        <BellOff size={12} className="text-gray-400 opacity-60" />
+                      )}
+                      <span className={`text-[11px] ${hasUnread ? 'font-bold text-blue-500' : ''}`} style={{ color: hasUnread ? '' : 'var(--text-secondary)' }}>
+                        {conv.lastMessage?.timestamp
+                          ? new Date(conv.lastMessage.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : ''}
+                      </span>
+                    </div>
                   </div>
                   <p className={`text-[13px] truncate ${hasUnread ? 'font-semibold' : ''}`} style={{ color: hasUnread ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                     {(() => {

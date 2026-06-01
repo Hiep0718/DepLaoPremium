@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useRouter, useSegments, useGlobalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSocket } from '../contexts/SocketContext';
 import apiClient from '../constants/api';
 
@@ -48,7 +49,7 @@ export default function NotificationManager() {
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       if (data && data.conversationId) {
-        // Điều hướng vào màn hình chat
+        // Điều hiện vào màn hình chat
         router.push({
           pathname: '/chat/[id]',
           params: {
@@ -79,6 +80,14 @@ export default function NotificationManager() {
     const handleNewMessage = async (msg: any) => {
       // 1. Không thông báo tin nhắn của chính mình
       if (String(msg.senderId) === String(currentUserId)) return;
+
+      // 1.1 Không thông báo nếu cuộc trò chuyện này bị tắt thông báo (Muted)
+      try {
+        const isMuted = await AsyncStorage.getItem(`muted_${msg.conversationId}`);
+        if (isMuted === 'true') return;
+      } catch (e) {
+        console.log('Lỗi khi đọc trạng thái tắt tiếng trong AsyncStorage:', e);
+      }
 
       // 2. Không thông báo nếu đang mở màn hình chat đó
       // segments sẽ có dạng: ['chat', '[id]']

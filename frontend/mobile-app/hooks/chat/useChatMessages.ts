@@ -91,6 +91,9 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
   useEffect(() => {
     const fetchHistory = async () => {
       if (!currentUserId || !id) return;
+      setIsLoading(true);
+      setMessages([]);
+      setPinnedMessage(null);
       try {
         if (id.startsWith('ai_')) {
           const { fetchAiMessages } = await import('@/services/aiChat.service');
@@ -113,9 +116,7 @@ export function useChatMessages(id: string, currentUserId: string | null, socket
           setNextCursor(res.data?.pagination?.nextCursor || null);
           setHasMore(!!res.data?.pagination?.nextCursor);
 
-          if (res.data?.pinnedMessage) {
-            setPinnedMessage(res.data.pinnedMessage);
-          }
+          setPinnedMessage(res.data?.pinnedMessage || null);
 
           const mapped: Message[] = history.reverse().map((m: any) => ({
             _id: m._id,

@@ -87,6 +87,16 @@ const conversationSchema = new mongoose.Schema(
       of: Date,
       default: new Map(),
     },
+    wallpapers: {
+      type: Map,
+      of: String,
+      default: new Map(),
+    },
+    pinnedUsers: {
+      type: Map,
+      of: Boolean,
+      default: new Map(),
+    },
   },
   {
     timestamps: true,

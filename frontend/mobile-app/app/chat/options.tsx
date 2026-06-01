@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ZaloColors } from '@/constants/zalo';
 import AddMemberModal from '@/components/chat/AddMemberModal';
 import CreatePollModal from '@/components/chat/CreatePollModal';
+import CreateGroupModal from '@/components/CreateGroupModal';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient, { API_IP } from '@/constants/api';
@@ -199,6 +200,367 @@ export default function ChatOptionsScreen() {
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [isInviteExpanded, setIsInviteExpanded] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [recipientId, setRecipientId] = useState<string | null>(null);
+  const [selectedUserProfile, setSelectedUserProfile] = useState<any | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [wallpaperModalVisible, setWallpaperModalVisible] = useState(false);
+  const [currentWallpaper, setCurrentWallpaper] = useState<string | null>(null);
+  const [isNicknameModalVisible, setIsNicknameModalVisible] = useState(false);
+  const [tempNickname, setTempNickname] = useState('');
+  const [isSavingNickname, setIsSavingNickname] = useState(false);
+  const [displayName, setDisplayName] = useState(String(name || ''));
+  const [createGroupVisible, setCreateGroupVisible] = useState(false);
+  const [addToGroupVisible, setAddToGroupVisible] = useState(false);
+  const [commonGroupsVisible, setCommonGroupsVisible] = useState(false);
+  const [availableGroups, setAvailableGroups] = useState<any[]>([]);
+  const [commonGroups, setCommonGroups] = useState<any[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  useEffect(() => {
+    if (name) {
+      setDisplayName(String(name));
+    }
+  }, [name]);
+
+  // Load muted state, wallpaper, & pinned state từ AsyncStorage
+  useEffect(() => {
+    if (id) {
+      AsyncStorage.getItem(`muted_${id}`)
+        .then(val => {
+          setIsMuted(val === 'true');
+        })
+        .catch(err => console.log('Lỗi khi đọc trạng thái tắt tiếng trong Options:', err));
+
+      AsyncStorage.getItem(`wallpaper_${id}`)
+        .then(val => {
+          setCurrentWallpaper(val);
+        })
+        .catch(err => console.log('Lỗi khi đọc hình nền trong Options:', err));
+
+      AsyncStorage.getItem(`pinned_${id}`)
+        .then(val => {
+          setIsPinned(val === 'true');
+        })
+        .catch(err => console.log('Lỗi khi đọc trạng thái ghim trong Options:', err));
+    }
+  }, [id]);
+
+  // Toggle tắt tiếng
+  const handleToggleMute = async () => {
+    try {
+      const newValue = !isMuted;
+      setIsMuted(newValue);
+      await AsyncStorage.setItem(`muted_${id}`, newValue ? 'true' : 'false');
+      Alert.alert('Thông báo', newValue ? 'Đã tắt thông báo cho cuộc hội thoại này.' : 'Đã bật lại thông báo cho cuộc hội thoại này.');
+    } catch (e) {
+      console.log('Lỗi khi cập nhật trạng thái tắt tiếng:', e);
+    }
+  };
+
+  // Toggle ghim cuộc trò chuyện
+  const handleTogglePin = async (val: boolean) => {
+    try {
+      setIsPinned(val);
+      await chatApiClient.put(`/conversations/${id}/pin`, {
+        userId: currentUserId,
+        isPinned: val
+      });
+      await AsyncStorage.setItem(`pinned_${id}`, val ? 'true' : 'false');
+    } catch (err: any) {
+      console.log('Error toggling pin:', err);
+      setIsPinned(!val); // Rollback
+      Alert.alert('Lỗi', 'Không thể ghim cuộc trò chuyện: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  // View user profile
+  const handleViewProfile = async () => {
+    const targetId = recipientId || id;
+    if (!targetId || typeof targetId !== 'string' || targetId.startsWith('cloud_')) {
+      Alert.alert('Thông báo', 'Không thể xem trang cá nhân của tài khoản này.');
+      return;
+    }
+    setIsLoadingProfile(true);
+    try {
+      const res = await apiClient.get(`/users/${targetId}`);
+      if (res.data?.data) {
+        setSelectedUserProfile(res.data.data);
+      } else {
+        Alert.alert('Thông báo', 'Không tìm thấy thông tin người dùng.');
+      }
+    } catch (err: any) {
+      console.log('Error fetching user profile:', err);
+      Alert.alert('Lỗi', 'Không thể tải thông tin trang cá nhân.');
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  };
+
+  const uploadWallpaperFile = async (localUri: string): Promise<string> => {
+    const filename = localUri.split('/').pop() || 'wallpaper.jpg';
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : `image`;
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: localUri,
+      name: filename,
+      type,
+    } as any);
+
+    const uploadRes = await apiClient.post(`/upload/chat`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    const newUrl: string = uploadRes.data?.data?.url;
+    if (!newUrl) throw new Error("Không lấy được URL ảnh");
+    return newUrl;
+  };
+
+  const handleSelectWallpaper = async (source: 'camera' | 'library') => {
+    try {
+      let result: ImagePicker.ImagePickerResult;
+      const options: ImagePicker.ImagePickerOptions = {
+        allowsEditing: true,
+        quality: 0.8,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      };
+
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Quyền truy cập', 'Cần cấp quyền sử dụng Máy ảnh để chụp hình nền.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Quyền truy cập', 'Cần cấp quyền truy cập Thư viện ảnh để chọn hình nền.');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (result.canceled || !result.assets?.[0]) return;
+      
+      const asset = result.assets[0];
+      const wallpaperUri = asset.uri;
+
+      setIsLoadingGroups(true);
+      // 1. Upload to S3
+      const publicUrl = await uploadWallpaperFile(wallpaperUri);
+
+      // 2. Put to Node.js backend
+      await chatApiClient.put(`/conversations/${id}/wallpaper`, {
+        userId: currentUserId,
+        wallpaper: publicUrl
+      });
+
+      // 3. Save locally as cache
+      await AsyncStorage.setItem(`wallpaper_${id}`, publicUrl);
+      setCurrentWallpaper(publicUrl);
+      setWallpaperModalVisible(false);
+      Alert.alert('Thành công', 'Đổi hình nền cuộc trò chuyện thành công!');
+    } catch (err: any) {
+      console.log('Lỗi chọn hình nền:', err);
+      Alert.alert('Lỗi', 'Không thể chọn hình nền: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
+  const handleSelectColorWallpaper = async (color: string) => {
+    try {
+      setIsLoadingGroups(true);
+      await chatApiClient.put(`/conversations/${id}/wallpaper`, {
+        userId: currentUserId,
+        wallpaper: color
+      });
+
+      await AsyncStorage.setItem(`wallpaper_${id}`, color);
+      setCurrentWallpaper(color);
+      setWallpaperModalVisible(false);
+      Alert.alert('Thành công', 'Đổi màu nền cuộc trò chuyện thành công!');
+    } catch (err: any) {
+      console.log('Lỗi lưu màu nền:', err);
+      Alert.alert('Lỗi', 'Không thể lưu màu nền: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
+  const handleResetWallpaper = async () => {
+    try {
+      setIsLoadingGroups(true);
+      await chatApiClient.put(`/conversations/${id}/wallpaper`, {
+        userId: currentUserId,
+        wallpaper: null
+      });
+
+      await AsyncStorage.removeItem(`wallpaper_${id}`);
+      setCurrentWallpaper(null);
+      setWallpaperModalVisible(false);
+      Alert.alert('Thành công', 'Đã xóa hình nền cuộc trò chuyện.');
+    } catch (err: any) {
+      console.log('Lỗi xóa hình nền:', err);
+      Alert.alert('Lỗi', 'Không thể xóa hình nền.');
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
+  // Nickname custom name functions
+  const handleRenameNickname = async () => {
+    const targetId = recipientId || id;
+    if (!targetId || typeof targetId !== 'string' || targetId.startsWith('cloud_')) {
+      Alert.alert('Thông báo', 'Không thể đặt tên gợi nhớ cho cuộc trò chuyện này.');
+      return;
+    }
+
+    setIsSavingNickname(true);
+    try {
+      // 1. Fetch contacts to find contactId
+      const contactsRes = await apiClient.get('/contacts?page=0&size=100');
+      const contacts = contactsRes.data?.data?.content || contactsRes.data?.data || [];
+      const contact = contacts.find((c: any) => String(c.contactUserId) === String(targetId));
+
+      if (!contact) {
+        Alert.alert(
+          'Thông báo', 
+          'Người dùng này chưa có trong danh bạ. Bạn cần kết bạn trước khi đặt tên gợi nhớ.'
+        );
+        setIsSavingNickname(false);
+        return;
+      }
+
+      setTempNickname(contact.nickname || contact.fullName || '');
+      setIsNicknameModalVisible(true);
+    } catch (err) {
+      console.log('Error fetching contacts for nickname:', err);
+      Alert.alert('Lỗi', 'Không thể kết nối đến máy chủ.');
+    } finally {
+      setIsSavingNickname(false);
+    }
+  };
+
+  const handleSaveNickname = async () => {
+    const targetId = recipientId || id;
+    if (!targetId) return;
+
+    setIsSavingNickname(true);
+    try {
+      // Fetch contact record again
+      const contactsRes = await apiClient.get('/contacts?page=0&size=100');
+      const contacts = contactsRes.data?.data?.content || contactsRes.data?.data || [];
+      const contact = contacts.find((c: any) => String(c.contactUserId) === String(targetId));
+
+      if (!contact) {
+        Alert.alert('Lỗi', 'Không tìm thấy liên hệ.');
+        setIsNicknameModalVisible(false);
+        return;
+      }
+
+      // Update nickname on backend
+      await apiClient.put(`/contacts/${contact.id}`, {
+        nickname: tempNickname.trim(),
+        notes: contact.notes
+      });
+
+      // Update local name params & UI
+      router.setParams({ name: tempNickname.trim() || contact.fullName });
+      Alert.alert('Thành công', 'Đã đổi tên gợi nhớ thành công!');
+      setIsNicknameModalVisible(false);
+    } catch (err) {
+      console.log('Error saving nickname:', err);
+      Alert.alert('Lỗi', 'Không thể cập nhật tên gợi nhớ.');
+    } finally {
+      setIsSavingNickname(false);
+    }
+  };
+
+  // Load groups for Add To Group & Common Groups
+  const loadGroupLists = async () => {
+    const targetId = recipientId || id;
+    if (!currentUserId || !targetId) return;
+
+    setIsLoadingGroups(true);
+    try {
+      const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
+      const rawData = convRes.data;
+      const allConvs = rawData?.data || rawData || [];
+      const conversations = Array.isArray(allConvs) ? allConvs : [];
+
+      // Filter groups
+      const groups = conversations.filter((c: any) => c.isGroup === true);
+
+      // 1. Groups where the friend is already a member (Common Groups)
+      const common = groups.filter((g: any) => 
+        g.participants && g.participants.some((p: any) => String(p.userId) === String(targetId))
+      );
+      setCommonGroups(common);
+
+      // 2. Groups where the friend is NOT a member (Available Groups to add)
+      const available = groups.filter((g: any) => 
+        !g.participants || !g.participants.some((p: any) => String(p.userId) === String(targetId))
+      );
+      setAvailableGroups(available);
+
+    } catch (err) {
+      console.log('Error loading group lists:', err);
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
+  // Auto-load groups on mount/load
+  useEffect(() => {
+    if (currentUserId && (recipientId || (id && typeof id === 'string' && !id.startsWith('cloud_')))) {
+      loadGroupLists();
+    }
+  }, [recipientId, id, currentUserId]);
+
+  const handleOpenAddToGroup = async () => {
+    await loadGroupLists();
+    setAddToGroupVisible(true);
+  };
+
+  const handleOpenCommonGroups = async () => {
+    await loadGroupLists();
+    setCommonGroupsVisible(true);
+  };
+
+  const handleAddFriendToGroup = async (group: any) => {
+    const targetId = recipientId || id;
+    if (!targetId || !currentUserId) return;
+
+    Alert.alert(
+      'Xác nhận',
+      `Bạn có muốn thêm ${displayName || 'người này'} vào nhóm "${group.groupName || 'Nhóm chat'}"?`,
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Thêm',
+          onPress: async () => {
+            try {
+              setIsLoadingGroups(true);
+              await chatApiClient.post(`/conversations/${group.conversationId}/members`, {
+                requesterId: currentUserId,
+                targetUserIds: [targetId]
+              });
+              Alert.alert('Thành công', `Đã thêm bạn vào nhóm "${group.groupName || 'Nhóm chat'}" thành công!`);
+              setAddToGroupVisible(false);
+            } catch (err: any) {
+              console.log('Error adding friend to group:', err);
+              Alert.alert('Lỗi', err.response?.data?.message || 'Không thể thêm bạn vào nhóm.');
+            } finally {
+              setIsLoadingGroups(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   // Get current user's role
   const myRole = useMemo(() => {
@@ -297,30 +659,50 @@ export default function ChatOptionsScreen() {
     }
   };
 
-  // Fetch group data
+  // Fetch conversation data (for both private and group chats)
   useEffect(() => {
-    if (isGroup !== 'true' || !currentUserId || !id) return;
+    if (!currentUserId || !id) return;
     
-    const fetchGroupData = async () => {
+    const fetchConversationData = async () => {
       setIsLoadingGroup(true);
       try {
         const convRes = await chatApiClient.get(`/conversations/${currentUserId}`);
         
-        // Debug: check response structure
         const rawData = convRes.data;
         const allConvs = rawData?.data || rawData || [];
         const conversations = Array.isArray(allConvs) ? allConvs : [];
         const thisConv = conversations.find((c: any) => c.conversationId === id);
         
         console.log('[GroupOptions] Found conv:', !!thisConv, 'participants count:', thisConv?.participants?.length);
-        console.log('[GroupOptions] First participant:', JSON.stringify(thisConv?.participants?.[0]));
         console.log('[GroupOptions] My userId:', currentUserId);
         
         if (thisConv?.participants) {
           setParticipants(thisConv.participants);
-          setRequireApproval(thisConv.requireApproval || false);
-          setGroupSettings(thisConv.groupSettings || null);
-          setPendingMembers(thisConv.pendingMembers || []);
+          setIsPinned(thisConv.isPinned || false);
+          AsyncStorage.setItem(`pinned_${id}`, thisConv.isPinned ? 'true' : 'false').catch(() => {});
+          if (isGroup === 'true') {
+            setRequireApproval(thisConv.requireApproval || false);
+            setGroupSettings(thisConv.groupSettings || null);
+            setPendingMembers(thisConv.pendingMembers || []);
+          } else {
+            // It is a 1-1 private chat. Let's find the recipient ID.
+            const otherP = thisConv.participants.find((p: any) => String(p.userId) !== String(currentUserId));
+            if (otherP) {
+              const rId = String(otherP.userId);
+              setRecipientId(rId);
+              
+              // Now let's fetch the contact to get the custom nickname!
+              apiClient.get('/contacts?page=0&size=100')
+                .then(contactsRes => {
+                  const contacts = contactsRes.data?.data?.content || contactsRes.data?.data || [];
+                  const contact = contacts.find((c: any) => String(c.contactUserId) === String(rId));
+                  if (contact && contact.nickname) {
+                    setDisplayName(contact.nickname);
+                  }
+                })
+                .catch(e => console.log('Lỗi khi tải nickname trong options:', e));
+            }
+          }
           
           // Fetch member info
           const map: Record<string, { fullName: string; avatarUrl?: string }> = {};
@@ -340,13 +722,13 @@ export default function ChatOptionsScreen() {
           setMemberMap(map);
         }
       } catch (err) {
-        console.log('Error fetching group data:', err);
+        console.log('Error fetching conversation data:', err);
       } finally {
         setIsLoadingGroup(false);
       }
     };
     
-    fetchGroupData();
+    fetchConversationData();
   }, [isGroup, id, currentUserId]);
 
   // Reload conversation data after actions
@@ -779,7 +1161,7 @@ export default function ChatOptionsScreen() {
                <Ionicons name="pencil-outline" size={20} color="#555" style={styles.nameEditIcon} />
              </TouchableOpacity>
            ) : (
-            <Text style={styles.profileName} numberOfLines={2}>{name}</Text>
+            <Text style={styles.profileName} numberOfLines={2}>{displayName || name}</Text>
           )}
 
           <View style={styles.actionCirclesRow}>
@@ -788,7 +1170,7 @@ export default function ChatOptionsScreen() {
               onPress={() => {
                 router.navigate({
                   pathname: '/chat/[id]',
-                  params: { id, name, avatar, isGroup, openSearch: 'true' }
+                  params: { id, name: displayName || name, avatar, isGroup, openSearch: 'true' }
                 });
               }}
             >
@@ -806,26 +1188,37 @@ export default function ChatOptionsScreen() {
                 <Text style={styles.actionCircleLabel}>Thêm{'\n'}thành viên</Text>
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity style={styles.actionCircleItem}>
+              <TouchableOpacity 
+                style={styles.actionCircleItem} 
+                onPress={handleViewProfile}
+                disabled={isLoadingProfile}
+              >
                 <View style={styles.actionCircle}>
-                  <Ionicons name="person-outline" size={24} color="#444" />
+                  {isLoadingProfile ? (
+                    <ActivityIndicator size="small" color="#444" />
+                  ) : (
+                    <Ionicons name="person-outline" size={24} color="#444" />
+                  )}
                 </View>
                 <Text style={styles.actionCircleLabel}>Trang{'\n'}cá nhân</Text>
               </TouchableOpacity>
             )}
             
-            <TouchableOpacity style={styles.actionCircleItem}>
+            <TouchableOpacity 
+              style={styles.actionCircleItem}
+              onPress={() => setWallpaperModalVisible(true)}
+            >
               <View style={styles.actionCircle}>
                 <Ionicons name="color-palette-outline" size={24} color="#444" />
               </View>
               <Text style={styles.actionCircleLabel}>Đổi{'\n'}hình nền</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionCircleItem}>
-              <View style={isGroup === 'true' ? [styles.actionCircle, {backgroundColor: ZaloColors.blue}] : styles.actionCircle}>
-                <Ionicons name={isGroup === 'true' ? "notifications" : "notifications-outline"} size={24} color={isGroup === 'true' ? "#fff" : "#444"} />
+            <TouchableOpacity style={styles.actionCircleItem} onPress={handleToggleMute}>
+              <View style={isMuted ? [styles.actionCircle, {backgroundColor: ZaloColors.blue}] : styles.actionCircle}>
+                <Ionicons name={isMuted ? "notifications-off" : "notifications-outline"} size={24} color={isMuted ? "#fff" : "#444"} />
               </View>
-              <Text style={styles.actionCircleLabel}>{isGroup === 'true' ? 'Bật\nthông báo' : 'Tắt\nthông báo'}</Text>
+              <Text style={styles.actionCircleLabel}>{isMuted ? 'Bật\nthông báo' : 'Tắt\nthông báo'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -840,7 +1233,11 @@ export default function ChatOptionsScreen() {
         {/* Section 1 - Private chat */}
         {isGroup !== 'true' && (
         <View style={styles.section}>
-          <OptionItem icon="pencil-outline" label="Đổi tên gợi nhớ" />
+          <OptionItem 
+            icon="pencil-outline" 
+            label="Đổi tên gợi nhớ" 
+            onPress={handleRenameNickname}
+          />
           <OptionItem 
             icon="star-outline" 
             label="Đánh dấu bạn thân" 
@@ -914,9 +1311,22 @@ export default function ChatOptionsScreen() {
         {/* Section 3: Private chat group actions */}
         {isGroup !== 'true' && (
         <View style={styles.section}>
-          <OptionItem icon="person-add-outline" label={`Tạo nhóm với ${name || 'người này'}`} />
-          <OptionItem icon="person-add-outline" label={`Thêm ${name || 'người này'} vào nhóm`} />
-          <OptionItem icon="people-outline" label="Xem nhóm chung (26)" showArrow />
+          <OptionItem 
+            icon="person-add-outline" 
+            label={`Tạo nhóm với ${displayName || name || 'người này'}`} 
+            onPress={() => setCreateGroupVisible(true)}
+          />
+          <OptionItem 
+            icon="person-add-outline" 
+            label={`Thêm ${displayName || name || 'người này'} vào nhóm`} 
+            onPress={handleOpenAddToGroup}
+          />
+          <OptionItem 
+            icon="people-outline" 
+            label={`Xem nhóm chung (${commonGroups.length})`} 
+            showArrow 
+            onPress={handleOpenCommonGroups}
+          />
         </View>
         )}
 
@@ -1314,7 +1724,7 @@ export default function ChatOptionsScreen() {
                 label="Ghim trò chuyện" 
                 toggle 
                 toggleValue={isPinned} 
-                onToggle={setIsPinned} 
+                onToggle={handleTogglePin} 
               />
               <OptionItem 
                 icon="eye-off-outline" 
@@ -1366,7 +1776,7 @@ export default function ChatOptionsScreen() {
             label="Ghim trò chuyện" 
             toggle 
             toggleValue={isPinned} 
-            onToggle={setIsPinned} 
+            onToggle={handleTogglePin} 
           />
           <OptionItem 
             icon="eye-off-outline" 
@@ -1470,6 +1880,368 @@ export default function ChatOptionsScreen() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* User Profile Card Modal */}
+      <Modal visible={!!selectedUserProfile} transparent animationType="slide" onRequestClose={() => setSelectedUserProfile(null)}>
+        <View style={styles.mentionDialogOverlay}>
+          <View style={styles.profileCardContainer}>
+            {/* Cover photo */}
+            <View style={styles.profileCardCoverWrap}>
+              {selectedUserProfile?.coverUrl ? (
+                <Image source={{ uri: selectedUserProfile.coverUrl }} style={styles.profileCardCover} />
+              ) : (
+                <View style={[styles.profileCardCover, { backgroundColor: '#005FD8' }]} />
+              )}
+              {/* Close button */}
+              <TouchableOpacity style={styles.profileCardCloseBtn} onPress={() => setSelectedUserProfile(null)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Avatar */}
+            <View style={styles.profileCardAvatarWrap}>
+              {selectedUserProfile?.avatarUrl ? (
+                <Image source={{ uri: selectedUserProfile.avatarUrl }} style={styles.profileCardAvatar} />
+              ) : (
+                <View style={styles.profileCardAvatarPlaceholder}>
+                  <Ionicons name="person" size={40} color="#fff" />
+                </View>
+              )}
+            </View>
+
+            {/* Name */}
+            <Text style={styles.profileCardName}>{selectedUserProfile?.fullName}</Text>
+
+            {/* Details card */}
+            <View style={styles.profileCardInfoWrap}>
+              <Text style={styles.profileCardInfoTitle}>Thông tin cá nhân</Text>
+              
+              <View style={styles.profileCardInfoRow}>
+                <Text style={styles.profileCardInfoLabel}>Giới tính</Text>
+                <Text style={styles.profileCardInfoValue}>{selectedUserProfile?.gender || 'Chưa cập nhật'}</Text>
+              </View>
+
+              <View style={styles.profileCardInfoRow}>
+                <Text style={styles.profileCardInfoLabel}>Ngày sinh</Text>
+                <Text style={styles.profileCardInfoValue}>
+                  {selectedUserProfile?.birthday ? new Date(selectedUserProfile.birthday).toLocaleDateString('vi-VN') : 'Chưa cập nhật'}
+                </Text>
+              </View>
+
+              <View style={styles.profileCardInfoRow}>
+                <Text style={styles.profileCardInfoLabel}>ID người dùng</Text>
+                <Text style={styles.profileCardInfoValue}>#{selectedUserProfile?.id || '---'}</Text>
+              </View>
+
+              <View style={styles.profileCardInfoRow}>
+                <Text style={styles.profileCardInfoLabel}>Số điện thoại</Text>
+                <Text style={styles.profileCardInfoValue}>{selectedUserProfile?.phone || 'Ẩn'}</Text>
+              </View>
+            </View>
+
+            {/* Footer action buttons */}
+            <View style={styles.profileCardFooter}>
+              <TouchableOpacity 
+                style={styles.profileCardFooterBtn} 
+                onPress={() => {
+                  setSelectedUserProfile(null);
+                  router.back();
+                }}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color="#fff" />
+                <Text style={styles.profileCardFooterBtnText}>Nhắn tin</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.profileCardFooterBtn, { backgroundColor: '#e0e0e0' }]} 
+                onPress={() => setSelectedUserProfile(null)}
+              >
+                <Text style={{ color: '#333', fontWeight: '600' }}>Đóng</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Wallpaper Picker Modal */}
+      <Modal
+        visible={wallpaperModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setWallpaperModalVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setWallpaperModalVisible(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            style={styles.wallpaperModalContainer}
+          >
+            <View style={styles.wallpaperModalHeader}>
+              <Text style={styles.wallpaperModalTitle}>Hình nền trò chuyện</Text>
+              <TouchableOpacity onPress={() => setWallpaperModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Presets Grid */}
+            <Text style={styles.wallpaperSectionTitle}>Màu đơn sắc nhã nhặn</Text>
+            <View style={styles.wallpaperGrid}>
+              {[
+                { label: 'Mặc định', color: '#e2e9f1', isDefault: true },
+                { label: 'Xanh dương', color: '#e3f2fd' },
+                { label: 'Hồng đào', color: '#ffe0b2' },
+                { label: 'Hồng phấn', color: '#f8bbd0' },
+                { label: 'Xanh lá', color: '#e8f5e9' },
+                { label: 'Oải hương', color: '#f3e5f5' },
+                { label: 'Xám tối', color: '#263238' },
+              ].map((item, idx) => {
+                const isSelected = (!currentWallpaper && item.isDefault) || currentWallpaper === item.color;
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.wallpaperColorItem, { backgroundColor: item.color }]}
+                    onPress={() => item.isDefault ? handleResetWallpaper() : handleSelectColorWallpaper(item.color)}
+                  >
+                    {isSelected && (
+                      <View style={styles.selectedWallpaperCheck}>
+                        <Ionicons name="checkmark-circle" size={24} color={item.color === '#263238' ? '#fff' : '#0068FF'} />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Photo options */}
+            <View style={styles.wallpaperActionList}>
+              <TouchableOpacity 
+                style={styles.wallpaperActionRow} 
+                onPress={() => handleSelectWallpaper('library')}
+              >
+                <Ionicons name="image" size={22} color="#0068FF" />
+                <Text style={styles.wallpaperActionLabel}>Chọn từ thư viện ảnh</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.wallpaperActionRow} 
+                onPress={() => handleSelectWallpaper('camera')}
+              >
+                <Ionicons name="camera" size={22} color="#0068FF" />
+                <Text style={styles.wallpaperActionLabel}>Chụp ảnh mới</Text>
+              </TouchableOpacity>
+
+              {currentWallpaper && (
+                <TouchableOpacity 
+                  style={[styles.wallpaperActionRow, { borderBottomWidth: 0 }]} 
+                  onPress={handleResetWallpaper}
+                >
+                  <Ionicons name="trash" size={22} color="#FF4757" />
+                  <Text style={[styles.wallpaperActionLabel, { color: '#FF4757' }]}>Xóa hình nền hiện tại</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Nickname Modal */}
+      <Modal
+        visible={isNicknameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsNicknameModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.renameModalBox}>
+            <Text style={styles.modalTitle}>Đổi tên gợi nhớ</Text>
+            <View style={styles.renameInputWrap}>
+              <TextInput
+                style={styles.renameInput}
+                value={tempNickname}
+                onChangeText={setTempNickname}
+                placeholder="Nhập tên gợi nhớ..."
+                placeholderTextColor="#999"
+                autoFocus
+                maxLength={50}
+              />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={styles.modalBtn} 
+                onPress={() => setIsNicknameModalVisible(false)}
+              >
+                <Text style={styles.modalBtnTextCancel}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnPrimary]} 
+                onPress={handleSaveNickname}
+                disabled={isSavingNickname}
+              >
+                {isSavingNickname ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.modalBtnTextPrimary}>Lưu</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create Group Modal */}
+      <CreateGroupModal
+        visible={createGroupVisible}
+        onClose={() => setCreateGroupVisible(false)}
+        preselectedUserId={recipientId || (id && typeof id === 'string' && !id.startsWith('cloud_') ? id : undefined)}
+      />
+
+      {/* Add To Group Modal */}
+      <Modal
+        visible={addToGroupVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAddToGroupVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setAddToGroupVisible(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            style={styles.groupModalContainer}
+          >
+            <View style={styles.wallpaperModalHeader}>
+              <Text style={styles.wallpaperModalTitle}>Thêm vào nhóm</Text>
+              <TouchableOpacity onPress={() => setAddToGroupVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.wallpaperSectionTitle}>Chọn nhóm muốn thêm {displayName || name || 'người này'}</Text>
+            
+            {isLoadingGroups ? (
+              <ActivityIndicator size="large" color={ZaloColors.blue} style={{ marginVertical: 30 }} />
+            ) : availableGroups.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                <Ionicons name="people-outline" size={48} color="#bbb" />
+                <Text style={{ color: '#888', marginTop: 10, fontSize: 15 }}>Không có nhóm nào hợp lệ</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 350 }} showsVerticalScrollIndicator={false}>
+                {availableGroups.map((group) => {
+                  const memberCount = group.participants?.length || 0;
+                  return (
+                    <TouchableOpacity
+                      key={group.conversationId}
+                      style={styles.modalGroupRow}
+                      onPress={() => handleAddFriendToGroup(group)}
+                    >
+                      {group.groupAvatar ? (
+                        <Image source={{ uri: group.groupAvatar }} style={styles.modalGroupAvatar} />
+                      ) : (
+                        <View style={[styles.modalGroupAvatar, styles.defaultGroupAvatar]}>
+                          <Ionicons name="people" size={20} color="#fff" />
+                        </View>
+                      )}
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={styles.modalGroupName} numberOfLines={1}>
+                          {group.groupName || 'Nhóm chat'}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                          {memberCount} thành viên
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Common Groups Modal */}
+      <Modal
+        visible={commonGroupsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCommonGroupsVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setCommonGroupsVisible(false)}
+        >
+          <TouchableOpacity 
+            activeOpacity={1} 
+            style={styles.groupModalContainer}
+          >
+            <View style={styles.wallpaperModalHeader}>
+              <Text style={styles.wallpaperModalTitle}>Nhóm chung ({commonGroups.length})</Text>
+              <TouchableOpacity onPress={() => setCommonGroupsVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.wallpaperSectionTitle}>Các nhóm cả hai cùng tham gia</Text>
+            
+            {isLoadingGroups ? (
+              <ActivityIndicator size="large" color={ZaloColors.blue} style={{ marginVertical: 30 }} />
+            ) : commonGroups.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                <Ionicons name="people-outline" size={48} color="#bbb" />
+                <Text style={{ color: '#888', marginTop: 10, fontSize: 15 }}>Chưa có nhóm chung nào</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 350 }} showsVerticalScrollIndicator={false}>
+                {commonGroups.map((group) => {
+                  const memberCount = group.participants?.length || 0;
+                  return (
+                    <TouchableOpacity
+                      key={group.conversationId}
+                      style={styles.modalGroupRow}
+                      onPress={() => {
+                        setCommonGroupsVisible(false);
+                        router.navigate({
+                          pathname: '/chat/[id]',
+                          params: { 
+                            id: group.conversationId, 
+                            name: group.groupName || 'Nhóm chat', 
+                            avatar: group.groupAvatar || '', 
+                            isGroup: 'true' 
+                          }
+                        });
+                      }}
+                    >
+                      {group.groupAvatar ? (
+                        <Image source={{ uri: group.groupAvatar }} style={styles.modalGroupAvatar} />
+                      ) : (
+                        <View style={[styles.modalGroupAvatar, styles.defaultGroupAvatar]}>
+                          <Ionicons name="people" size={20} color="#fff" />
+                        </View>
+                      )}
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={styles.modalGroupName} numberOfLines={1}>
+                          {group.groupName || 'Nhóm chat'}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                          {memberCount} thành viên
+                        </Text>
+                      </View>
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color={ZaloColors.blue} />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
     </SafeAreaView>
@@ -1892,5 +2664,239 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#fff',
+  },
+  
+  // Custom Profile Card Modals
+  mentionDialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCardContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    width: '85%',
+    maxHeight: '80%',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  profileCardCoverWrap: {
+    position: 'relative',
+    height: 120,
+    width: '100%',
+  },
+  profileCardCover: {
+    height: 120,
+    width: '100%',
+  },
+  profileCardCloseBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCardAvatarWrap: {
+    alignSelf: 'center',
+    marginTop: -40,
+    position: 'relative',
+    zIndex: 1,
+  },
+  profileCardAvatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+  profileCardAvatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: '#fff',
+    backgroundColor: '#b0c4de',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCardName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#000',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  profileCardInfoWrap: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  profileCardInfoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  profileCardInfoRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  profileCardInfoLabel: {
+    width: 110,
+    fontSize: 14,
+    color: '#888',
+  },
+  profileCardInfoValue: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111',
+    fontWeight: '500',
+  },
+  profileCardFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    gap: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#eee',
+    backgroundColor: '#fafafa',
+  },
+  profileCardFooterBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#0068FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  profileCardFooterBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+
+  // Wallpaper Picker Styles
+  wallpaperModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    width: '100%',
+    padding: 24,
+    paddingBottom: 40,
+    marginTop: 'auto',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  wallpaperModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  wallpaperModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000',
+  },
+  wallpaperSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 12,
+  },
+  wallpaperGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 24,
+  },
+  wallpaperColorItem: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    position: 'relative',
+  },
+  selectedWallpaperCheck: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+  },
+  wallpaperActionList: {
+    backgroundColor: '#f5f7fb',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  wallpaperActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e1e8f0',
+    gap: 12,
+  },
+  wallpaperActionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0068FF',
+  },
+  
+  // Group action styles
+  groupModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    width: '100%',
+    padding: 24,
+    paddingBottom: 40,
+    marginTop: 'auto',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 20,
+  },
+  modalGroupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalGroupAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  defaultGroupAvatar: {
+    backgroundColor: '#0068FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalGroupName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#000',
   },
 });

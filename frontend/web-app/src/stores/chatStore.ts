@@ -48,6 +48,8 @@ export interface Conversation {
   lastMessage?: string | any;
   unreadCount?: number;
   leftAt?: string;
+  isPinned?: boolean;
+  wallpaper?: string | null;
 }
 
 export interface ContactInfo {

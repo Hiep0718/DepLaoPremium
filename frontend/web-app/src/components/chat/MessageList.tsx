@@ -221,6 +221,21 @@ const MessageList = () => {
   const [cloudFilter, setCloudFilter] = useState<'all' | 'image' | 'file' | 'link' | 'text' | 'collection'>('all');
   const isCloudConversation = activeConversation?.conversationId?.startsWith('cloud_');
 
+  const activeWallpaper = activeConversation?.wallpaper;
+
+  const wallpaperStyle = useMemo(() => {
+    if (!activeWallpaper) return {};
+    if (activeWallpaper.startsWith('#')) {
+      return { backgroundColor: activeWallpaper, backgroundImage: 'none' };
+    }
+    return {
+      backgroundImage: `url(${activeWallpaper})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat'
+    };
+  }, [activeWallpaper]);
+
   const filteredMessages = useMemo(() => {
     if (!isCloudConversation || cloudFilter === 'all') return messages;
     return messages.filter(msg => {
@@ -445,6 +460,7 @@ const MessageList = () => {
 
     if (!activeConversation.conversationId.startsWith('new_') && !activeConversation.conversationId.startsWith('contact_')) {
       setMessages([]); // Clear old messages immediately to prevent flickering/leaking
+      setPinnedMessage(null); // Clear old pinned message to prevent flickering/leaking
       fetchHistory();
     } else {
       setMessages([]);
@@ -582,12 +598,20 @@ const MessageList = () => {
         updateMessage(data.messageId, payload);
       }
     };
+    const handleWallpaperUpdated = (data: any) => {
+      const activeConv = useChatStore.getState().activeConversation;
+      if (activeConv && data.conversationId === activeConv.conversationId) {
+        useChatStore.getState().updateActiveConversation({ wallpaper: data.wallpaper });
+      }
+    };
 
     socket.on('message_revoked', handleRevoked);
     socket.on('message_reacted', handleReacted);
+    socket.on('wallpaper_updated', handleWallpaperUpdated);
     return () => {
       socket.off('message_revoked', handleRevoked);
       socket.off('message_reacted', handleReacted);
+      socket.off('wallpaper_updated', handleWallpaperUpdated);
     };
   }, [updateMessage]);
 
@@ -1362,7 +1386,7 @@ const MessageList = () => {
         </div>
       )}
 
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-3 min-h-0 relative" style={{ background: !activeWallpaper ? 'var(--chat-wallpaper, var(--bg-chat))' : undefined, ...wallpaperStyle }}>
         {loadingMore && (
           <div className="flex justify-center py-2">
             <Loader2 size={24} className="animate-spin text-[#0068FF]" />
@@ -1410,7 +1434,10 @@ const MessageList = () => {
                       pinnedMessage.messageType === 'file' ? '[Tệp]' :
                         pinnedMessage.messageType === 'sticker' ? '[Nhãn dán]' :
                           pinnedMessage.messageType === 'contact' ? '[Danh thiếp]' :
-                            pinnedMessage.content}
+                            pinnedMessage.messageType === 'location' ? '[Vị trí]' :
+                              pinnedMessage.messageType === 'reminder' ? '[Nhắc hẹn]' :
+                                pinnedMessage.messageType === 'poll' ? '[Bình chọn]' :
+                                  pinnedMessage.content}
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -1435,7 +1462,7 @@ const MessageList = () => {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: 'var(--chat-wallpaper, var(--bg-chat))' }}>
+        <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0" style={{ background: !activeWallpaper ? 'var(--chat-wallpaper, var(--bg-chat))' : undefined, ...wallpaperStyle }}>
 
           {/* AI Welcome Screen */}
           {isAiConversation && messages.length === 0 && !isAiStreaming && (

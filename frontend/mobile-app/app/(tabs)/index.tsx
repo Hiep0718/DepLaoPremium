@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, RefreshControl, Modal, TouchableWithoutFeedback, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ZaloColors } from '@/constants/zalo';
@@ -42,6 +42,7 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [isCloudPinned, setIsCloudPinned] = useState(false);
   const [longPressedConv, setLongPressedConv] = useState<Conversation | null>(null);
+  const [mutedMap, setMutedMap] = useState<Record<string, boolean>>({});
 
   // Load danh sách chat và map thêm tên User
   const loadConversations = async () => {
@@ -150,6 +151,18 @@ export default function MessagesScreen() {
         }
       }
 
+      // Tải trạng thái tắt tiếng của các cuộc trò chuyện
+      const muteStates: Record<string, boolean> = {};
+      await Promise.all(
+        finalConvs.map(async (conv) => {
+          try {
+            const val = await AsyncStorage.getItem(`muted_${conv.conversationId}`);
+            muteStates[conv.conversationId] = val === 'true';
+          } catch (e) {}
+        })
+      );
+      setMutedMap(muteStates);
+
       setConversations(finalConvs);
     } catch (error) {
       console.log('Error loading conversations', error);
@@ -159,9 +172,11 @@ export default function MessagesScreen() {
     }
   };
 
-  useEffect(() => {
-    loadConversations();
-  }, [currentUserId]);
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [currentUserId])
+  );
 
   // Lắng nghe Message mới bắn về để cập nhật "Tin nhắn mới nhất"
   useEffect(() => {
@@ -245,14 +260,7 @@ export default function MessagesScreen() {
   }, [currentUserId]);
 
   // Cập nhật lại danh sách khi focus (vì có thể vừa thay đổi ghim trong settings)
-  useEffect(() => {
-    const focusListener = router.addListener('focus', () => {
-      loadConversations();
-    });
-    // With expo-router, we can't easily listen to focus like React Navigation.
-    // However, when we come back from options screen, it might trigger a re-render.
-    // For a robust solution, we will just call loadConversations when component mounts.
-  }, []);
+  // Cập nhật lại danh sách khi focus tự động thực hiện bởi useFocusEffect
 
   const formatTime = (isoString?: string) => {
     if (!isoString) return '';
@@ -313,6 +321,9 @@ export default function MessagesScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {isCloudPinned && item.conversationId.startsWith('cloud_') && (
                 <Ionicons name="pin" size={12} color="#888" style={{ transform: [{ rotate: '45deg' }] }} />
+              )}
+              {mutedMap[item.conversationId] && (
+                <Ionicons name="notifications-off-outline" size={13} color="#a0a0a0" />
               )}
               {isUnread && (
                 <View style={styles.unreadBadgeList}>

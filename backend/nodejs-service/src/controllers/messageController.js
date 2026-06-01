@@ -193,6 +193,24 @@ export const getConversations = async (req, res) => {
         convObj.unreadCount = 0; // No unread for left members
       }
 
+      // Extract user-specific wallpaper
+      let wallpaper = null;
+      if (c.wallpapers && c.wallpapers.get) {
+        wallpaper = c.wallpapers.get(userId) || null;
+      } else if (convObj.wallpapers && convObj.wallpapers[userId]) {
+        wallpaper = convObj.wallpapers[userId] || null;
+      }
+      convObj.wallpaper = wallpaper;
+
+      // Extract user-specific pinning preference
+      let isPinned = false;
+      if (c.pinnedUsers && c.pinnedUsers.get) {
+        isPinned = c.pinnedUsers.get(userId) || false;
+      } else if (convObj.pinnedUsers && convObj.pinnedUsers[userId]) {
+        isPinned = convObj.pinnedUsers[userId] || false;
+      }
+      convObj.isPinned = isPinned;
+
       return convObj;
     }).filter(convObj => {
       // Retrieve deletedAt for the user.
@@ -1607,5 +1625,108 @@ export const joinGroupByInviteCode = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateConversationWallpaper = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { userId, wallpaper } = req.body;
+
+    if (!conversationId || !userId) {
+      return res.status(400).json({ success: false, message: 'Missing conversationId or userId' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    if (!conversation.wallpapers) {
+      conversation.wallpapers = new Map();
+    }
+
+    if (wallpaper === null || wallpaper === undefined || wallpaper === '') {
+      conversation.wallpapers.delete(userId);
+    } else {
+      conversation.wallpapers.set(userId, wallpaper);
+    }
+
+    await conversation.save();
+
+    try {
+      req.io.to(`user_${userId}`).emit('wallpaper_updated', {
+        conversationId,
+        wallpaper: wallpaper || null
+      });
+    } catch (socketErr) {
+      console.error('Failed to emit wallpaper_updated via socket:', socketErr);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Updated wallpaper successfully',
+      data: {
+        conversationId,
+        wallpaper: wallpaper || null
+      }
+    });
+  } catch (error) {
+    console.error('Update wallpaper error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update wallpaper', error: error.message });
+  }
+};
+
+export const updateConversationPin = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { userId, isPinned } = req.body;
+
+    if (!conversationId || !userId) {
+      return res.status(400).json({ success: false, message: 'Missing conversationId or userId' });
+    }
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    if (!conversation.pinnedUsers) {
+      conversation.pinnedUsers = new Map();
+    }
+
+    // Compute actual pinned state: treat 'false' string and false boolean as unpin
+    const shouldPin = isPinned === true || isPinned === 'true';
+
+    if (shouldPin) {
+      conversation.pinnedUsers.set(userId, true);
+    } else {
+      conversation.pinnedUsers.delete(userId);
+    }
+
+    await conversation.save();
+
+    console.log(`[Pin] userId=${userId} convId=${conversationId} isPinned=${shouldPin}`);
+
+    try {
+      req.io.to(`user_${userId}`).emit('conversation_pinned', {
+        conversationId,
+        isPinned: shouldPin
+      });
+    } catch (socketErr) {
+      console.error('Failed to emit conversation_pinned via socket:', socketErr);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Updated conversation pin successfully',
+      data: {
+        conversationId,
+        isPinned: shouldPin
+      }
+    });
+  } catch (error) {
+    console.error('Update conversation pin error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update conversation pin', error: error.message });
   }
 };
