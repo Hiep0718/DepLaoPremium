@@ -264,7 +264,7 @@ export const createConversation = async (req, res) => {
       isGroup,
       groupName: isGroup ? groupName : null,
       groupAvatar: isGroup ? groupAvatar : null,
-      inviteCode: isGroup ? generateInviteCode() : null,
+      inviteCode: isGroup ? generateInviteCode() : undefined,
     });
 
     await conversation.save();
