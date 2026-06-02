@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 SplashScreen.preventAutoHideAsync();
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { SocketProvider } from '@/contexts/SocketContext';
 
 import NotificationManager from '@/components/NotificationManager';
@@ -24,6 +25,9 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const segments = useSegments();
+  
+  // Khởi tạo tính năng Push Notification FCM
+  usePushNotifications();
 
   useEffect(() => {
     let isMounted = true;

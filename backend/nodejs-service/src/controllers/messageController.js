@@ -1,6 +1,7 @@
 import Message from '../models/Message.js';
 import Conversation from '../models/Conversation.js';
 import crypto from 'crypto';
+import { sendPushNotification } from '../services/fcmService.js';
 
 const generateInviteCode = () => {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -51,6 +52,29 @@ export const sendMessage = async (req, res) => {
       }
 
       await conversation.save();
+    }
+
+    // Bắn Push Notification qua Firebase (Bất đồng bộ - Fire and Forget)
+    if (conversation) {
+      // Tìm danh sách người nhận (trừ người gửi)
+      const recipientIds = conversation.participants
+        .filter(p => p.userId !== senderId)
+        .map(p => p.userId);
+
+      if (recipientIds.length > 0) {
+        let notifBody = content;
+        if (messageType === 'image') notifBody = 'Đã gửi một hình ảnh';
+        else if (messageType === 'file') notifBody = 'Đã gửi một tệp đính kèm';
+        else if (messageType === 'audio') notifBody = 'Đã gửi một tin nhắn thoại';
+
+        sendPushNotification(recipientIds, {
+          title: conversation.isGroup ? conversation.groupName : 'Bạn có tin nhắn mới',
+          body: notifBody,
+          data: {
+            conversationId: conversationId
+          }
+        });
+      }
     }
 
     res.status(201).json({
