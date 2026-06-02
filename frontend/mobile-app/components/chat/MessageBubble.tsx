@@ -491,19 +491,81 @@ export default function MessageBubble({
                 <VideoMessage item={item} handleMessageLongPress={handleMessageLongPress} />
               ) : isFile ? (
                 (() => {
-                  const displayName = item.fileName || (typeof item.content === 'string' && item.content.startsWith('[Tệp]') ? item.content.replace('[Tệp] ', '').replace('[Tệp]', '') : null) || (item.fileUrl ? decodeURIComponent(item.fileUrl.split('/').pop()?.split('?')[0] || '') : null) || 'Tệp đính kèm';
+                  const getFileIconInfo = (extName: string) => {
+                    const lower = extName.toLowerCase();
+                    if (lower === 'pdf') {
+                      return { icon: 'document-text', color: '#EF4444', bgColor: '#FEE2E2' };
+                    }
+                    if (['doc', 'docx'].includes(lower)) {
+                      return { icon: 'document-text', color: '#3B82F6', bgColor: '#DBEAFE' };
+                    }
+                    if (['xls', 'xlsx', 'csv'].includes(lower)) {
+                      return { icon: 'grid', color: '#10B981', bgColor: '#D1FAE5' };
+                    }
+                    if (['ppt', 'pptx'].includes(lower)) {
+                      return { icon: 'easel', color: '#F59E0B', bgColor: '#FEF3C7' };
+                    }
+                    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(lower)) {
+                      return { icon: 'archive', color: '#8B5CF6', bgColor: '#EDE9FE' };
+                    }
+                    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(lower)) {
+                      return { icon: 'image', color: '#EC4899', bgColor: '#FCE7F3' };
+                    }
+                    if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(lower)) {
+                      return { icon: 'musical-notes', color: '#14B8A6', bgColor: '#CCFBF1' };
+                    }
+                    return { icon: 'document', color: '#0284C7', bgColor: '#E0F2FE' };
+                  };
+
                   const ext = getFileExtension(item.fileUrl);
+                  let displayName = item.fileName;
+                  if (!displayName && typeof item.content === 'string') {
+                    if (item.content.startsWith('[Tệp]')) {
+                      displayName = item.content.replace('[Tệp] ', '').replace('[Tệp]', '').trim();
+                    } else if (item.content.trim() && item.content !== '[Tệp]') {
+                      displayName = item.content.trim();
+                    }
+                  }
+                  if (!displayName && item.fileUrl) {
+                    try {
+                      const decoded = decodeURIComponent(item.fileUrl.split('/').pop()?.split('?')[0] || '');
+                      if (decoded) displayName = decoded;
+                    } catch {}
+                  }
+                  if (!displayName) {
+                    displayName = ext ? `Tệp tin.${ext.toLowerCase()}` : 'Tệp đính kèm';
+                  }
+
+                  const iconInfo = getFileIconInfo(ext);
                   const sizeText = item.fileSize ? formatFileSize(item.fileSize) : '';
                   const metaText = [ext, sizeText].filter(Boolean).join(' • ');
+
                   return (
-                    <TouchableOpacity activeOpacity={0.8} onPress={() => handleDownloadFile(item.fileUrl!, item.fileName)} onLongPress={() => handleMessageLongPress(item)}>
-                      <View style={[styles.fileBubble, isMine ? styles.myMsgBubble : styles.theirMsgBubble]}>
-                        <View style={styles.fileIconWrap}><Ionicons name="document-text" size={24} color={ZaloColors.blue} /></View>
-                        <View style={styles.fileInfoWrap}>
-                          <Text style={styles.fileName} numberOfLines={2}>{displayName}</Text>
-                          {metaText ? <Text style={styles.fileMeta}>{metaText}</Text> : null}
+                    <TouchableOpacity 
+                      activeOpacity={0.8} 
+                      onPress={() => handleDownloadFile(item.fileUrl!, item.fileName)} 
+                      onLongPress={() => handleMessageLongPress(item)}
+                    >
+                      <View style={[
+                        styles.fileBubble, 
+                        isMine ? styles.myFileBubble : styles.theirFileBubble
+                      ]}>
+                        <View style={[styles.fileIconWrap, { backgroundColor: iconInfo.bgColor }]}>
+                          <Ionicons name={iconInfo.icon as any} size={24} color={iconInfo.color} />
                         </View>
-                        <Ionicons name="download-outline" size={22} color={ZaloColors.blue} />
+                        <View style={styles.fileInfoWrap}>
+                          <Text style={[styles.fileName, { color: isMine ? '#002D62' : '#1E293B' }]} numberOfLines={2}>
+                            {displayName}
+                          </Text>
+                          {metaText ? (
+                            <Text style={[styles.fileMeta, { color: isMine ? '#5B7083' : '#64748B' }]}>
+                              {metaText}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={[styles.fileDownloadBtn, { borderColor: isMine ? 'rgba(0,104,255,0.2)' : '#E2E8F0' }]}>
+                          <Ionicons name="download-outline" size={18} color={isMine ? '#0068FF' : '#475569'} />
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
@@ -830,11 +892,55 @@ const styles = StyleSheet.create({
   replyBubbleHeader: { fontSize: 12, fontWeight: '600', color: '#000', marginBottom: 2 },
   replyBubbleContent: { fontSize: 13, color: '#555' },
 
-  fileBubble: { flexDirection: 'row', alignItems: 'center', maxWidth: SCREEN_WIDTH * 0.75, padding: 12, borderRadius: 12 },
-  fileIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,104,255,0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  fileInfoWrap: { flex: 1, marginRight: 10 },
-  fileName: { fontSize: 14, fontWeight: '500', color: '#000', marginBottom: 2 },
-  fileMeta: { fontSize: 12, color: '#888' },
+  fileBubble: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    maxWidth: SCREEN_WIDTH * 0.75, 
+    padding: 12, 
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  myFileBubble: {
+    backgroundColor: '#E5F0FF',
+    borderColor: 'rgba(0,104,255,0.15)',
+    borderTopRightRadius: 4,
+  },
+  theirFileBubble: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    borderTopLeftRadius: 4,
+  },
+  fileIconWrap: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 12, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: 12 
+  },
+  fileInfoWrap: { 
+    flex: 1, 
+    marginRight: 12 
+  },
+  fileName: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    lineHeight: 18,
+    marginBottom: 4 
+  },
+  fileMeta: { 
+    fontSize: 11, 
+    fontWeight: '500' 
+  },
+  fileDownloadBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  },
 
   locationBubble: { width: 240, borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee' },
   locationMapPreview: { height: 120, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' },
