@@ -9,6 +9,7 @@ import { ZaloColors } from '@/constants/zalo';
 import { useSocket } from '@/contexts/SocketContext';
 import { chatApiClient } from '@/constants/chatApi';
 import apiClient from '@/constants/api';
+import { useProfile } from '@/hooks/useProfile';
 
 interface Contact {
   id: string; // fallback
@@ -30,6 +31,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function CreateGroupModal({ visible, onClose, preselectedUserId }: CreateGroupModalProps) {
   const router = useRouter();
   const { socket, currentUserId } = useSocket();
+  const { profile } = useProfile();
   
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([]);
@@ -117,13 +119,16 @@ export default function CreateGroupModal({ visible, onClose, preselectedUserId }
       Alert.alert('Thông báo', 'Cần chọn ít nhất 2 người để tạo nhóm.');
       return;
     }
-    if (!groupName.trim()) {
-      Alert.alert('Thông báo', 'Vui lòng đặt tên cho nhóm.');
-      return;
-    }
 
     setIsCreating(true);
     try {
+      let finalGroupName = groupName.trim();
+      if (!finalGroupName) {
+        const myName = profile?.fullName || 'Bạn';
+        const selectedNames = selectedUsersList.map(u => u.nickname || u.fullName);
+        finalGroupName = [myName, ...selectedNames].join(', ');
+      }
+
       // conversationId format: group_timestamp_creatorId
       const convId = `group_${Date.now()}_${currentUserId}`;
       const participants = [currentUserId.toString(), ...Array.from(selectedUserIds)];
@@ -132,17 +137,15 @@ export default function CreateGroupModal({ visible, onClose, preselectedUserId }
         conversationId: convId,
         participants,
         isGroup: true,
-        groupName: groupName.trim()
+        groupName: finalGroupName
       });
-
-
 
       // Navigate to chat
       router.push({
         pathname: "/chat/[id]",
         params: {
           id: convId,
-          name: groupName.trim(),
+          name: finalGroupName,
           recipientId: "", // Nhóm thì không có recipientId cụ thể
           avatar: ""
         }
@@ -199,7 +202,7 @@ export default function CreateGroupModal({ visible, onClose, preselectedUserId }
           </View>
           <TextInput 
             style={styles.nameInput}
-            placeholder="Đặt tên nhóm"
+            placeholder="Đặt tên nhóm (hoặc để trống)"
             placeholderTextColor="#999"
             value={groupName}
             onChangeText={setGroupName}

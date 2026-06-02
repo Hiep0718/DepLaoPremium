@@ -882,6 +882,32 @@ export default function ChatOptionsScreen() {
     );
   };
 
+  // Delete chat history
+  const handleDeleteHistory = () => {
+    Alert.alert(
+      '⚠️ Xóa lịch sử trò chuyện',
+      'Bạn có chắc chắn muốn xóa toàn bộ lịch sử trò chuyện này?\nHành động này không thể hoàn tác.',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await chatApiClient.delete(`/conversations/${id}/history`, {
+                data: { userId: currentUserId },
+              });
+              Alert.alert('Thành công', 'Đã xóa lịch sử trò chuyện');
+              router.replace('/(tabs)');
+            } catch (err: any) {
+              Alert.alert('Lỗi', err.response?.data?.message || 'Không thể xóa lịch sử trò chuyện');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Toggle require approval
   const handleToggleApproval = async () => {
     const newValue = !requireApproval;
@@ -1737,7 +1763,7 @@ export default function ChatOptionsScreen() {
               <OptionItem icon="warning-outline" label="Báo xấu" />
               <OptionItem icon="pie-chart-outline" label="Dung lượng trò chuyện" />
               
-              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+              <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={handleDeleteHistory}>
                 <View style={styles.optionLeft}>
                   <Ionicons name="trash-outline" size={22} color="#FF4757" style={styles.optionIcon} />
                   <Text style={[styles.optionLabel, { color: '#FF4757' }]}>Xóa lịch sử trò chuyện</Text>
@@ -1810,7 +1836,7 @@ export default function ChatOptionsScreen() {
           <OptionItem icon="ban-outline" label="Quản lý chặn" showArrow />
           <OptionItem icon="pie-chart-outline" label="Dung lượng trò chuyện" showArrow />
           
-          <TouchableOpacity style={styles.optionRow} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.optionRow} activeOpacity={0.7} onPress={handleDeleteHistory}>
             <View style={styles.optionLeft}>
               <Ionicons name="trash-outline" size={22} color="#FF4757" style={styles.optionIcon} />
               <Text style={[styles.optionLabel, { color: '#FF4757' }]}>Xóa lịch sử trò chuyện</Text>

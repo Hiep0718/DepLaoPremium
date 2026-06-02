@@ -96,17 +96,19 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
   };
 
   const handleCreate = async () => {
-    if (!groupName.trim()) {
-      setError('Vui lòng nhập tên nhóm');
-      return;
-    }
     if (!user?.id) return;
 
     setCreating(true);
     setError('');
     try {
+      let finalGroupName = groupName.trim();
+      if (!finalGroupName) {
+        const myName = user.fullName || 'Bạn';
+        finalGroupName = [myName, ...selectedContacts.map(c => c.nickname || c.fullName)].join(', ');
+      }
+
       const participantIds = [String(user.id), ...Array.from(selectedIds).map(String)];
-      const res = await createConversation(participantIds, true, groupName.trim(), String(user.id), avatarUrl || undefined);
+      const res = await createConversation(participantIds, true, finalGroupName, String(user.id), avatarUrl || undefined);
 
       const newConv = res.data?.data || res.data;
       const conversationId = newConv?.conversationId || newConv?._id || '';
@@ -350,7 +352,7 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
                 }}
                 onFocus={(e) => (e.currentTarget.style.borderColor = '#0068FF')}
                 onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border-primary, #e5e7eb)')}
-                placeholder="Nhập tên nhóm..."
+                placeholder="Nhập tên nhóm (hoặc để trống)..."
               />
               <p className="text-xs mt-1 text-right" style={{ color: 'var(--text-secondary, #9ca3af)' }}>
                 {groupName.length}/50
@@ -442,14 +444,12 @@ const CreateGroupModal = ({ isOpen, onClose, onGroupCreated }: CreateGroupModalP
           ) : (
             <button
               onClick={handleCreate}
-              disabled={creating || !groupName.trim()}
+              disabled={creating}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white transition-all flex items-center justify-center gap-2"
               style={{
-                background: groupName.trim()
-                  ? 'linear-gradient(135deg, #0068FF 0%, #00C6FF 100%)'
-                  : 'var(--bg-hover, #d1d5db)',
-                cursor: groupName.trim() ? 'pointer' : 'not-allowed',
-                opacity: groupName.trim() ? 1 : 0.6,
+                background: 'linear-gradient(135deg, #0068FF 0%, #00C6FF 100%)',
+                cursor: 'pointer',
+                opacity: 1,
               }}
             >
               {creating ? (
