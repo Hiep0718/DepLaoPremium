@@ -93,10 +93,6 @@ export function useMediaHandling({
         } as any);
 
         const res = await apiClient.post('/upload/chat', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
           timeout: 0,
         });
 
@@ -160,6 +156,7 @@ export function useMediaHandling({
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
+        copyToCacheDirectory: true,
       });
 
       if (result.canceled || !result.assets || result.assets.length === 0) return;
@@ -177,7 +174,6 @@ export function useMediaHandling({
         } as any);
 
         const res = await apiClient.post('/upload/chat', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
           timeout: 60000,
         });
 

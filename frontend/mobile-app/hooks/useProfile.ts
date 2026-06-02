@@ -110,9 +110,7 @@ export function useProfile() {
       } as any);
 
       // Upload lên /api/upload/avatar hoặc /api/upload/cover
-      const uploadRes = await apiClient.post(`/upload/${type}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const uploadRes = await apiClient.post(`/upload/${type}`, formData);
       const newUrl: string = uploadRes.data?.data?.url;
 
       if (newUrl) {

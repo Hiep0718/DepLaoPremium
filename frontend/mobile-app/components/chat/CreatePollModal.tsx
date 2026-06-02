@@ -73,7 +73,7 @@ export default function CreatePollModal({ visible, onClose, onCreate, onUpdate, 
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.container}
         >
           <View style={styles.header}>

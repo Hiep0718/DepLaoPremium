@@ -25,6 +25,8 @@ export interface Message {
   _uploading?: boolean;
   _uploadFailed?: boolean;
   reactions?: any[];
+  seenBy?: { userId: string; timestamp?: string }[];
+  status?: 'pending' | 'sent' | 'received' | 'seen';
 }
 
 export interface Conversation {

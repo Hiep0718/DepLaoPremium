@@ -53,6 +53,15 @@ export const useSocketSetup = () => {
               messageType: (data as any).messageType || 'text',
             };
             chatState.addMessage(normalizedMsg);
+
+            // Đánh dấu đã đọc khi đang mở hội thoại
+            if (data.senderId !== user?.id?.toString()) {
+              socket.emit('mark_as_seen', {
+                messageId: incomingId,
+                conversationId: data.conversationId,
+                userId: user?.id?.toString(),
+              });
+            }
           }
         }
 
@@ -286,6 +295,16 @@ export const useSocketSetup = () => {
         console.log('User online:', data);
       });
 
+      socket.on('message_seen', (data: any) => {
+        const state = useChatStore.getState();
+        if (state.activeConversation?.conversationId === data.conversationId) {
+          state.updateMessage(data.messageId, {
+            status: 'seen',
+            seenBy: data.seenList || [{ userId: data.seenBy, timestamp: data.timestamp }]
+          });
+        }
+      });
+
 
       socket.on('message_pinned', (data: any) => {
         const state = useChatStore.getState();
@@ -351,6 +370,7 @@ export const useSocketSetup = () => {
         socket.off('group_settings_updated');
         socket.off('pending_members_updated');
         socket.off('conversation_pinned');
+        socket.off('message_seen');
 
         disconnectSocket();
       };

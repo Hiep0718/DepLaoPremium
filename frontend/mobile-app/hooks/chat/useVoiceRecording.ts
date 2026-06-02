@@ -85,7 +85,6 @@ export function useVoiceRecording({
       } as any);
 
       const res = await apiClient.post('/upload/chat', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
       });
 

@@ -257,6 +257,41 @@ const MessageList = () => {
       return true;
     });
   }, [messages, isCloudConversation, cloudFilter]);
+
+  const messageSeenMap = useMemo(() => {
+    const map: Record<string, { userId: string; avatarUrl?: string; fullName: string }[]> = {};
+    const userSeenTracker = new Set<string>();
+    const currentUserId = user?._id?.toString() || user?.id?.toString();
+
+    for (let i = filteredMessages.length - 1; i >= 0; i--) {
+      const msg = filteredMessages[i];
+      if (msg.seenBy && msg.seenBy.length > 0) {
+        msg.seenBy.forEach((s: any) => {
+          if (!userSeenTracker.has(s.userId)) {
+            userSeenTracker.add(s.userId);
+            if (String(s.userId) !== String(currentUserId)) {
+              const msgId = msg._id || msg.id;
+              if (msgId) {
+                if (!map[msgId]) map[msgId] = [];
+                const participant = activeConversation?.participants?.find(
+                  (p: any) => String(p.userId || p.contactUserId || p.id || p) === String(s.userId)
+                );
+                const memberInfo = memberMap?.[s.userId];
+                
+                map[msgId].push({
+                  userId: s.userId,
+                  avatarUrl: memberInfo?.avatarUrl || participant?.avatarUrl,
+                  fullName: memberInfo?.fullName || participant?.nickname || participant?.fullName || 'Thành viên'
+                });
+              }
+            }
+          }
+        });
+      }
+    }
+    return map;
+  }, [filteredMessages, memberMap, activeConversation?.participants, user]);
+
   const { settings } = useSettingsStore();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuDirection, setMenuDirection] = useState<'up' | 'down'>('up');
@@ -451,6 +486,16 @@ const MessageList = () => {
             setPinnedMessage(res.data.pinnedMessage || null);
             setNextCursor(res.data.pagination?.nextCursor || null);
             setHasMore(!!res.data.pagination?.nextCursor);
+
+            // Đánh dấu tin nhắn cuối cùng nhận được là đã xem
+            const lastReceived = [...res.data.data].reverse().find(m => String(m.senderId) !== String(user.id.toString()));
+            if (lastReceived) {
+              socket.emit('mark_as_seen', {
+                messageId: lastReceived._id || lastReceived.id,
+                conversationId: activeConversation.conversationId,
+                userId: user.id.toString(),
+              });
+            }
           }
         }
       } catch (err) {
@@ -1787,8 +1832,9 @@ const MessageList = () => {
                       </div>
                     </div>
                   ) : (
-                    /* Message Bubble container */
-                    <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isLastInCluster ? 'mb-4' : 'mb-1'} group relative`}>
+                    <>
+                      {/* Message Bubble container */}
+                      <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${isLastInCluster ? 'mb-4' : 'mb-1'} group relative`}>
 
                       {/* Received: Avatar */}
                       {!isMe && (
@@ -2131,6 +2177,34 @@ const MessageList = () => {
                       {!isMe && actionMenu}
 
                     </div>
+
+                    {/* Avatar nhỏ hiện bên dưới tin đã được đối phương XEM */}
+                    {messageSeenMap[messageId] && messageSeenMap[messageId].length > 0 && !msg.isRevoked && (
+                      <div 
+                        className="flex items-center gap-1 mt-1 px-1 mb-2"
+                        style={{
+                          justifyContent: isMe ? 'flex-end' : 'flex-start',
+                          paddingLeft: isMe ? '0' : '40px',
+                        }}
+                      >
+                        {messageSeenMap[messageId].map((u, uIdx) => (
+                          <div 
+                            key={`seen-${u.userId}-${uIdx}`}
+                            className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center bg-gray-200 border border-white shadow-sm"
+                            title={`Đã xem bởi ${u.fullName}`}
+                          >
+                            {u.avatarUrl ? (
+                              <img src={u.avatarUrl} alt={u.fullName} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full rounded-full bg-gray-300 flex items-center justify-center text-[7px] text-gray-600 font-bold">
+                                {u.fullName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    </>
                   )}
                 </div>
               );

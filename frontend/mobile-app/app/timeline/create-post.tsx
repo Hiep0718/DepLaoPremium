@@ -54,9 +54,7 @@ export default function CreatePostScreen() {
           } as any);
 
           try {
-            const uploadRes = await apiClient.post('/upload', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            });
+            const uploadRes = await apiClient.post('/upload', formData);
             if (uploadRes.data?.data?.url) {
               uploadedUrls.push(uploadRes.data.data.url);
             }

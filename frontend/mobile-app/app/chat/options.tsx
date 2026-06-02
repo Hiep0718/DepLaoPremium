@@ -309,9 +309,7 @@ export default function ChatOptionsScreen() {
       type,
     } as any);
 
-    const uploadRes = await apiClient.post(`/upload/chat`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    const uploadRes = await apiClient.post(`/upload/chat`, formData);
     const newUrl: string = uploadRes.data?.data?.url;
     if (!newUrl) throw new Error("Không lấy được URL ảnh");
     return newUrl;
@@ -638,9 +636,7 @@ export default function ChatOptionsScreen() {
         type: 'image/jpeg',
       } as any);
 
-      const uploadRes = await apiClient.post(`/upload/avatar`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const uploadRes = await apiClient.post(`/upload/avatar`, formData);
       const newUrl: string = uploadRes.data?.data?.url;
 
       if (!newUrl) throw new Error("Không lấy được URL ảnh");
