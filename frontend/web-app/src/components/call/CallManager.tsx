@@ -373,8 +373,14 @@ const CallManager = () => {
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
-              style={{ display: remoteStream ? 'block' : 'none' }}
+              style={{
+                display: remoteStream ? 'block' : 'none',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+              }}
             />
 
 

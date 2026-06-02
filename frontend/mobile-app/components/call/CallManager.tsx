@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Image, Alert } from 'react-native';
 import {
   RTCPeerConnection,
   RTCSessionDescription,
   RTCIceCandidate,
   RTCView,
   MediaStream,
-  mediaDevices
+  mediaDevices,
+  RTCIceCandidateType
 } from 'react-native-webrtc';
 import { Ionicons } from '@expo/vector-icons';
-import { useGroupCallStore } from '../../stores/groupCallStore';
+import { useCallStore } from '../../stores/callStore';
 import { useSocket } from '../../contexts/SocketContext';
-import apiClient from '../../constants/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,232 +24,105 @@ const ICE_SERVERS = {
 
 const CallManager = () => {
   const {
-    callState, conversationId, isVideo, isMinimized, callerId,
-    setIncomingCall, acceptCall, endCall, setMinimized, addParticipant, removeParticipant
-  } = useGroupCallStore();
+    callState, callerInfo, isVideo, isMinimized,
+    setIncomingCall, acceptCall, endCall, setMinimized
+  } = useCallStore();
 
   const { socket, currentUserId } = useSocket();
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
-  const [remoteMutes, setRemoteMutes] = useState<Record<string, boolean>>({});
-  const [participantsData, setParticipantsData] = useState<Record<string, { fullName: string; avatarUrl: string }>>({});
 
-  const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const isMutedRef = useRef(false);
-  const isVideoOffRef = useRef(false);
-  const makingOfferRef = useRef<Map<string, boolean>>(new Map());
-  const ignoreOfferRef = useRef<Map<string, boolean>>(new Map());
-  const currentConversationId = useRef<string | null>(null);
-
-  useEffect(() => {
-    currentConversationId.current = conversationId;
-  }, [conversationId]);
-
-  // Fetch thông tin người tham gia (avatar, tên) từ API
-  useEffect(() => {
-    const currentParticipantIds = Object.keys(remoteStreams);
-    if (callState === 'idle' || currentParticipantIds.length === 0) return;
-
-    let isMounted = true;
-    const fetchUsers = async () => {
-      const idsToFetch = currentParticipantIds.filter(id => !participantsData[id]);
-      if (idsToFetch.length === 0) return;
-
-      const newData: Record<string, { fullName: string; avatarUrl: string }> = {};
-      await Promise.all(idsToFetch.map(async (uid) => {
-        try {
-          const res = await apiClient.get(`/users/${uid}`);
-          const u = res.data?.data || res.data;
-          if (u) {
-            newData[uid] = {
-              fullName: u.fullName || u.nickname || `User ${uid.substring(0, 4)}`,
-              avatarUrl: u.avatarUrl || '',
-            };
-          }
-        } catch { /* ignore */ }
-      }));
-
-      if (!isMounted) return;
-      if (Object.keys(newData).length > 0) {
-        setParticipantsData(prev => ({ ...prev, ...newData }));
-      }
-    };
-    fetchUsers();
-    return () => { isMounted = false; };
-  }, [remoteStreams, callState]);
+  const candidateQueue = useRef<RTCIceCandidateType[]>([]);
+  const isStartingRef = useRef(false);
 
   // Signaling setup
   useEffect(() => {
     if (!socket || !currentUserId) return;
 
-    const handleIncoming = (data: any) => {
-      const { conversationId: rId, callerId: cId, isVideo: isVid } = data;
-      if (useGroupCallStore.getState().callState !== 'idle') {
-        socket.emit('group_call_reject', { conversationId: rId, callerId: cId });
+    socket.on('call_incoming', (data: any) => {
+      const { callerId, callerInfo, isVideo, conversationId } = data;
+      if (useCallStore.getState().callState !== 'idle') {
+        socket.emit('call_rejected', { callerId, reason: 'Người dùng đang bận', conversationId });
         return;
       }
-      setIncomingCall(rId, cId, isVid);
-    };
+      setIncomingCall(callerId, callerInfo, isVideo, conversationId);
+    });
 
-    const handleUserJoined = async (data: any) => {
-      if (useGroupCallStore.getState().callState !== 'in-call') return;
-      const { userId } = data;
-      if (userId === String(currentUserId)) return;
-      addParticipant(userId);
-      await createPeerConnection(userId);
-    };
+    socket.on('call_accepted', async () => {
+      acceptCall();
+      await startPeerConnection();
+      await createOffer();
+    });
 
-    const handleOffer = async (data: any) => {
-      if (useGroupCallStore.getState().callState !== 'in-call') return;
-      const { senderPeerId, offer } = data;
-      addParticipant(senderPeerId);
+    socket.on('call_rejected', (data: any) => {
+      Alert.alert('Cuộc gọi bị từ chối', data.reason || 'Bận');
+      cleanupCall();
+    });
 
-      const pc = await createPeerConnection(senderPeerId);
-      if (!pc) return;
+    socket.on('call_ended', () => {
+      cleanupCall();
+    });
 
-      try {
-        const isPolite = String(currentUserId) < String(senderPeerId);
-        const offerCollision = makingOfferRef.current.get(senderPeerId) || pc.signalingState !== 'stable';
+    socket.on('webrtc_offer', async (data: any) => {
+      if (!pcRef.current) await startPeerConnection();
+      await pcRef.current?.setRemoteDescription(new RTCSessionDescription(data.offer));
 
-        const shouldIgnore = !isPolite && offerCollision;
-        ignoreOfferRef.current.set(senderPeerId, shouldIgnore);
+      while (candidateQueue.current.length > 0) {
+        pcRef.current?.addIceCandidate(new RTCIceCandidate(candidateQueue.current.shift()!)).catch(console.error);
+      }
 
-        if (shouldIgnore) return;
+      const answer = await pcRef.current?.createAnswer();
+      await pcRef.current?.setLocalDescription(answer);
+      socket.emit('webrtc_answer', { peerId: data.peerId, answer });
+    });
 
-        if (offerCollision) {
+    socket.on('webrtc_answer', async (data: any) => {
+      if (pcRef.current && pcRef.current.signalingState !== 'stable') {
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+
+        while (candidateQueue.current.length > 0) {
+          pcRef.current?.addIceCandidate(new RTCIceCandidate(candidateQueue.current.shift()!)).catch(console.error);
+        }
+      }
+    });
+
+    socket.on('webrtc_ice_candidate', async (data: any) => {
+      if (data.candidate) {
+        if (pcRef.current && pcRef.current.remoteDescription) {
           try {
-            await pc.setLocalDescription({ type: 'rollback' } as any);
+            await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
           } catch (e) {
-            console.warn("Rollback không được hỗ trợ", e);
+            console.error("Error adding received ice candidate", e);
           }
-        }
-
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socket.emit('group_webrtc_answer', {
-          targetPeerId: senderPeerId,
-          answer,
-          conversationId: currentConversationId.current
-        });
-      } catch (e) {
-        console.error("Lỗi xử lý Offer", e);
-      }
-    };
-
-    const handleAnswer = async (data: any) => {
-      if (useGroupCallStore.getState().callState !== 'in-call') return;
-      const { senderPeerId, answer } = data;
-      const pc = pcsRef.current.get(senderPeerId);
-      if (pc) {
-        try {
-          if (pc.signalingState !== 'have-local-offer') {
-            console.warn(`Bỏ qua answer vì state hiện tại là ${pc.signalingState}`);
-            return;
-          }
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (e) {
-          console.error("Lỗi setRemoteDescription Answer", e);
+        } else {
+          candidateQueue.current.push(data.candidate);
         }
       }
-    };
-
-    const handleIceCandidate = async (data: any) => {
-      if (useGroupCallStore.getState().callState !== 'in-call') return;
-      const { senderPeerId, candidate } = data;
-      const pc = pcsRef.current.get(senderPeerId);
-      if (pc && candidate) {
-        try {
-          if (ignoreOfferRef.current.get(senderPeerId)) return;
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error("Lỗi addIceCandidate", e);
-        }
-      }
-    };
-
-    const handleUserLeft = (data: any) => {
-      const { userId } = data;
-      removeParticipant(userId);
-      const pc = pcsRef.current.get(userId);
-      if (pc) {
-        pc.close();
-        pcsRef.current.delete(userId);
-      }
-      setRemoteStreams(prev => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-    };
-
-    const handleCallEnded = (data: any) => {
-      if (data.conversationId === currentConversationId.current) {
-        // Server thông báo cuộc gọi đã kết thúc (tất cả mọi người đã rời)
-        useGroupCallStore.getState().endCall();
-        if (localStreamRef.current) {
-          localStreamRef.current.getTracks().forEach(t => t.stop());
-          localStreamRef.current = null;
-          setLocalStream(null);
-        }
-        pcsRef.current.forEach(pc => pc.close());
-        pcsRef.current.clear();
-        setRemoteStreams({});
-        setIsMuted(false);
-        setIsVideoOff(false);
-      }
-    };
-
-    // Đồng bộ đa thiết bị: Khi user xử lý cuộc gọi trên thiết bị khác
-    const handleCallHandled = (data: any) => {
-      const { conversationId: handledConvId, handledBySocketId } = data;
-      // Chỉ xử lý nếu event đến từ thiết bị KHÁC
-      if (handledBySocketId === socket.id) return;
-      const state = useGroupCallStore.getState();
-      if (state.callState === 'ringing' && state.conversationId === handledConvId) {
-        endCall();
-      }
-    };
-
-    const handleRemoteMute = (data: any) => {
-      if (useGroupCallStore.getState().callState !== 'in-call') return;
-      const { userId, isMuted: muted } = data;
-      setRemoteMutes(prev => ({ ...prev, [userId]: muted }));
-    };
-
-    socket.on('group_call_incoming', handleIncoming);
-    socket.on('group_user_joined', handleUserJoined);
-    socket.on('group_webrtc_offer', handleOffer);
-    socket.on('group_webrtc_answer', handleAnswer);
-    socket.on('group_webrtc_ice_candidate', handleIceCandidate);
-    socket.on('group_user_left', handleUserLeft);
-    socket.on('group_call_ended', handleCallEnded);
-    socket.on('group_call_handled', handleCallHandled);
-    socket.on('group_call_remote_mute', handleRemoteMute);
+    });
 
     return () => {
-      socket.off('group_call_incoming', handleIncoming);
-      socket.off('group_user_joined', handleUserJoined);
-      socket.off('group_webrtc_offer', handleOffer);
-      socket.off('group_webrtc_answer', handleAnswer);
-      socket.off('group_webrtc_ice_candidate', handleIceCandidate);
-      socket.off('group_user_left', handleUserLeft);
-      socket.off('group_call_ended', handleCallEnded);
-      socket.off('group_call_handled', handleCallHandled);
-      socket.off('group_call_remote_mute', handleRemoteMute);
+      socket.off('call_incoming');
+      socket.off('call_accepted');
+      socket.off('call_rejected');
+      socket.off('call_ended');
+      socket.off('webrtc_offer');
+      socket.off('webrtc_answer');
+      socket.off('webrtc_ice_candidate');
+      cleanupCall();
     };
   }, [socket, currentUserId]);
 
-  const initLocalStream = async (vid: boolean) => {
+  const initLocalStream = async () => {
     try {
+      const currentIsVideo = useCallStore.getState().isVideo;
       const stream = await mediaDevices.getUserMedia({
         audio: true,
-        video: vid ? { facingMode: 'user' } : false,
+        video: currentIsVideo ? { facingMode: 'user' } : false,
       });
       setLocalStream(stream);
       localStreamRef.current = stream;
@@ -260,149 +133,146 @@ const CallManager = () => {
     }
   };
 
-  const createPeerConnection = async (targetUserId: string) => {
-    if (pcsRef.current.has(targetUserId)) {
-      return pcsRef.current.get(targetUserId);
-    }
-    const pc = new RTCPeerConnection(ICE_SERVERS);
-    pcsRef.current.set(targetUserId, pc);
-
-    // @ts-ignore
-    pc.onicecandidate = (event: any) => {
-      if (event.candidate && socket) {
-        socket.emit('group_webrtc_ice_candidate', {
-          targetPeerId: targetUserId,
-          candidate: event.candidate,
-          conversationId: currentConversationId.current,
-        });
-      }
-    };
-
-    // @ts-ignore
-    pc.ontrack = (event: any) => {
-      if (event.streams && event.streams[0]) {
-        setRemoteStreams(prev => ({
-          ...prev,
-          [targetUserId]: event.streams[0]
-        }));
-      }
-    };
-
-    // @ts-ignore
-    pc.onnegotiationneeded = async () => {
-      try {
-        makingOfferRef.current.set(targetUserId, true);
-        const offer = await pc.createOffer({});
-        if (pc.signalingState !== 'stable') {
-          return;
-        }
-        await pc.setLocalDescription(offer);
-        socket?.emit('group_webrtc_offer', {
-          targetPeerId: targetUserId,
-          offer: pc.localDescription,
-          conversationId: currentConversationId.current,
-        });
-      } catch (err) {
-        console.error("Negotiation error", err);
-      } finally {
-        makingOfferRef.current.set(targetUserId, false);
-      }
-    };
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        pc.addTrack(track, localStreamRef.current!);
+  const startPeerConnection = async () => {
+    if (pcRef.current) return;
+    if (isStartingRef.current) {
+      await new Promise(resolve => {
+        const interval = setInterval(() => {
+          if (pcRef.current) {
+            clearInterval(interval);
+            resolve(true);
+          }
+        }, 50);
       });
+      return;
     }
 
-    return pc;
-  };
-
-  // Auto-init local stream when entering a call, then join the room
-  useEffect(() => {
-    if (callState === 'in-call' && !localStreamRef.current && socket && conversationId) {
-      const joinAfterStreamReady = async () => {
-        await initLocalStream(isVideo);
-        // Chỉ emit join SAU KHI local stream đã sẵn sàng
-        socket.emit('group_call_join', { conversationId });
-      };
-      joinAfterStreamReady();
-    }
-  }, [callState]);
-
-  const startCall = async () => {
-    await initLocalStream(isVideo);
-    acceptCall();
-    if (socket && conversationId) {
-      socket.emit('group_call_join', { conversationId });
-    }
-  };
-
-  const leaveCall = () => {
-    if (socket && conversationId) {
-      const hasRemoteParticipants = Object.keys(remoteStreams).length > 0;
-      const iAmCaller = String(callerId) === String(currentUserId);
-      
-      // Nếu mình là người tạo cuộc gọi VÀ chưa có ai tham gia → hủy ngay lập tức
-      if (iAmCaller && !hasRemoteParticipants) {
-        socket.emit('group_call_cancel', { conversationId });
-      } else {
-        socket.emit('group_call_leave', { conversationId });
+    isStartingRef.current = true;
+    try {
+      let stream = localStreamRef.current;
+      if (!stream) {
+        stream = await initLocalStream();
+        if (!stream) return;
       }
-    }
-    endCall();
 
+      pcRef.current = new RTCPeerConnection(ICE_SERVERS);
+
+      stream.getTracks().forEach((track) => {
+        pcRef.current?.addTrack(track, stream!);
+      });
+
+      // @ts-ignore
+      pcRef.current.ontrack = (event: any) => {
+        if (event.streams && event.streams[0]) {
+          setRemoteStream(event.streams[0]);
+        }
+      };
+
+      // @ts-ignore
+      pcRef.current.onicecandidate = (event: any) => {
+        const currentPeerId = useCallStore.getState().peerId;
+        if (event.candidate && currentPeerId) {
+          socket.emit('webrtc_ice_candidate', { peerId: currentPeerId, candidate: event.candidate });
+        }
+      };
+
+    } finally {
+      isStartingRef.current = false;
+    }
+  };
+
+  const createOffer = async () => {
+    const currentPeerId = useCallStore.getState().peerId;
+    if (!pcRef.current || !currentPeerId) return;
+    try {
+      const offer = await pcRef.current.createOffer({});
+      await pcRef.current.setLocalDescription(offer);
+      socket.emit('webrtc_offer', { peerId: currentPeerId, offer });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const cleanupCall = () => {
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => t.stop());
+      localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
       setLocalStream(null);
     }
-
-    pcsRef.current.forEach(pc => pc.close());
-    pcsRef.current.clear();
-    setRemoteStreams({});
+    setRemoteStream(null);
     setIsMuted(false);
     setIsVideoOff(false);
+    endCall();
+  };
+
+  const handleAcceptCall = async () => {
+    acceptCall();
+    const currentPeerId = useCallStore.getState().peerId;
+    if (currentPeerId) {
+      socket.emit('call_accepted', { callerId: currentPeerId });
+      await startPeerConnection();
+    }
+  };
+
+  const handleRejectCall = () => {
+    const currentPeerId = useCallStore.getState().peerId;
+    if (currentPeerId) socket.emit('call_rejected', { callerId: currentPeerId, reason: 'Từ chối cuộc gọi' });
+    cleanupCall();
+  };
+
+  const handleEndCall = () => {
+    const currentPeerId = useCallStore.getState().peerId;
+    const currentConversationId = useCallStore.getState().conversationId;
+    if (currentPeerId) socket.emit('call_ended', { peerId: currentPeerId, conversationId: currentConversationId });
+    cleanupCall();
   };
 
   const toggleMute = () => {
     if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(t => t.enabled = !t.enabled);
-      const newMuted = !localStreamRef.current.getAudioTracks()[0].enabled;
-      setIsMuted(newMuted);
-      // Thông báo cho người khác biết mình tắt/bật mic
-      if (socket && conversationId) {
-        socket.emit('group_call_mute_state', { conversationId, isMuted: newMuted });
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMuted(!audioTrack.enabled);
       }
     }
   };
 
   const toggleVideo = () => {
     if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(t => t.enabled = !t.enabled);
-      setIsVideoOff(!localStreamRef.current.getVideoTracks()[0]?.enabled);
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoOff(!videoTrack.enabled);
+      }
     }
   };
 
   if (callState === 'idle') return null;
+
+  const displayName = callerInfo?.fullName || 'Người dùng';
 
   if (callState === 'ringing') {
     return (
       <View style={styles.incomingCallOverlay}>
         <View style={styles.incomingBox}>
           <View style={styles.incomingIconWrap}>
-            <Ionicons name="people" size={36} color="#0068FF" />
+            {callerInfo?.avatarUrl ? (
+               <Image source={{ uri: callerInfo.avatarUrl }} style={styles.avatarImg} />
+            ) : (
+               <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+            )}
           </View>
-          <Text style={styles.incomingTitle}>Cuộc gọi nhóm</Text>
+          <Text style={styles.incomingTitle}>{displayName}</Text>
           <Text style={styles.incomingSubtitle}>{isVideo ? 'Cuộc gọi video đến...' : 'Cuộc gọi thoại đến...'}</Text>
           <View style={styles.actionRow}>
-            <TouchableOpacity style={[styles.btn, styles.btnReject]} onPress={() => {
-              if (socket && conversationId) socket.emit('group_call_reject', { conversationId, callerId });
-              endCall();
-            }}>
+            <TouchableOpacity style={[styles.btn, styles.btnReject]} onPress={handleRejectCall}>
               <Ionicons name="call" size={24} color="white" style={{ transform: [{ rotate: '135deg' }] }} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.btnAccept]} onPress={startCall}>
+            <TouchableOpacity style={[styles.btn, styles.btnAccept]} onPress={handleAcceptCall}>
               <Ionicons name={isVideo ? 'videocam' : 'call'} size={24} color="white" />
             </TouchableOpacity>
           </View>
@@ -411,7 +281,8 @@ const CallManager = () => {
     );
   }
 
-  // In call UI
+  const isWaiting = callState === 'calling';
+
   if (isMinimized) {
     return (
       <TouchableOpacity style={styles.minimizedBox} onPress={() => setMinimized(false)}>
@@ -421,83 +292,65 @@ const CallManager = () => {
     );
   }
 
-  const remoteUsers = Object.keys(remoteStreams);
-  const totalParticipants = remoteUsers.length + 1;
-
-  // Participant Card Component
-  const ParticipantCard = ({ id, isLocal, stream }: { id: string; isLocal: boolean; stream: MediaStream | null }) => {
-    const hasVideo = stream && stream.getVideoTracks().length > 0 && stream.getVideoTracks()[0].enabled;
-    const showVideo = isVideo && hasVideo && (isLocal ? !isVideoOff : true);
-    const participantMuted = isLocal ? isMuted : (remoteMutes[id] || false);
-    const pData = participantsData[id];
-    const displayName = isLocal ? 'Bạn' : (pData?.fullName || `User ${id.substring(0, 4)}`);
-    const avatarUrl = pData?.avatarUrl || '';
-    const initials = isLocal ? 'B' : (pData?.fullName?.charAt(0) || id.charAt(0) || 'U').toUpperCase();
-
-    return (
-      <View style={styles.participantCard}>
-        {showVideo && stream ? (
-          <RTCView
-            streamURL={stream.toURL()}
-            style={styles.participantVideo}
-            objectFit="cover"
-            zOrder={isLocal ? 1 : 0}
-          />
-        ) : (
-          <View style={styles.participantAvatarWrap}>
-            {avatarUrl && !isLocal ? (
-              <Image source={{ uri: avatarUrl }} style={styles.participantAvatarImg} />
-            ) : (
-              <View style={styles.participantAvatar}>
-                <Text style={styles.participantAvatarText}>{initials}</Text>
-              </View>
-            )}
-            <Text style={styles.participantNameCenter}>{displayName}</Text>
-          </View>
-        )}
-
-        {/* Bottom badge: Name + Mute icon */}
-        <View style={styles.participantBadge}>
-          {participantMuted && (
-            <View style={styles.muteBadgeIcon}>
-              <Ionicons name="mic-off" size={12} color="#FF3B30" />
-            </View>
-          )}
-          <Text style={styles.participantBadgeText} numberOfLines={1}>{displayName}</Text>
-        </View>
-      </View>
-    );
-  };
-
   return (
     <View style={styles.inCallOverlay}>
-      {/* Header */}
       <View style={styles.callHeader}>
         <View style={styles.callHeaderLeft}>
-          <View style={styles.callHeaderIcon}>
-            <Ionicons name="people" size={18} color="#0068FF" />
-          </View>
-          <View>
-            <Text style={styles.callHeaderTitle}>Cuộc gọi nhóm</Text>
-            <Text style={styles.callHeaderSub}>{totalParticipants} người tham gia</Text>
-          </View>
+          <Text style={styles.callHeaderTitle}>{displayName}</Text>
+          <Text style={styles.callHeaderSub}>{isWaiting ? 'Đang gọi...' : '00:00'}</Text>
         </View>
         <TouchableOpacity style={styles.minimizeBtnNew} onPress={() => setMinimized(true)}>
           <Ionicons name="chevron-down" size={22} color="#666" />
         </TouchableOpacity>
       </View>
 
-      {/* Participants Grid */}
-      <ScrollView contentContainerStyle={styles.participantsGrid}>
-        {/* Local */}
-        <ParticipantCard id={String(currentUserId || 'me')} isLocal={true} stream={localStream} />
-        {/* Remote */}
-        {remoteUsers.map(uid => (
-          <ParticipantCard key={uid} id={uid} isLocal={false} stream={remoteStreams[uid]} />
-        ))}
-      </ScrollView>
+      <View style={styles.mediaContainer}>
+        {isVideo ? (
+          <>
+            {remoteStream && (
+              <RTCView
+                streamURL={remoteStream.toURL()}
+                style={styles.remoteVideo}
+                objectFit="cover"
+              />
+            )}
+            {localStream && !isVideoOff && (
+              <View style={styles.localVideoWrap}>
+                <RTCView
+                  streamURL={localStream.toURL()}
+                  style={styles.localVideo}
+                  objectFit="cover"
+                  zOrder={1}
+                />
+              </View>
+            )}
+            {isWaiting && !remoteStream && (
+              <View style={styles.waitingContainer}>
+                 <View style={styles.largeAvatarWrap}>
+                    {callerInfo?.avatarUrl ? (
+                      <Image source={{ uri: callerInfo.avatarUrl }} style={styles.largeAvatarImg} />
+                    ) : (
+                      <Text style={styles.largeAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                    )}
+                 </View>
+                 <Text style={styles.waitingText}>Đang đổ chuông...</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.waitingContainer}>
+             <View style={styles.largeAvatarWrap}>
+                {callerInfo?.avatarUrl ? (
+                  <Image source={{ uri: callerInfo.avatarUrl }} style={styles.largeAvatarImg} />
+                ) : (
+                  <Text style={styles.largeAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                )}
+             </View>
+             {isWaiting && <Text style={styles.waitingText}>Đang đổ chuông...</Text>}
+          </View>
+        )}
+      </View>
 
-      {/* Control Bar */}
       <View style={styles.controlBar}>
         <TouchableOpacity
           style={[styles.controlBtnNew, isMuted && styles.controlBtnActive]}
@@ -513,7 +366,7 @@ const CallManager = () => {
             <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={24} color={isVideoOff ? '#FF3B30' : '#333'} />
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.endCallBtn} onPress={leaveCall}>
+        <TouchableOpacity style={styles.endCallBtn} onPress={handleEndCall}>
           <Ionicons name="call" size={24} color="white" style={{ transform: [{ rotate: '135deg' }] }} />
         </TouchableOpacity>
       </View>
@@ -521,10 +374,7 @@ const CallManager = () => {
   );
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
-  // ─── Incoming Call ───
   incomingCallOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -536,8 +386,10 @@ const styles = StyleSheet.create({
   },
   incomingIconWrap: {
     width: 72, height: 72, borderRadius: 36, backgroundColor: '#E5F0FF',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 16,
+    justifyContent: 'center', alignItems: 'center', marginBottom: 16, overflow: 'hidden'
   },
+  avatarImg: { width: '100%', height: '100%' },
+  avatarText: { fontSize: 32, fontWeight: 'bold', color: '#0068FF' },
   incomingTitle: { fontSize: 20, fontWeight: '700', color: '#111', marginBottom: 4 },
   incomingSubtitle: { fontSize: 14, color: '#888', marginBottom: 28 },
   actionRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%' },
@@ -545,7 +397,6 @@ const styles = StyleSheet.create({
   btnReject: { backgroundColor: '#FF3B30' },
   btnAccept: { backgroundColor: '#34C759' },
 
-  // ─── Minimized ───
   minimizedBox: {
     position: 'absolute', top: 50, right: 16,
     backgroundColor: '#0068FF', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 24,
@@ -554,93 +405,57 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.2, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6,
   },
 
-  // ─── In-Call Overlay ───
   inCallOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: '#F5F6F8',
+    backgroundColor: '#111',
     zIndex: 9999,
   },
-
-  // ─── Header ───
   callHeader: {
+    position: 'absolute', top: 0, left: 0, right: 0,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingTop: 50, paddingHorizontal: 20, paddingBottom: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1, borderBottomColor: '#eee',
+    paddingTop: 50, paddingHorizontal: 20, paddingBottom: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 10
   },
-  callHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  callHeaderIcon: {
-    width: 36, height: 36, borderRadius: 10, backgroundColor: '#E5F0FF',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  callHeaderTitle: { fontSize: 16, fontWeight: '700', color: '#111' },
-  callHeaderSub: { fontSize: 12, color: '#999', marginTop: 1 },
+  callHeaderLeft: { flexDirection: 'column' },
+  callHeaderTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
+  callHeaderSub: { fontSize: 14, color: '#ccc', marginTop: 2 },
   minimizeBtnNew: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#F0F0F0',
+    width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center', alignItems: 'center',
   },
 
-  // ─── Participants Grid ───
-  participantsGrid: {
-    flexGrow: 1, flexDirection: 'row', flexWrap: 'wrap',
-    justifyContent: 'center', alignItems: 'center', alignContent: 'center',
-    padding: 12, gap: 12,
+  mediaContainer: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
+  remoteVideo: { position: 'absolute', width: '100%', height: '100%' },
+  localVideoWrap: {
+    position: 'absolute', bottom: 120, right: 20,
+    width: 100, height: 150,
+    borderRadius: 12, overflow: 'hidden',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)',
+    zIndex: 20
   },
-  participantCard: {
-    backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden',
-    borderWidth: 1.5, borderColor: '#E8E8E8',
-    position: 'relative',
-    width: (SCREEN_WIDTH - 12 * 3) / 2,
-    aspectRatio: 3 / 4,
-  },
-  participantVideo: {
-    width: '100%', height: '100%',
-  },
-  participantAvatarWrap: {
-    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F6F8',
-  },
-  participantAvatar: {
-    width: 64, height: 64, borderRadius: 32, backgroundColor: '#0068FF',
-    justifyContent: 'center', alignItems: 'center', marginBottom: 8,
-  },
-  participantAvatarImg: {
-    width: 64, height: 64, borderRadius: 32, marginBottom: 8,
-  },
-  participantAvatarText: {
-    fontSize: 26, fontWeight: '700', color: '#fff',
-  },
-  participantNameCenter: {
-    fontSize: 14, fontWeight: '600', color: '#555',
-  },
-  participantBadge: {
-    position: 'absolute', bottom: 8, left: 8, right: 8,
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 4,
-  },
-  muteBadgeIcon: {
-    width: 20, height: 20, borderRadius: 6,
-    backgroundColor: 'rgba(255,59,48,0.2)', borderWidth: 1, borderColor: 'rgba(255,59,48,0.3)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  participantBadgeText: {
-    fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.9)', flex: 1,
-  },
+  localVideo: { width: '100%', height: '100%' },
 
-  // ─── Control Bar ───
+  waitingContainer: { alignItems: 'center', justifyContent: 'center', zIndex: 5 },
+  largeAvatarWrap: {
+    width: 120, height: 120, borderRadius: 60, backgroundColor: '#0068FF',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20, overflow: 'hidden'
+  },
+  largeAvatarImg: { width: '100%', height: '100%' },
+  largeAvatarText: { fontSize: 48, fontWeight: 'bold', color: '#fff' },
+  waitingText: { fontSize: 18, color: '#fff' },
+
   controlBar: {
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20,
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 24,
     paddingVertical: 20, paddingBottom: 40,
-    backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#eee',
+    backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 10
   },
   controlBtnNew: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
+    backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center',
   },
   controlBtnActive: {
-    backgroundColor: '#FFEDED', borderColor: 'rgba(255,59,48,0.2)',
+    backgroundColor: '#fff',
   },
   endCallBtn: {
     width: 56, height: 56, borderRadius: 28,

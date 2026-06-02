@@ -425,12 +425,25 @@ export default function ChatScreen() {
         });
         setMentionActionUser(null);
         
-        socket.emit('group_call_start', {
-          conversationId: convId,
-          callerInfo: { id: currentUserId },
+        // ═══ Sử dụng 1-1 call signaling (giống web-app) ═══
+        const { useCallStore } = await import('@/stores/callStore');
+        const callerInfo = {
+          id: currentUserId.toString(),
+          fullName: myFullName || 'Người dùng',
+          avatarUrl: '',
+        };
+        useCallStore.getState().setOutgoingCall(
+          targetUserId.toString(),
+          { id: targetUserId.toString(), fullName: mentionActionUser.name, avatarUrl: memberMap?.[targetUserId]?.avatarUrl },
+          false,
+          convId
+        );
+        socket.emit('call_request', {
+          recipientId: targetUserId.toString(),
+          callerInfo,
           isVideo: false,
+          conversationId: convId,
         });
-        useGroupCallStore.getState().setOutgoingCall(convId, currentUserId.toString(), false);
     } catch (error) {
         console.error("Failed to start call", error);
         Alert.alert('Lỗi', 'Không thể bắt đầu cuộc gọi.');
