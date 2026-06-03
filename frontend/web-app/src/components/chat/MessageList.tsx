@@ -211,6 +211,7 @@ const AI_WELCOME_SUGGESTIONS = [
 
 
 const MessageList = () => {
+  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string; }>>({});
   const [editingPoll, setEditingPoll] = useState<{ isOpen: boolean, msgId: string, initialData?: any } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -308,7 +309,6 @@ const MessageList = () => {
   const isAiStreaming = useChatStore((s) => s.isAiStreaming);
   const aiStreamingText = useChatStore((s) => s.aiStreamingText);
 
-  const [memberMap, setMemberMap] = useState<Record<string, { fullName: string; avatarUrl?: string; }>>({});
   const [firstUnreadMessageId, setFirstUnreadMessageId] = useState<string | null>(null);
   const [unreadCountToShow, setUnreadCountToShow] = useState<number>(0);
   const [reactionTooltipId, setReactionTooltipId] = useState<string | null>(null);
