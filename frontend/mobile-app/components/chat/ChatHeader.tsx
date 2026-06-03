@@ -4,7 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { ZaloColors } from '@/constants/zalo';
 import { useGroupCallStore } from '@/stores/groupCallStore';
+import { useCallStore } from '@/stores/callStore';
 import { useSocket } from '@/contexts/SocketContext';
+
+import apiClient from '@/constants/api';
 
 interface ChatHeaderProps {
   id: string;
@@ -33,16 +36,54 @@ export default function ChatHeader({
   const { currentUserId, socket } = useSocket();
   const isCloud = id?.startsWith('cloud_');
 
-  const handleStartCall = (isVideo: boolean) => {
+  const handleStartCall = async (isVideo: boolean) => {
     if (!socket || !currentUserId || !id) return;
-    // Emit group_call_start to notify others and create the call message
-    socket.emit('group_call_start', {
-      conversationId: id,
-      callerInfo: { id: currentUserId },
-      isVideo,
-    });
-    // Set store state → CallManager will auto-init stream then emit group_call_join
-    useGroupCallStore.getState().setOutgoingCall(id, currentUserId.toString(), isVideo);
+
+    // Fetch my profile info to send in callerInfo
+    let myFullName = 'Người dùng';
+    let myAvatar = '';
+    try {
+      const res = await apiClient.get(`/users/${currentUserId}`);
+      if (res.data?.data) {
+        myFullName = res.data.data.fullName || 'Người dùng';
+        myAvatar = res.data.data.avatarUrl || '';
+      }
+    } catch (err) {
+      console.log('[ChatHeader] Failed to fetch my profile for call', err);
+    }
+
+    if (isGroup) {
+      // ═══ Group Call: dùng group_call_start + groupCallStore ═══
+      socket.emit('group_call_start', {
+        conversationId: id,
+        callerInfo: { id: currentUserId.toString(), fullName: myFullName, avatarUrl: myAvatar },
+        isVideo,
+      });
+      useGroupCallStore.getState().setOutgoingCall(id, currentUserId.toString(), isVideo);
+    } else {
+      // ═══ 1-1 Call: dùng call_request + callStore (giống web-app) ═══
+      if (!recipientId) {
+        console.warn('[ChatHeader] recipientId is required for 1-1 call');
+        return;
+      }
+      const callerInfo = {
+        id: currentUserId.toString(),
+        fullName: myFullName,
+        avatarUrl: myAvatar,
+      };
+      useCallStore.getState().setOutgoingCall(
+        recipientId,
+        { id: recipientId, fullName: name, avatarUrl: avatar },
+        isVideo,
+        id
+      );
+      socket.emit('call_request', {
+        recipientId,
+        callerInfo,
+        isVideo,
+        conversationId: id,
+      });
+    }
   };
 
   return (

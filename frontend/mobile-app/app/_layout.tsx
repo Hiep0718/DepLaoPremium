@@ -16,6 +16,7 @@ import { SocketProvider } from '@/contexts/SocketContext';
 import NotificationManager from '@/components/NotificationManager';
 
 import CallManager from '@/components/call/CallManager';
+import GroupCallManager from '@/components/call/GroupCallManager';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -89,6 +90,7 @@ export default function RootLayout() {
         </Stack>
         <StatusBar style="auto" />
         <CallManager />
+        <GroupCallManager />
       </SocketProvider>
     </ThemeProvider>
   );
