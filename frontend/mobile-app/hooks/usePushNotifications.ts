@@ -103,12 +103,8 @@ async function registerForPushNotificationsAsync() {
       if (!projectId) {
         throw new Error('Project ID not found');
       }
-      token = (
-        await Notifications.getExpoPushTokenAsync({
-          projectId,
-        })
-      ).data;
-      console.log('Lấy Token thành công:', token);
+      token = (await Notifications.getDevicePushTokenAsync()).data;
+      console.log('Lấy FCM Native Token thành công:', token);
     } catch (e) {
       token = `${e}`;
     }
